@@ -13,9 +13,9 @@ echo "== shim gtests"
 "$RAFT_SHIM_TESTS/raftrkt_tests" --gtest_brief=1 | tee -a "$log"
 "$RAFT_SHIM_TESTS/raftrkt_error_tests" --gtest_brief=1 | tee -a "$log"
 
-echo "== shim gtests under compute-sanitizer memcheck"
+echo "== shim gtests under compute-sanitizer memcheck (death tests ran above)"
 compute-sanitizer --tool memcheck --error-exitcode 1 --report-api-errors no \
-  "$RAFT_SHIM_TESTS/raftrkt_tests" --gtest_brief=1 | tee -a "$log"
+  "$RAFT_SHIM_TESTS/raftrkt_tests" --gtest_brief=1 --gtest_filter='-*DeathTest.*' | tee -a "$log"
 
 echo "== LD_BIND_NOW load of the staged shim"
 case ":$LD_LIBRARY_PATH:" in

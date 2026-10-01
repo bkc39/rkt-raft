@@ -454,7 +454,10 @@ the binding census), `racket-review`, `racket-version` (at least 9.3),
   (2026-10-01) the sanitized binaries passed 16 and 11 cases with the one
   no-driver SKIP and no reports. compute-sanitizer runs with
   `--report-api-errors no`: the error-path tests provoke failing CUDA calls on
-  purpose (an out-of-range device, an impossible allocation).
+  purpose (an out-of-range device, an impossible allocation). It skips the
+  gtest death tests, which run unsanitized just before: under the sanitizer
+  their re-executed child blocks on a futex (13.2.76, ten minutes at 0% CPU)
+  instead of running.
 
 ## CI
 
