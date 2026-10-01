@@ -19,11 +19,11 @@
   [(_ () body:expr ...+)
    #'(let () body ...)]
   [(_ (b:release-binding more:release-binding ...) body:expr ...+)
-   #'(let ([b.name #f])
+   #'(let ([held #f])
        (dynamic-wind
-        (lambda () (set! b.name b.acquire))
-        (lambda () (with-release (more ...) body ...))
+        (lambda () (set! held b.acquire))
+        (lambda () (let ([b.name held]) (with-release (more ...) body ...)))
         (lambda ()
-          (when b.name
-            (b.release b.name)
-            (set! b.name #f)))))])
+          (when held
+            (b.release held)
+            (set! held #f)))))])

@@ -1,7 +1,8 @@
 #lang racket/base
 
 (require (only-in ffi/vector f64vector f64vector->list)
-         (only-in rackunit check-equal? check-exn check-true)
+         (only-in rackunit check-equal? check-exn check-pred check-true)
+         (only-in "../private/error.rkt" exn:fail:raft-kind exn:fail:raft?)
          (only-in "../private/foreign/memory.rkt"
                   buffer-drop-count
                   release-failure-count
@@ -11,6 +12,11 @@
          (only-in "../private/resource.rkt" with-release)
          (only-in "private/gpu.rkt" test-gpu)
          (only-in "private/native.rkt" copy-in! copy-out new-buffer new-resources))
+
+(define (raised thunk)
+  (with-handlers ([exn:fail:raft? values])
+    (thunk)
+    #f))
 
 (define (collect-until done?)
   (for/or ([_ (in-range 50)])
@@ -54,10 +60,15 @@
   (rr-buffer-free buffer)
   (rr-buffer-free buffer)
   (check-equal? (buffer-drop-count) (add1 before))
-  (check-exn #rx"rr-buffer" (lambda () (copy-in! buffer (f64vector 1.0))))
+  (define after-buffer (raised (lambda () (copy-in! buffer (f64vector 1.0)))))
+  (check-pred exn:fail:raft? after-buffer)
+  (check-equal? (exn:fail:raft-kind after-buffer) 'logic)
+  (check-equal? (exn-message after-buffer) "rr-buffer: used after its release")
   (rr-resources-free resources)
   (rr-resources-free resources)
-  (check-exn #rx"rr-resources" (lambda () (new-buffer resources 8))))
+  (define after-resources (raised (lambda () (new-buffer resources 8))))
+  (check-pred exn:fail:raft? after-resources)
+  (check-equal? (exn-message after-resources) "rr-resources: used after its release"))
 
 (test-gpu "releasing a handle as the wrong type raises and keeps it alive"
   (with-release ([resources (new-resources) rr-resources-free])

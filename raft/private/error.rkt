@@ -1,12 +1,11 @@
 #lang racket/base
 
 (require (only-in ffi/unsafe/atomic call-as-atomic)
+         (only-in "exn.rkt" exn:fail:raft exn:fail:raft-kind exn:fail:raft? struct:exn:fail:raft)
          (only-in "foreign/core.rkt" rr-last-error rr-last-error-kind))
 
 (provide call/raft
          (struct-out exn:fail:raft))
-
-(struct exn:fail:raft exn:fail (kind))
 
 ;; One atomic section for the call and the read: the last-error slot belongs
 ;; to the OS thread, which every Racket thread in the place shares.

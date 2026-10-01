@@ -95,9 +95,9 @@ plans/scoping-plan.html       the approved plan, byte for byte
      bare `_pointer`, and no binding takes one. Every release is wrapped by
      `release-once` (a `deallocator` that retags the handle `'rr-released`
      after the native free): releasing it again does nothing, any other use
-     fails the cpointer tag check in Racket instead of reaching freed memory,
-     and a handle of the wrong type fails that check before its finalizer is
-     dropped. `raft/tests/allocator-audit-test.rkt` reads every binding and
+     raises `exn:fail:raft` from the handle type's Racket-to-C conversion
+     instead of reaching freed memory, and a handle of the wrong type fails
+     the type's tag check before its finalizer is dropped. `raft/tests/allocator-audit-test.rkt` reads every binding and
      enforces all of this, including that each allocator releases its own
      handle type through `release-once`; a new handle type needs an entry
      there.
@@ -201,7 +201,10 @@ plans/scoping-plan.html       the approved plan, byte for byte
   process), `define-raft`, and the cpointer types `_rr-resources`,
   `_rr-buffer`. `core.rkt`, `memory.rkt`, `array.rkt` bind `core.h`,
   `memory.h`, `array.h`.
-- `private/error.rkt`: `exn:fail:raft` and `call/raft`.
+- `private/exn.rkt`: `exn:fail:raft`, with no dependencies, so the loader can
+  raise it. `private/error.rkt`: `call/raft`, re-exporting the exception. A
+  released handle's cpointer type refuses it with `exn:fail:raft` (kind
+  `'logic`, message `rr-buffer: used after its release`) before the call.
   `private/resource.rkt`: `with-release`. `private/install-native.rkt`: the
   pre-install hook, honouring `RAFT_NATIVE_LIB_PATH` (a directory whose
   `lib/` holds `libraftrkt.so`).

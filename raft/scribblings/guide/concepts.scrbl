@@ -38,10 +38,10 @@ device_ndarray(np.array([1.5, -2.25, 0.0])).copy_to_host()   # array([ 1.5 , -2.
 }|
 
 Racket will spell it @racket[(device-vector->list (list->device-vector xs))]
-@status{L1b}. The difference is the intermediate NumPy array: Python always has
-a host array object to copy from, while Racket packs a list or vector straight
-into a buffer outside the garbage-collected heap, so the collector can never
-move it during the copy.
+@status{L1b}. Both sides pack the values into a contiguous host buffer before
+the copy. In Python that buffer is the NumPy array you build, and its element
+type is chosen there; in Racket the conversion packs the list itself and takes
+@racket[#:dtype].
 
 @section[#:tag "concepts-resources"]{Resources and streams}
 
@@ -68,12 +68,22 @@ every operation takes @racket[#:resources] to override it, the way pylibraft
 takes @tt{handle=}.
 
 @python|{
-from pylibraft.common import DeviceResources
+from pylibraft.common import DeviceResources, Stream
 
-handle = DeviceResources()      # owns a stream and the library handles
-...                             # pass handle=handle to each call
-handle.sync()                   # wait for everything queued on it
+stream = Stream()                           # keep it: the handle does not
+handle = DeviceResources(stream=stream)     # its own stream and library handles
+...                                         # pass handle=handle to each call
+handle.sync()                               # wait for everything queued on it
 }|
+
+The two sides differ twice here. Without a @tt{stream} argument,
+@tt{DeviceResources()} queues its work on CUDA's per-thread default stream,
+which every handle made on that thread shares. And a handle does not keep its
+@tt{Stream} alive: @tt{DeviceResources(stream=Stream())} fails at the next
+@tt{sync()} with @tt{cudaErrorContextIsDestroyed}, once the temporary is
+collected. A Racket resources object always owns its stream, and every buffer
+allocated through it keeps that stream alive, because a buffer's finalizer
+releases its memory on that stream, from whatever OS thread it runs on.
 
 @section[#:tag "concepts-arrays"]{Arrays}
 
