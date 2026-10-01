@@ -1,10 +1,17 @@
 #lang racket/base
 
-(require (only-in racket/list make-list range remove-duplicates)
+(require (only-in racket/format ~r)
+         (only-in racket/list make-list range)
          (only-in racket/match match-define)
          (only-in racket/port with-output-to-string)
          (only-in racket/string string-split)
-         (only-in rackunit check-equal? check-exn check-false check-pred check-true)
+         (only-in rackunit
+                  check-equal?
+                  check-exn
+                  check-false
+                  check-pred
+                  check-regexp-match
+                  check-true)
          (only-in "../main.rkt"
                   current-device-resources
                   device-count
@@ -34,68 +41,125 @@
 (test-gpu "getting started: the driver sees a GPU"
   (check-pred exact-positive-integer? (device-count)))
 
+(define (device-for-worker i)
+  (modulo i (device-count)))
+
+(define (process-batch rows)
+  (for ([row (in-list rows)])
+    (unless (= (length row) 2)
+      (error 'process-batch "row ~a has ~a columns" row (length row))))
+  (length rows))
+
+(define (timed r thunk)
+  (define start (current-inexact-milliseconds))
+  (define result (thunk))
+  (resources-sync! r)
+  (values result (- (current-inexact-milliseconds) start)))
+
+(define (run-worker device batches)
+  (with-device-resources ([r (current-device-resources device)])
+    (for/list ([rows (in-list batches)])
+      (define-values (n ms) (timed r (lambda () (process-batch rows))))
+      (list n ms))))
+
+(define (run-workers worker jobs)
+  (define pending
+    (for/list ([job (in-list jobs)])
+      (match-define (list device batches) job)
+      (define done (make-channel))
+      (define (send thunk) (channel-put done thunk))
+      (thread (lambda ()
+                (with-handlers ([exn:fail?
+                                 (lambda (e) (send (lambda () (raise e))))])
+                  (define result (worker device batches))
+                  (send (lambda () result)))))
+      done))
+  (for/list ([done (in-list pending)])
+    ((channel-get done))))
+
+(define (report results)
+  (for ([batches (in-list results)]
+        [i (in-naturals)])
+    (for ([batch (in-list batches)])
+      (match-define (list n ms) batch)
+      (printf "worker ~a: ~a rows in ~a ms\n"
+              i n (~r ms #:precision '(= 2))))))
+
+(define all-batches
+  (list (list '((1.0 2.0) (3.0 4.0)) '((5.0 6.0)))
+        (list '((7.0 8.0)))
+        (list '((9.0 10.0) (11.0 12.0)))))
+
+(define (run-worker/caught device batches)
+  (with-handlers ([exn:fail:raft? values])
+    (run-worker device batches)))
+
+(define (failures results)
+  (for/list ([result (in-list results)]
+             [i (in-naturals)]
+             #:when (exn:fail:raft? result))
+    (list i (exn:fail:raft-kind result) (exn-message result))))
+
+(define (check-batch-times results expected-counts)
+  (check-equal? (for/list ([batches (in-list results)])
+                  (for/list ([batch (in-list batches)])
+                    (match-define (list n _) batch)
+                    n))
+                expected-counts)
+  (for* ([batches (in-list results)]
+         [batch (in-list batches)])
+    (match-define (list _ ms) batch)
+    (check-true (<= 0 ms 1000.0))))
+
 (test-gpu "resources guide: finding the GPU"
   (check-pred exact-positive-integer? (device-count))
+  (check-equal? (map device-for-worker '(0 1 2 3))
+                (for/list ([i (in-range 4)]) (modulo i (device-count))))
   (check-raft-error 'logic (missing-device-message 4) (lambda () (device-resources #:device 4))))
 
-(test-gpu "resources guide: the default resources"
-  (define r (current-device-resources))
+(test-gpu "resources guide: each worker's resources"
+  (define r (current-device-resources (device-for-worker 0)))
   (check-equal? (printed r) "#<device-resources device 0>")
   (check-equal? (resources-device r) 0)
-  (check-true (eq? r (current-device-resources))))
+  (check-true (eq? r (current-device-resources 0))))
 
-(test-gpu "resources guide: resources for a batch job"
-  (define (process-batch rows)
-    (with-device-resources ([r (device-resources)])
-      (for ([row (in-list rows)])
-        (unless (= (length row) 2)
-          (error 'process-batch "row ~a has ~a columns" row (length row))))
-      (resources-sync! r)
-      (length rows)))
+(test-gpu "resources guide: timing a batch"
+  (define-values (n ms)
+    (timed (current-device-resources) (lambda () (process-batch '((1.0 2.0) (3.0 4.0))))))
+  (check-equal? n 2)
+  (check-true (<= 0 ms 1000.0))
+  (check-exn #rx"^process-batch: row \\(3.0\\) has 1 columns$"
+             (lambda () (process-batch '((1.0 2.0) (3.0))))))
+
+(test-gpu "resources guide: a worker"
   (drain-finalizers!)
   (define before (resources-drop-count))
-  (check-equal? (process-batch '((1.0 2.0) (3.0 4.0))) 2)
-  (check-exn #rx"^process-batch: row \\(3.0\\) has 1 columns$"
-             (lambda () (process-batch '((1.0 2.0) (3.0)))))
-  (check-equal? (resources-drop-count) (+ before 2) "both batches released their resources"))
+  (check-batch-times (list (run-worker 0 (list '((1.0 2.0) (3.0 4.0)) '((5.0 6.0))))) '((2 1)))
+  (check-equal? (resources-drop-count) (add1 before) "the worker released its resources"))
 
-(test-gpu "resources guide: one resources object per worker thread"
-  (define (run-workers n job)
-    (define results
-      (for/list ([i (in-range n)])
-        (define done (make-channel))
-        (thread (lambda () (channel-put done (job i))))
-        done))
-    (map channel-get results))
-  (define (worker i)
-    (define r (current-device-resources))
-    (resources-sync! r)
-    r)
-  (define used (run-workers 3 worker))
-  (check-equal? (map printed used) (make-list 3 "#<device-resources device 0>"))
-  (define everyone (cons (current-device-resources) used))
-  (check-equal? (length (remove-duplicates everyone eq?)) 4))
+(test-gpu "resources guide: fanning out"
+  (define jobs
+    (for/list ([batches (in-list all-batches)]
+               [i (in-naturals)])
+      (list (device-for-worker i) batches)))
+  (define results (run-workers run-worker jobs))
+  (check-batch-times results '((2 1) (1) (2)))
+  (check-regexp-match #px"^(worker [0-2]: [12] rows in [0-9.]+ ms\n){4}$"
+                      (with-output-to-string (lambda () (report results))))
+  (check-exn #rx"^process-batch: row"
+             (lambda () (run-workers run-worker (list (list 0 (list '((1.0)))))))))
 
-(test-gpu "resources guide: waiting for the GPU"
-  (define (timed r thunk)
-    (define start (current-inexact-milliseconds))
-    (define result (thunk))
-    (resources-sync! r)
-    (values result (- (current-inexact-milliseconds) start)))
-  (define-values (answer ms) (timed (current-device-resources) (lambda () 42)))
-  (check-equal? answer 42)
-  (check-true (and (real? ms) (<= 0 ms 1000.0))))
-
-(test-gpu "resources guide: when something goes wrong"
-  (define (try-device d)
-    (with-handlers ([exn:fail:raft?
-                     (lambda (e) (list (exn:fail:raft-kind e) (exn-message e)))])
-      (resources-device (device-resources #:device d))))
-  (check-equal? (try-device 0) 0)
-  (check-equal? (try-device 12) (list 'logic (missing-device-message 12)))
-  (define finished (released-resources))
-  (check-equal? (printed finished) "#<device-resources device 0 released>")
-  (check-raft-error 'logic released-message (lambda () (resources-sync! finished))))
+(test-gpu "resources guide: reporting failed workers"
+  (match-define (list batches-0 batches-1 _) all-batches)
+  (define results
+    (run-workers run-worker/caught (list (list 0 batches-0) (list 4 batches-1))))
+  (match-define (list worker-0 _) results)
+  (check-batch-times (list worker-0) '((2 1)))
+  (check-equal? (failures results)
+                (list (list 1
+                            'logic
+                            (format "current-device-resources: no device 4 among ~a"
+                                    (device-count))))))
 
 (test-gpu "reference: device-resources"
   (define r (device-resources))
