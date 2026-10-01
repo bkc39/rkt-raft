@@ -29,6 +29,7 @@ add_library(raftrkt SHARED
   src/array/buffer.cu
   src/core/core.cu
   src/core/memory.cu
+  src/core/memory_resource.cu
   src/detail/error.cpp
 )
 add_library(raftrkt::raftrkt ALIAS raftrkt)
@@ -71,6 +72,7 @@ if(BUILD_TESTING)
     tests/array_test.cpp
     tests/core_test.cpp
     tests/memory_test.cu
+    tests/resources_test.cu
     $<TARGET_OBJECTS:raftrkt_c_api_compile_test>
   )
   target_include_directories(raftrkt_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
@@ -88,6 +90,22 @@ if(BUILD_TESTING)
   target_link_libraries(raftrkt_error_tests PRIVATE raft::raft GTest::gtest_main)
   raftrkt_enable_warnings(raftrkt_error_tests)
   gtest_discover_tests(raftrkt_error_tests DISCOVERY_MODE PRE_TEST)
+
+  add_library(raftrkt_probe SHARED tests/probe/probe.cu)
+  set_target_properties(raftrkt_probe PROPERTIES
+    CXX_VISIBILITY_PRESET hidden
+    CUDA_VISIBILITY_PRESET hidden
+    POSITION_INDEPENDENT_CODE ON
+  )
+  target_include_directories(raftrkt_probe
+    PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include ${CMAKE_CURRENT_SOURCE_DIR}/src)
+  target_compile_definitions(raftrkt_probe PRIVATE CCCL_IGNORE_DEPRECATED_STREAM_REF_HEADER)
+  target_link_libraries(raftrkt_probe PRIVATE raft::raft)
+  target_link_options(raftrkt_probe PRIVATE
+    "LINKER:--no-undefined"
+    "LINKER:--exclude-libs,ALL"
+  )
+  raftrkt_enable_warnings(raftrkt_probe)
 endif()
 
 install(TARGETS raftrkt
@@ -96,7 +114,8 @@ install(TARGETS raftrkt
 )
 install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
 
-if(BUILD_TESTING AND DEFINED RAFTRKT_TESTS_DIR)
-  install(TARGETS raftrkt_tests raftrkt_error_tests
-    RUNTIME DESTINATION ${RAFTRKT_TESTS_DIR})
+if(BUILD_TESTING AND DEFINED RAFTRKT_TESTS_PREFIX)
+  install(TARGETS raftrkt_tests raftrkt_error_tests raftrkt_probe
+    RUNTIME DESTINATION ${RAFTRKT_TESTS_PREFIX}/bin
+    LIBRARY DESTINATION ${RAFTRKT_TESTS_PREFIX}/lib)
 endif()

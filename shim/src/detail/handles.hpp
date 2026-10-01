@@ -57,6 +57,8 @@ class device_guard {
   bool restore_ = false;
 };
 
+void require_device(const char* who, int32_t device);
+
 std::atomic<uint64_t>& resources_drops() noexcept;
 std::atomic<uint64_t>& buffer_drops() noexcept;
 

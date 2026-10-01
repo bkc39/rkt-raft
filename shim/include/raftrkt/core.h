@@ -56,6 +56,9 @@ RR_API int rr_device_count(int32_t* out);
 RR_API int rr_resources_create(int32_t device, rr_resources** out);
 RR_API int rr_resources_sync(rr_resources* resources);
 
+/* Never blocks: *out is 1 once the resources' stream has drained, else 0. */
+RR_API int rr_resources_ready(rr_resources* resources, int32_t* out);
+
 #ifdef __cplusplus
 }
 #endif
