@@ -30,7 +30,7 @@ cat "$racket_log" >> "$log"
 echo "== binding census"
 racket scripts/check-bindings.rkt
 
-unexpected=$(grep "^SKIP" "$log" | grep -v "a GPU is present" || true)
+unexpected=$(grep "^SKIP" "$log" | grep -v "^SKIP: a GPU is present" || true)
 if [ -n "$unexpected" ]; then
   echo "== cases that should have run here were skipped:" >&2
   echo "$unexpected" >&2

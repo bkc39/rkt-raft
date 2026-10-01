@@ -7,6 +7,7 @@ function(raftrkt_add_format_target target)
     "${CMAKE_CURRENT_SOURCE_DIR}/src/*.hpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/tests/*.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/tests/*.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/tests/*.cu"
     "${CMAKE_CURRENT_SOURCE_DIR}/tests/*.hpp"
   )
   if(CLANG_FORMAT_EXECUTABLE)

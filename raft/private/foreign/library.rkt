@@ -12,9 +12,7 @@
          _rr-buffer
          _rr-buffer/null
          _rr-resources
-         _rr-resources/null
-         rr-buffer-tag
-         rr-resources-tag)
+         _rr-resources/null)
 
 (define-runtime-path native-libs-dir "../../native-libs")
 

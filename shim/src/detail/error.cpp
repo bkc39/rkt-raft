@@ -59,8 +59,11 @@ bool names_oom(const std::exception& e) noexcept {
 
 }  // namespace
 
+// Clearing the runtime's last error keeps a later peek-style check (RAFT's
+// RAFT_CHECK_CUDA) from reporting this failure a second time.
 void cuda_check(cudaError_t status, const char* call) {
   if (status != cudaSuccess) {
+    static_cast<void>(cudaGetLastError());
     throw cuda_error(std::string(call) + ": " + cudaGetErrorName(status) +
                          ": " + cudaGetErrorString(status),
                      status);

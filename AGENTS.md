@@ -92,16 +92,20 @@ plans/scoping-plan.html       the approved plan, byte for byte
    - Handles come back through out-parameters typed `_rr-…/null`, and every
      handle-returning binding carries `#:wrap resources-allocator` or
      `#:wrap buffer-allocator` from `foreign/memory.rkt`. No binding returns a
-     bare `_pointer`. Every release is wrapped by `releaser` (a `deallocator`
-     that retags the handle after the native free), so a second release does
-     nothing and any other use of a released handle fails the cpointer tag
-     check in Racket instead of reaching freed memory.
-     `raft/tests/allocator-audit-test.rkt` reads every binding and enforces
-     all three; a new handle type needs an entry there.
+     bare `_pointer`, and no binding takes one. Every release is wrapped by
+     `release-once` (a `deallocator` that retags the handle `'rr-released`
+     after the native free): releasing it again does nothing, any other use
+     fails the cpointer tag check in Racket instead of reaching freed memory,
+     and a handle of the wrong type fails that check before its finalizer is
+     dropped. `raft/tests/allocator-audit-test.rkt` reads every binding and
+     enforces all of this, including that each allocator releases its own
+     handle type through `release-once`; a new handle type needs an entry
+     there.
    - A host buffer crosses with its own length: the copy bindings take an
      `f64vector` and compute the byte count from it, so a copy cannot run past
      the host side; the shim checks the device side. A raw `_pointer` plus a
-     caller-chosen size is not allowed for host memory.
+     caller-chosen size is not allowed for host memory. The vector lives in
+     the GC heap, so these calls must stay non-blocking.
    - A fallible binding answers its result (or `#t`) on success and `#f` on
      failure, from the `_fun` result expression. The caller wraps it in
      `call/raft` (`raft/private/error.rkt`), which makes the call and reads
@@ -158,8 +162,9 @@ plans/scoping-plan.html       the approved plan, byte for byte
   are truncated at a UTF-8 character boundary, and Racket decodes the message
   leniently all the same. An out-pointer is set to NULL before any work.
 - Every entry point selects the device recorded in its object
-  (`rmm::cuda_set_device_raii`), so calls and finalizers work from any OS
-  thread. Releases (`rr_resources_free`, `rr_buffer_free`) accept NULL, never
+  (`rr::device_guard`, which throws when `cudaSetDevice` fails, where
+  `rmm::cuda_set_device_raii` ignores the failure), so calls and finalizers
+  work from any OS thread. Releases (`rr_resources_free`, `rr_buffer_free`) accept NULL, never
   throw, and leak rather than unwind if the device is unreachable.
 - `rr_resources` holds its device and a `std::shared_ptr<raft::handle_t>`
   that aliases an owner holding an `rmm::cuda_stream` and the handle. Each
@@ -210,7 +215,7 @@ plans/scoping-plan.html       the approved plan, byte for byte
 
 ```bash
 nix develop                        # the GPU shell (first entry builds and provisions)
-nix flake check                    # the CI-equivalent; GPU cases print SKIP
+nix flake check --max-jobs 1 --cores 4   # the CI-equivalent; GPU cases print SKIP
 scripts/gpu-suite.sh               # in the shell, on the GPU host: gtests, LD_BIND_NOW
                                    #   load, raco tests with twin parity, the census;
                                    #   red on any SKIP but the no-driver cases
@@ -218,7 +223,7 @@ raco test raft                     # the Racket tests
 racket scripts/check-bindings.rkt  # rr_ exports against the bindings
 scripts/render-docs.sh <dir>       # the manual, red on any warning or broken link
 resyntax analyze --local-git-repository . origin/master
-nix run .#copy-native-libs         # restage the shim after a C++ change
+nix run --max-jobs 1 --cores 4 .#copy-native-libs   # restage the shim after a C++ change
 cmake -S shim -B shim/build -G Ninja -DBUILD_TESTING=ON   # the shim's inner loop
 ```
 
@@ -244,6 +249,24 @@ cmake -S shim -B shim/build -G Ninja -DBUILD_TESTING=ON   # the shim's inner loo
 
 The GPU is shared with other sessions: keep test sizes small and leave no
 process running.
+
+### Build memory
+
+The lab host has 62 GB of RAM shared with other sessions, and a global OOM on
+2026-10-01 took down the owner's session; nvcc jobs were part of it. So:
+
+- Run nix as `nix … --max-jobs 1 --cores 4`, and never two builds of the shim
+  at once.
+- The shim builds at most `buildJobs` = 4 compile jobs at a time (the flake
+  caps ninja and `CMAKE_BUILD_PARALLEL_LEVEL`; the dev shell exports
+  `CMAKE_BUILD_PARALLEL_LEVEL=4`), and nvcc runs with `--threads 1`.
+- Measured with GNU `time -f %M` (one translation unit, sm_86, the shim's
+  flags), a RAFT translation unit (`gemm.cuh` or `reduce.cuh`, one
+  instantiation) peaks at 730–760 MB. The cap keeps a build near 3 GB; keep
+  `buildJobs` × peak RSS under about 24 GB, and measure again when a heavier
+  header family (`linalg/svd`, `sparse`, `cluster`) arrives.
+- Check `free -g` before a heavy build; with less than 30 GB available, wait
+  and retry rather than start.
 
 ### Gates
 

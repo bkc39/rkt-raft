@@ -18,7 +18,7 @@ void require_fits(const char* who, std::size_t bytes, std::size_t capacity) {
 
 void copy_sync(void* dst, const void* src, std::size_t bytes,
                cudaMemcpyKind kind, const rr_buffer& buffer) {
-  const rmm::cuda_set_device_raii guard{rr::device_id(buffer.device)};
+  const rr::device_guard guard{buffer.device};
   auto stream = buffer.data.stream().value();
   rr::cuda_check(cudaMemcpyAsync(dst, src, bytes, kind, stream),
                  "cudaMemcpyAsync");
@@ -34,7 +34,7 @@ int rr_buffer_alloc(rr_resources* resources, size_t bytes, rr_buffer** out) {
     auto& result = *rr::require(out, "rr_buffer_alloc: out");
     result = nullptr;
     auto& r = *rr::require(resources, "rr_buffer_alloc: resources");
-    const rmm::cuda_set_device_raii guard{rr::device_id(r.device)};
+    const rr::device_guard guard{r.device};
     auto stream = raft::resource::get_cuda_stream(*r.handle);
     result =
         new rr_buffer{r.handle, r.device, rmm::device_buffer{bytes, stream}};

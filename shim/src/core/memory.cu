@@ -31,7 +31,7 @@ void release_on_device(T* object, std::atomic<uint64_t>& drops) noexcept {
     return;
   }
   try {
-    const rmm::cuda_set_device_raii guard{device_id(object->device)};
+    const device_guard guard{object->device};
     delete object;
     drops.fetch_add(1, std::memory_order_relaxed);
   } catch (...) {

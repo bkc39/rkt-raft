@@ -76,7 +76,7 @@ int rr_resources_create(int32_t device, rr_resources** out) {
     auto& result = *rr::require(out, "rr_resources_create: out");
     result = nullptr;
     require_device(device);
-    const rmm::cuda_set_device_raii guard{rr::device_id(device)};
+    const rr::device_guard guard{device};
     auto owner = std::make_shared<rr::owned_handle>();
     std::shared_ptr<raft::handle_t> handle(owner, &owner->handle);
     result = new rr_resources{device, std::move(handle)};
@@ -86,7 +86,7 @@ int rr_resources_create(int32_t device, rr_resources** out) {
 int rr_resources_sync(rr_resources* resources) {
   return rr::translate_exceptions([&] {
     auto& r = *rr::require(resources, "rr_resources_sync: resources");
-    const rmm::cuda_set_device_raii guard{rr::device_id(r.device)};
+    const rr::device_guard guard{r.device};
     raft::resource::sync_stream(*r.handle);
   });
 }

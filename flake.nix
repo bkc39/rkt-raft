@@ -11,6 +11,13 @@
       version = "0.1.0";
       minRacketVersion = "9.3";
       cudaArchitectures = "86";
+      # Each nvcc job over RAFT's headers peaks at several GB (AGENTS.md,
+      # "Build memory"); the lab host has 62 GB shared with other builds.
+      buildJobs = 4;
+      capJobs = ''
+        NIX_BUILD_CORES=$(( NIX_BUILD_CORES < ${toString buildJobs} ? NIX_BUILD_CORES : ${toString buildJobs} ))
+        export CMAKE_BUILD_PARALLEL_LEVEL=$NIX_BUILD_CORES
+      '';
 
       pkgs = import nixpkgs {
         inherit system;
@@ -38,6 +45,7 @@
           "-DCMAKE_CUDA_ARCHITECTURES=${cudaArchitectures}"
           "-DRAFTRKT_TESTS_DIR=${placeholder "tests"}/bin"
         ];
+        preBuild = capJobs;
         doCheck = true;
         checkPhase = ''
           runHook preCheck
@@ -174,6 +182,7 @@
         ];
         buildPhase = ''
           runHook preBuild
+          ${capJobs}
           cmake --build . --target tidy
           runHook postBuild
         '';
@@ -287,6 +296,7 @@
         export LD_LIBRARY_PATH="$_drv_farm''${_filtered:+:$_filtered}"
         export RAFT_CUDA_DRIVER_PATH="$_drv_farm"
         export RAFT_SHIM_TESTS="${shim.tests}/bin"
+        export CMAKE_BUILD_PARALLEL_LEVEL=${toString buildJobs}
       '';
     in
     {

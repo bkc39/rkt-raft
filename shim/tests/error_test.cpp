@@ -64,15 +64,26 @@ TEST(Message, ALongMessageIsTruncatedNotOverrun) {
   EXPECT_EQ(got, huge.substr(0, 4095));
 }
 
+std::string recorded(const std::string& message) {
+  EXPECT_EQ(
+      rr::translate_exceptions([&] { throw std::runtime_error(message); }),
+      RR_ERROR);
+  return rr::last_error();
+}
+
 TEST(Message, TruncationNeverSplitsACharacter) {
-  const std::string cut = std::string(4094, 'x') + "\xc3\xa9";
-  ASSERT_EQ(rr::translate_exceptions([&] { throw std::runtime_error(cut); }),
-            RR_ERROR);
-  EXPECT_EQ(std::string(rr::last_error()), std::string(4094, 'x'));
-  const std::string whole = std::string(4093, 'x') + "\xc3\xa9";
-  ASSERT_EQ(rr::translate_exceptions([&] { throw std::runtime_error(whole); }),
-            RR_ERROR);
-  EXPECT_EQ(std::string(rr::last_error()), whole);
+  const std::string two = "\xc3\xa9";
+  const std::string three = "\xe2\x82\xac";
+  const std::string four = "\xf0\x9f\x98\x80";
+  EXPECT_EQ(recorded(std::string(4094, 'x') + two), std::string(4094, 'x'));
+  EXPECT_EQ(recorded(std::string(4093, 'x') + three), std::string(4093, 'x'));
+  EXPECT_EQ(recorded(std::string(4092, 'x') + four), std::string(4092, 'x'));
+  EXPECT_EQ(recorded(std::string(4093, 'x') + two),
+            std::string(4093, 'x') + two);
+  EXPECT_EQ(recorded(std::string(4092, 'x') + three),
+            std::string(4092, 'x') + three);
+  EXPECT_EQ(recorded(std::string(4091, 'x') + four),
+            std::string(4091, 'x') + four);
 }
 
 TEST(Message, SuccessClearsIt) {

@@ -59,6 +59,14 @@
   (rr-resources-free resources)
   (check-exn #rx"rr-resources" (lambda () (new-buffer resources 8))))
 
+(test-gpu "releasing a handle as the wrong type raises and keeps it alive"
+  (with-release ([resources (new-resources) rr-resources-free])
+    (define before (resources-drop-count))
+    (check-exn #rx"rr-buffer" (lambda () (rr-buffer-free resources)))
+    (check-equal? (resources-drop-count) before)
+    (with-release ([buffer (new-buffer resources 8) rr-buffer-free])
+      (copy-in! buffer (f64vector 1.0)))))
+
 (test-gpu "with-release after an explicit release frees once"
   (with-release ([resources (new-resources) rr-resources-free])
     (define before (buffer-drop-count))

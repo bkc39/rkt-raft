@@ -18,6 +18,8 @@ set(CMAKE_CUDA_STANDARD_REQUIRED ON)
 set(CMAKE_CUDA_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+add_compile_options($<$<COMPILE_LANGUAGE:CUDA>:--threads=1>)
+
 include(cmake/RaftrktWarnings.cmake)
 include(cmake/RaftrktTools.cmake)
 
@@ -68,9 +70,12 @@ if(BUILD_TESTING)
   add_executable(raftrkt_tests
     tests/array_test.cpp
     tests/core_test.cpp
+    tests/memory_test.cu
     $<TARGET_OBJECTS:raftrkt_c_api_compile_test>
   )
-  target_link_libraries(raftrkt_tests PRIVATE raftrkt GTest::gtest_main)
+  target_include_directories(raftrkt_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+  target_compile_definitions(raftrkt_tests PRIVATE CCCL_IGNORE_DEPRECATED_STREAM_REF_HEADER)
+  target_link_libraries(raftrkt_tests PRIVATE raftrkt raft::raft GTest::gtest_main)
   raftrkt_enable_warnings(raftrkt_tests)
   gtest_discover_tests(raftrkt_tests DISCOVERY_MODE PRE_TEST)
 

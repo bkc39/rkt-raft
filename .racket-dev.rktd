@@ -8,10 +8,10 @@
 ;; prefixed by `shell`. nix reads the git-tracked tree, so stage new files
 ;; before any nix gate.
 
-((shell "nix develop --command")
+((shell "nix develop --max-jobs 1 --cores 4 --command")
  (base-ref "origin/master")
  (gates
-  (native         "nix run .#copy-native-libs")
+  (native         "nix run --max-jobs 1 --cores 4 .#copy-native-libs")
   (no-syntax-rule ("scripts/no-syntax-rule.sh" #:shell ""))
   (no-raw-malloc  ("scripts/no-raw-malloc.sh" #:shell ""))
   (compile        "raco make -v raft/main.rkt scripts/check-bindings.rkt")
@@ -25,5 +25,5 @@
   ;; The CI-equivalent: shim build and gtests, C headers as C, clang-format,
   ;; clang-tidy, the line gate, the Racket build and tests, the census, the
   ;; version floor and both grep gates.
-  (check          "nix flake check"))
+  (check          "nix flake check --max-jobs 1 --cores 4"))
  (push-gates (no-syntax-rule no-raw-malloc compile test bindings)))
