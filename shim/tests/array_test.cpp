@@ -73,7 +73,7 @@ TEST_F(Buffers, ACopyLargerThanTheBufferIsRefused) {
   EXPECT_EQ(rr_copy_h2d(b, host.data(), 32), RR_ERROR);
   EXPECT_EQ(rr_last_error_kind(), RR_ERROR_LOGIC);
   EXPECT_EQ(std::string(rr_last_error()),
-            "rr_copy_h2d: 32 bytes do not fit a buffer of 16 bytes");
+            "32 bytes do not fit a buffer of 16 bytes");
   std::vector<double> back(4, 0.0);
   EXPECT_EQ(rr_copy_d2h(back.data(), b, 32), RR_ERROR);
   EXPECT_EQ(rr_last_error_kind(), RR_ERROR_LOGIC);
@@ -91,7 +91,7 @@ TEST(BufferArguments, NullArgumentsAreLogicErrors) {
   rr_buffer* b = nullptr;
   EXPECT_EQ(rr_buffer_alloc(nullptr, 8, &b), RR_ERROR);
   EXPECT_EQ(rr_last_error_kind(), RR_ERROR_LOGIC);
-  EXPECT_EQ(std::string(rr_last_error()), "rr_buffer_alloc: resources is NULL");
+  EXPECT_EQ(std::string(rr_last_error()), "resources is NULL");
   double host = 0.0;
   EXPECT_EQ(rr_copy_h2d(nullptr, &host, sizeof host), RR_ERROR);
   EXPECT_EQ(rr_last_error_kind(), RR_ERROR_LOGIC);

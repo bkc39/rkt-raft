@@ -8,9 +8,9 @@
 
 namespace {
 
-void require_fits(const char* who, std::size_t bytes, std::size_t capacity) {
+void require_fits(std::size_t bytes, std::size_t capacity) {
   if (bytes > capacity) {
-    throw rr::logic_error(std::string(who) + ": " + std::to_string(bytes) +
+    throw rr::logic_error(std::to_string(bytes) +
                           " bytes do not fit a buffer of " +
                           std::to_string(capacity) + " bytes");
   }
@@ -31,9 +31,9 @@ extern "C" {
 
 int rr_buffer_alloc(rr_resources* resources, size_t bytes, rr_buffer** out) {
   return rr::translate_exceptions([&] {
-    auto& result = *rr::require(out, "rr_buffer_alloc: out");
+    auto& result = *rr::require(out, "out");
     result = nullptr;
-    auto& r = *rr::require(resources, "rr_buffer_alloc: resources");
+    auto& r = *rr::require(resources, "resources");
     const rr::device_guard guard{r.device};
     auto stream = raft::resource::get_cuda_stream(*r.handle);
     result =
@@ -43,24 +43,24 @@ int rr_buffer_alloc(rr_resources* resources, size_t bytes, rr_buffer** out) {
 
 int rr_copy_h2d(rr_buffer* dst, const void* src, size_t bytes) {
   return rr::translate_exceptions([&] {
-    auto& buffer = *rr::require(dst, "rr_copy_h2d: dst");
+    auto& buffer = *rr::require(dst, "dst");
     if (bytes == 0) {
       return;
     }
-    rr::require(src, "rr_copy_h2d: src");
-    require_fits("rr_copy_h2d", bytes, buffer.data.size());
+    rr::require(src, "src");
+    require_fits(bytes, buffer.data.size());
     copy_sync(buffer.data.data(), src, bytes, cudaMemcpyHostToDevice, buffer);
   });
 }
 
 int rr_copy_d2h(void* dst, const rr_buffer* src, size_t bytes) {
   return rr::translate_exceptions([&] {
-    const auto& buffer = *rr::require(src, "rr_copy_d2h: src");
+    const auto& buffer = *rr::require(src, "src");
     if (bytes == 0) {
       return;
     }
-    rr::require(dst, "rr_copy_d2h: dst");
-    require_fits("rr_copy_d2h", bytes, buffer.data.size());
+    rr::require(dst, "dst");
+    require_fits(bytes, buffer.data.size());
     copy_sync(dst, buffer.data.data(), bytes, cudaMemcpyDeviceToHost, buffer);
   });
 }

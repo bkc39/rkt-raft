@@ -202,9 +202,10 @@ anything that could corrupt memory or crash: an element type, layout or rank
 it cannot handle, or an output that is too small, is refused before the GPU is
 touched. Copying 16 bytes into an 8-byte buffer, for example, raises
 @racket[exn:fail:raft] with the message
-@tt{copy: rr_copy_h2d: 16 bytes do not fit a buffer of 8 bytes}, where
-@tt{copy} is the Racket function that asked for the copy and
-@tt{rr_copy_h2d} the native entry point that refused it.
+@tt{copy: 16 bytes do not fit a buffer of 8 bytes}, where @tt{copy} is the
+Racket function that asked for the copy. A message never names the native
+library's own entry points; when a CUDA call fails, the message names that
+call, such as @tt{cudaGetDeviceCount}.
 
 @section[#:tag "concepts-mapping"]{Racket, RAFT C++ and pylibraft}
 

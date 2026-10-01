@@ -63,6 +63,9 @@ plans/scoping-plan.md         the approved plan (revision 5), as Markdown
    - One exception type, `exn:fail:raft`, carrying RAFT's or the shim's
      message, prefixed with the Racket caller's name, plus a `kind` field
      (`'out-of-memory`, `'cuda`, `'logic`, `'generic`) for the memory retry.
+     The shim's own refusals never name its `rr_` entry points (internal
+     names in user-facing errors are bugs, bkc39/rkt-polars#151–#153); a
+     failed CUDA call is named (`cudaGetDeviceCount: …`).
    - The shim keeps the memory-safety checks: C++ exceptions are translated
      into a status, and an unsupported dtype, layout or rank, a NULL handle,
      or output extents that do not fit are refused before the GPU is touched.

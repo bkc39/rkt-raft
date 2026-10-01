@@ -23,8 +23,7 @@
   (define e (raised (lambda () (call/raft 'open-device (lambda () (rr-resources-create 4096))))))
   (check-pred exn:fail:raft? e)
   (check-equal? (exn:fail:raft-kind e) 'logic)
-  (check-regexp-match #rx"^open-device: rr_resources_create: no device 4096 among [0-9]+$"
-                      (exn-message e)))
+  (check-regexp-match #rx"^open-device: no device 4096 among [0-9]+$" (exn-message e)))
 
 (test-without-gpu "without a driver, device calls are CUDA errors"
   (define e (raised (lambda () (call/raft 'count rr-device-count))))
@@ -41,7 +40,7 @@
 (test-gpu "a copy that does not fit is refused before it runs"
   (with-release ([resources (new-resources) rr-resources-free]
                  [buffer (new-buffer resources 8) rr-buffer-free])
-    (check-exn #rx"^copy: rr_copy_h2d: 16 bytes do not fit a buffer of 8 bytes$"
+    (check-exn #rx"^copy: 16 bytes do not fit a buffer of 8 bytes$"
                (lambda () (call/raft 'copy (lambda () (rr-copy-h2d buffer (f64vector 1.0 2.0))))))))
 
 (test-case "the call and the error read share one atomic section"
@@ -57,7 +56,7 @@
                     (call/raft 'noise rr-device-count)
                     (loop)))))))
   (for ([_ (in-range 500)])
-    (check-exn #rx"^probe: rr_resources_create: no device 4096"
+    (check-exn #rx"^probe: no device 4096"
                (lambda () (call/raft 'probe (lambda () (rr-resources-create 4096))))))
   (set-box! stop #t)
   (for-each thread-wait noise))

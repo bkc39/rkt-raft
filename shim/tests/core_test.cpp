@@ -31,7 +31,7 @@ TEST(Abi, ReportsTheHeadersTheShimWasBuiltAgainst) {
 TEST(Errors, NullOutPointerIsALogicError) {
   EXPECT_EQ(rr_device_count(nullptr), RR_ERROR);
   EXPECT_EQ(rr_last_error_kind(), RR_ERROR_LOGIC);
-  EXPECT_EQ(std::string(rr_last_error()), "rr_device_count: out is NULL");
+  EXPECT_EQ(std::string(rr_last_error()), "out is NULL");
   EXPECT_EQ(rr_resources_create(0, nullptr), RR_ERROR);
   EXPECT_EQ(rr_last_error_kind(), RR_ERROR_LOGIC);
   EXPECT_EQ(rr_resources_sync(nullptr), RR_ERROR);
@@ -62,9 +62,7 @@ TEST(Errors, ADeviceOutOfRangeIsALogicError) {
   rr_resources* r = nullptr;
   EXPECT_EQ(rr_resources_create(4096, &r), RR_ERROR);
   EXPECT_EQ(rr_last_error_kind(), RR_ERROR_LOGIC);
-  EXPECT_EQ(std::string(rr_last_error())
-                .rfind("rr_resources_create: no device 4096 among ", 0),
-            0U)
+  EXPECT_EQ(std::string(rr_last_error()).rfind("no device 4096 among ", 0), 0U)
       << rr_last_error();
   EXPECT_EQ(rr_resources_create(-1, &r), RR_ERROR);
   EXPECT_EQ(rr_last_error_kind(), RR_ERROR_LOGIC);

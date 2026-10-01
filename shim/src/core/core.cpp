@@ -35,8 +35,7 @@ void require_device(int32_t device) {
   int count = 0;
   rr::cuda_check(cudaGetDeviceCount(&count), "cudaGetDeviceCount");
   if (device < 0 || device >= count) {
-    throw rr::logic_error("rr_resources_create: no device " +
-                          std::to_string(device) + " among " +
+    throw rr::logic_error("no device " + std::to_string(device) + " among " +
                           std::to_string(count));
   }
 }
@@ -64,7 +63,7 @@ const rr_abi_tag* rr_abi(void) {
 
 int rr_device_count(int32_t* out) {
   return rr::translate_exceptions([&] {
-    auto& count = *rr::require(out, "rr_device_count: out");
+    auto& count = *rr::require(out, "out");
     count = 0;
     int n = 0;
     rr::cuda_check(cudaGetDeviceCount(&n), "cudaGetDeviceCount");
@@ -74,7 +73,7 @@ int rr_device_count(int32_t* out) {
 
 int rr_resources_create(int32_t device, rr_resources** out) {
   return rr::translate_exceptions([&] {
-    auto& result = *rr::require(out, "rr_resources_create: out");
+    auto& result = *rr::require(out, "out");
     result = nullptr;
     require_device(device);
     const rr::device_guard guard{device};
@@ -86,7 +85,7 @@ int rr_resources_create(int32_t device, rr_resources** out) {
 
 int rr_resources_sync(rr_resources* resources) {
   return rr::translate_exceptions([&] {
-    auto& r = *rr::require(resources, "rr_resources_sync: resources");
+    auto& r = *rr::require(resources, "resources");
     const rr::device_guard guard{r.device};
     raft::resource::sync_stream(*r.handle);
   });
