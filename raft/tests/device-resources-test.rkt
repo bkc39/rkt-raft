@@ -169,14 +169,36 @@
 (test-gpu "a missing device is a logic error naming the caller"
   (define n (device-count))
   (check-raft-error 'logic
-                    (format "device-resources: rr_resources_create: no device ~a among ~a" n n)
+                    (format "device-resources: no device ~a among ~a" n n)
                     (lambda () (device-resources #:device n)))
   (check-raft-error 'logic
-                    #rx"^current-device-resources: rr_resources_create: no device"
+                    #rx"^current-device-resources: no device"
                     (lambda () (current-device-resources n)))
   (check-raft-error 'logic
-                    #rx"^device-resources: rr_resources_create: no device -1 among"
+                    #rx"^device-resources: no device -1 among"
                     (lambda () (device-resources #:device -1))))
 
 (test-without-gpu "without a driver, device-count raises a CUDA error"
   (check-raft-error 'cuda #rx"^device-count: cudaGetDeviceCount: " device-count))
+
+(test-case "an argument of the wrong kind raises exn:fail:raft naming the procedure"
+  (check-raft-error 'logic
+                    "resources-device: expected device resources, given: 5"
+                    (lambda () (resources-device 5)))
+  (check-raft-error 'logic
+                    "resources-sync!: expected device resources, given: 5"
+                    (lambda () (resources-sync! 5)))
+  (check-raft-error 'logic
+                    "device-resources: expected a device number, given: \"0\""
+                    (lambda () (device-resources #:device "0")))
+  (check-raft-error 'logic
+                    "current-device-resources: expected a device number, given: 0.0"
+                    (lambda () (current-device-resources 0.0)))
+  (check-raft-error 'logic
+                    "with-device-resources: expected device resources, given: 'gpu"
+                    (lambda () (with-device-resources ([r 'gpu]) r))))
+
+(test-gpu "a device number beyond what the driver can count is a missing device"
+  (check-raft-error 'logic
+                    (format "device-resources: no device ~a among ~a" (expt 2 40) (device-count))
+                    (lambda () (device-resources #:device (expt 2 40)))))

@@ -19,7 +19,7 @@
 
 (test-gpu "asking about a missing device is a logic error"
   (check-raft-error 'logic
-                    #rx"^memory-resource-kind: rr_memory_resource_kind: no device"
+                    #rx"^memory-resource-kind: no device"
                     (lambda () (memory-resource-kind (device-count)))))
 
 (test-probe "a second library sees the pool raft installed"

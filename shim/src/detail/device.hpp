@@ -33,6 +33,6 @@ class device_guard {
   bool restore_ = false;
 };
 
-void require_device(const char* who, int32_t device);
+void require_device(int32_t device);
 
 }  // namespace rr

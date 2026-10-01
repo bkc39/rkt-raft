@@ -19,6 +19,7 @@
 #include <thread>
 
 #include "detail/handles.hpp"
+#include "detail/internal_api.h"
 #include "detail/memory_resource.hpp"
 #include "gpu.hpp"
 #include "raftrkt/c_api.h"
@@ -162,18 +163,32 @@ TEST_F(Pool, RaftWorkspacesComeFromTheAsyncPool) {
       raft::resource::get_large_workspace_resource_ref(*resources_->handle));
 }
 
+TEST(MemoryResource, ThePoolGoesOnlyOverRmmsDefaultAndOnlyWithPoolSupport) {
+  EXPECT_TRUE(rr::installs_async_pool(true, rr::memory_resource_cuda));
+  EXPECT_FALSE(rr::installs_async_pool(false, rr::memory_resource_cuda));
+  EXPECT_FALSE(rr::installs_async_pool(true, rr::memory_resource_cuda_async));
+  EXPECT_FALSE(rr::installs_async_pool(true, rr::memory_resource_other));
+  EXPECT_FALSE(rr::installs_async_pool(false, rr::memory_resource_other));
+}
+
+TEST(MemoryResource, ThisDeviceSupportsPools) {
+  RR_REQUIRE_GPU();
+  int supported = 0;
+  ASSERT_EQ(
+      cudaDeviceGetAttribute(&supported, cudaDevAttrMemoryPoolsSupported, 0),
+      cudaSuccess);
+  EXPECT_EQ(supported, 1);
+}
+
 TEST(MemoryResource, AMissingDeviceIsALogicError) {
   RR_REQUIRE_GPU();
   int32_t kind = -1;
   EXPECT_EQ(rr_memory_resource_kind(4096, &kind), RR_ERROR);
   EXPECT_EQ(rr_last_error_kind(), RR_ERROR_LOGIC);
-  EXPECT_EQ(std::string(rr_last_error())
-                .rfind("rr_memory_resource_kind: no device 4096 among ", 0),
-            0U)
+  EXPECT_EQ(std::string(rr_last_error()).rfind("no device 4096 among ", 0), 0U)
       << rr_last_error();
   EXPECT_EQ(rr_memory_resource_kind(0, nullptr), RR_ERROR);
-  EXPECT_EQ(std::string(rr_last_error()),
-            "rr_memory_resource_kind: out is NULL");
+  EXPECT_EQ(std::string(rr_last_error()), "out is NULL");
 }
 
 void CUDART_CB wait_until_open(void* gate) {
@@ -219,10 +234,9 @@ TEST(Ready, NullArgumentsAreLogicErrors) {
   EXPECT_EQ(rr_resources_ready(nullptr, &ready), RR_ERROR);
   EXPECT_EQ(rr_last_error_kind(), RR_ERROR_LOGIC);
   EXPECT_EQ(ready, 0);
-  EXPECT_EQ(std::string(rr_last_error()),
-            "rr_resources_ready: resources is NULL");
+  EXPECT_EQ(std::string(rr_last_error()), "resources is NULL");
   EXPECT_EQ(rr_resources_ready(nullptr, nullptr), RR_ERROR);
-  EXPECT_EQ(std::string(rr_last_error()), "rr_resources_ready: out is NULL");
+  EXPECT_EQ(std::string(rr_last_error()), "out is NULL");
 }
 
 }  // namespace

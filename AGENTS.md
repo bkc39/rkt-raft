@@ -185,7 +185,9 @@ plans/scoping-plan.html       the approved plan, byte for byte
   Once per device and process it replaces RMM's initial
   `cuda_memory_resource` with a default-constructed
   `rmm::mr::cuda_async_memory_resource`; a resource of any other type is
-  left alone, and nothing is installed again after that first visit. If
+  left alone, as is a device without memory-pool support
+  (`cudaDevAttrMemoryPoolsSupported`, checked first, since constructing the
+  pool there throws); nothing is installed again after that first visit. If
   another library sets a resource between the check and the swap, the
   previous resource `set_per_device_resource` returns is put back.
   `rr_memory_resource_kind` reads the registry back (`cuda`, `cuda-async`,

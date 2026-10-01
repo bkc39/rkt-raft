@@ -9,12 +9,11 @@
 
 namespace rr {
 
-void require_device(const char* who, int32_t device) {
+void require_device(int32_t device) {
   int count = 0;
   cuda_check(cudaGetDeviceCount(&count), "cudaGetDeviceCount");
   if (device < 0 || device >= count) {
-    throw logic_error(std::string(who) + ": no device " +
-                      std::to_string(device) + " among " +
+    throw logic_error("no device " + std::to_string(device) + " among " +
                       std::to_string(count));
   }
 }

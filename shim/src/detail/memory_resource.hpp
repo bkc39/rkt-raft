@@ -2,11 +2,7 @@
 
 #include <cstdint>
 
-#include "raftrkt/core.h"
-
 namespace rr {
-
-void install_default_memory_resource(int32_t device);
 
 // NOLINTNEXTLINE(performance-enum-size) -- int32_t is the C ABI
 enum memory_resource_kind : int32_t {
@@ -15,7 +11,11 @@ enum memory_resource_kind : int32_t {
   memory_resource_other = 2,
 };
 
-}  // namespace rr
+inline bool installs_async_pool(bool pools_supported,
+                                memory_resource_kind current) {
+  return pools_supported && current == memory_resource_cuda;
+}
 
-// For raft's own tests, so it stays out of the public headers.
-extern "C" RR_API int rr_memory_resource_kind(int32_t device, int32_t* out);
+void install_default_memory_resource(int32_t device);
+
+}  // namespace rr

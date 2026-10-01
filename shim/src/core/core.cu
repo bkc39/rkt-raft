@@ -65,7 +65,7 @@ int rr_resources_create(int32_t device, rr_resources** out) {
   return rr::translate_exceptions([&] {
     auto& result = *rr::require(out, "rr_resources_create: out");
     result = nullptr;
-    rr::require_device("rr_resources_create", device);
+    rr::require_device(device);
     const rr::device_guard guard{device};
     rr::install_default_memory_resource(device);
     auto owner = std::make_shared<rr::owned_handle>();
@@ -84,9 +84,9 @@ int rr_resources_sync(rr_resources* resources) {
 
 int rr_resources_ready(rr_resources* resources, int32_t* out) {
   return rr::translate_exceptions([&] {
-    auto& ready = *rr::require(out, "rr_resources_ready: out");
+    auto& ready = *rr::require(out, "out");
     ready = 0;
-    auto& r = *rr::require(resources, "rr_resources_ready: resources");
+    auto& r = *rr::require(resources, "resources");
     const rr::device_guard guard{r.device};
     const cudaError_t status =
         cudaStreamQuery(raft::resource::get_cuda_stream(*r.handle));

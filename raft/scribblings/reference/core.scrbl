@@ -308,8 +308,10 @@ which can be trimmed after an out-of-memory error. It is what
 does in Python. A resource that something else installed before that point is
 left alone, as is any change made after it. The exception is a plain
 @tt{cuda_memory_resource} set on purpose beforehand: it cannot be told from
-RMM's default, so it is replaced. Choosing a resource from Racket arrives
-with the rest of the core module @status{L2}.
+RMM's default, so it is replaced. A device whose driver reports no support
+for memory pools (@tt{cudaDevAttrMemoryPoolsSupported}) keeps RMM's default
+too, and its resources are made as usual. Choosing a resource from Racket
+arrives with the rest of the core module @status{L2}.
 
 @section[#:tag "ref-core-errors"]{Errors}
 
@@ -329,9 +331,9 @@ native library's words. The @racket[kind] says what failed:
        example a device that does not exist or resources already released;}
  @item{@racket['generic]: anything else.}]
 
-An argument of the wrong Racket type, such as a string where a device number
-goes, raises @racket[exn:fail:contract] from the foreign-function layer
-instead.
+An argument of the wrong kind, such as a string where a device number goes or
+a number where resources go, raises this type too, with kind @racket['logic]
+and the name of the procedure that was called.
 
 @examples[#:eval ev
 (define missing
@@ -339,6 +341,7 @@ instead.
     (device-resources #:device (device-count))))
 (exn-message missing)
 (exn:fail:raft-kind missing)
+(eval:error (resources-device 5))
 ]
 
 Dispatching on the kind, to retry only what a retry can fix:

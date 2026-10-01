@@ -23,7 +23,7 @@
   (define e (raised (lambda () (call/raft 'open-device (lambda () (rr-resources-create 4096))))))
   (check-pred exn:fail:raft? e)
   (check-equal? (exn:fail:raft-kind e) 'logic)
-  (check-regexp-match #rx"^open-device: rr_resources_create: no device 4096 among [0-9]+$"
+  (check-regexp-match #rx"^open-device: no device 4096 among [0-9]+$"
                       (exn-message e)))
 
 (test-without-gpu "without a driver, device calls are CUDA errors"
@@ -57,7 +57,7 @@
                     (call/raft 'noise rr-device-count)
                     (loop)))))))
   (for ([_ (in-range 500)])
-    (check-exn #rx"^probe: rr_resources_create: no device 4096"
+    (check-exn #rx"^probe: no device 4096"
                (lambda () (call/raft 'probe (lambda () (rr-resources-create 4096))))))
   (set-box! stop #t)
   (for-each thread-wait noise))

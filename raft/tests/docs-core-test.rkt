@@ -26,7 +26,7 @@
 (define released-message "resources-sync!: the device resources on device 0 were released")
 
 (define (missing-device-message n)
-  (format "device-resources: rr_resources_create: no device ~a among ~a" n (device-count)))
+  (format "device-resources: no device ~a among ~a" n (device-count)))
 
 (define (released-resources)
   (with-device-resources ([r (device-resources)]) r))
@@ -205,6 +205,9 @@
       (device-resources #:device (device-count))))
   (check-equal? (exn-message missing) (missing-device-message (device-count)))
   (check-equal? (exn:fail:raft-kind missing) 'logic)
+  (check-raft-error 'logic
+                    "resources-device: expected device resources, given: 5"
+                    (lambda () (resources-device 5)))
   (define (describe-failure thunk)
     (with-handlers ([exn:fail:raft?
                      (lambda (e)
