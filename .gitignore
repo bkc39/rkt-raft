@@ -1,0 +1,10 @@
+result
+result-*
+**/compiled/
+__pycache__/
+shim/build/
+raft/native-libs/
+raft/doc/
+.cuda-driver/
+.claude/worktrees/
+.scratch/
