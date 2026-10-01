@@ -1,18 +1,17 @@
 #!/usr/bin/env bash
-#
-# The GPU suite, run inside `nix develop` on a host with an NVIDIA GPU: the
-# shim's gtests, a load of the shim with every symbol bound, the Racket tests
-# (twin parity included) and the binding census. Any SKIP line means a case
-# did not run here.
 set -euo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
 : "${RAFT_SHIM_TESTS:?run inside nix develop}"
 
+log=$(mktemp)
+racket_log=$(mktemp)
+trap 'rm -f "$log" "$racket_log"' EXIT
+
 echo "== shim gtests"
-"$RAFT_SHIM_TESTS/raftrkt_tests" --gtest_brief=1
-"$RAFT_SHIM_TESTS/raftrkt_error_tests" --gtest_brief=1
+"$RAFT_SHIM_TESTS/raftrkt_tests" --gtest_brief=1 | tee -a "$log"
+"$RAFT_SHIM_TESTS/raftrkt_error_tests" --gtest_brief=1 | tee -a "$log"
 
 echo "== LD_BIND_NOW load of the staged shim"
 case ":$LD_LIBRARY_PATH:" in
@@ -24,13 +23,17 @@ LD_BIND_NOW=1 racket -l racket/base -l ffi/unsafe \
 
 echo "== Racket tests"
 raco make -v raft/main.rkt scripts/check-bindings.rkt
-log=$(mktemp)
-trap 'rm -f "$log"' EXIT
-raco test raft > "$log" 2>&1 || { cat "$log"; exit 1; }
-grep -E "^SKIP|tests? passed|failure" "$log"
-skips=$(grep -c "^SKIP" "$log" || true)
+raco test raft > "$racket_log" 2>&1 || { cat "$racket_log"; exit 1; }
+grep -E "^SKIP|tests? passed|failure" "$racket_log"
+cat "$racket_log" >> "$log"
 
 echo "== binding census"
 racket scripts/check-bindings.rkt
 
-echo "== SKIP lines in the Racket tests: $skips"
+unexpected=$(grep "^SKIP" "$log" | grep -v "a GPU is present" || true)
+if [ -n "$unexpected" ]; then
+  echo "== cases that should have run here were skipped:" >&2
+  echo "$unexpected" >&2
+  exit 1
+fi
+echo "== SKIP lines: $(grep -c "^SKIP" "$log" || true), all of them cases that need no GPU"

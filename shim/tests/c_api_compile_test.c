@@ -17,6 +17,7 @@ void raftrkt_c_api_compile_check(void) {
   void (*buffer_free)(rr_buffer*) = rr_buffer_free;
   uint64_t (*resources_drop_count)(void) = rr_resources_drop_count;
   uint64_t (*buffer_drop_count)(void) = rr_buffer_drop_count;
+  uint64_t (*release_failure_count)(void) = rr_release_failure_count;
   int (*buffer_alloc)(rr_resources*, size_t, rr_buffer**) = rr_buffer_alloc;
   int (*copy_h2d)(rr_buffer*, const void*, size_t) = rr_copy_h2d;
   int (*copy_d2h)(void*, const rr_buffer*, size_t) = rr_copy_d2h;
@@ -32,6 +33,7 @@ void raftrkt_c_api_compile_check(void) {
   (void)buffer_free;
   (void)resources_drop_count;
   (void)buffer_drop_count;
+  (void)release_failure_count;
   (void)buffer_alloc;
   (void)copy_h2d;
   (void)copy_d2h;

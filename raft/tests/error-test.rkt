@@ -1,12 +1,15 @@
 #lang racket/base
 
-(require (only-in ffi/vector f64vector f64vector->cpointer)
-         (only-in rackunit check-equal? check-exn check-pred test-case)
+(require (only-in ffi/unsafe/atomic in-atomic-mode?)
+         (only-in ffi/vector f64vector)
+         (only-in rackunit check-equal? check-exn check-pred check-regexp-match check-true test-case)
          (only-in "../private/error.rkt" call/raft exn:fail:raft-kind exn:fail:raft?)
          (only-in "../private/foreign/array.rkt" rr-buffer-alloc rr-copy-h2d)
          (only-in "../private/foreign/core.rkt" rr-device-count rr-resources-create)
          (only-in "../private/foreign/memory.rkt" rr-buffer-free rr-resources-free)
-         (only-in "private/gpu.rkt" gpu-available? skip test-gpu))
+         (only-in "../private/resource.rkt" with-release)
+         (only-in "private/gpu.rkt" test-gpu test-without-gpu)
+         (only-in "private/native.rkt" new-buffer new-resources))
 
 (define (raised thunk)
   (with-handlers ([exn:fail:raft? values])
@@ -20,34 +23,29 @@
   (define e (raised (lambda () (call/raft 'open-device (lambda () (rr-resources-create 4096))))))
   (check-pred exn:fail:raft? e)
   (check-equal? (exn:fail:raft-kind e) 'logic)
-  (check-pred (lambda (m) (regexp-match? #rx"^open-device: rr_resources_create: no device 4096 among [0-9]+$" m))
-              (exn-message e)))
+  (check-regexp-match #rx"^open-device: rr_resources_create: no device 4096 among [0-9]+$"
+                      (exn-message e)))
 
-(if (gpu-available?)
-    (skip "a GPU is present" "without a driver, device calls are CUDA errors")
-    (test-case "without a driver, device calls are CUDA errors"
-      (define e (raised (lambda () (call/raft 'count (lambda () (rr-device-count))))))
-      (check-pred exn:fail:raft? e)
-      (check-equal? (exn:fail:raft-kind e) 'cuda)))
+(test-without-gpu "without a driver, device calls are CUDA errors"
+  (define e (raised (lambda () (call/raft 'count rr-device-count))))
+  (check-pred exn:fail:raft? e)
+  (check-equal? (exn:fail:raft-kind e) 'cuda))
 
 (test-gpu "an impossible allocation is out of memory"
-  (define resources (call/raft 'oom (lambda () (rr-resources-create 0))))
-  (define e (raised (lambda ()
-                      (call/raft 'oom (lambda () (rr-buffer-alloc resources (expt 2 52)))))))
-  (check-pred exn:fail:raft? e)
-  (check-equal? (exn:fail:raft-kind e) 'out-of-memory)
-  (rr-resources-free resources))
+  (with-release ([resources (new-resources) rr-resources-free])
+    (define e (raised (lambda ()
+                        (call/raft 'oom (lambda () (rr-buffer-alloc resources (expt 2 52)))))))
+    (check-pred exn:fail:raft? e)
+    (check-equal? (exn:fail:raft-kind e) 'out-of-memory)))
 
 (test-gpu "a copy that does not fit is refused before it runs"
-  (define resources (call/raft 'copy (lambda () (rr-resources-create 0))))
-  (define buffer (call/raft 'copy (lambda () (rr-buffer-alloc resources 8))))
-  (check-exn #rx"^copy: rr_copy_h2d: 16 bytes do not fit a buffer of 8 bytes$"
-             (lambda ()
-               (call/raft 'copy
-                          (lambda ()
-                            (rr-copy-h2d buffer (f64vector->cpointer (f64vector 1.0 2.0)) 16)))))
-  (rr-buffer-free buffer)
-  (rr-resources-free resources))
+  (with-release ([resources (new-resources) rr-resources-free]
+                 [buffer (new-buffer resources 8) rr-buffer-free])
+    (check-exn #rx"^copy: rr_copy_h2d: 16 bytes do not fit a buffer of 8 bytes$"
+               (lambda () (call/raft 'copy (lambda () (rr-copy-h2d buffer (f64vector 1.0 2.0))))))))
+
+(test-case "the call and the error read share one atomic section"
+  (check-true (call/raft 'atomic in-atomic-mode?)))
 
 (test-gpu "the error read belongs to the call that failed"
   (define stop (box #f))

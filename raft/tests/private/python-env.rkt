@@ -1,18 +1,20 @@
 #lang racket/base
 
-(require syntax/parse/define
-         (only-in json read-json write-json)
+(require (only-in json read-json write-json)
+         (only-in racket/dict in-dict)
          (only-in racket/file delete-directory/files make-temporary-directory)
          (only-in racket/port open-output-nowhere)
          (only-in racket/system system*)
-         (only-in rackunit check-equal? check-true test-case)
-         (only-in "gpu.rkt" gpu-skip-reason skip))
+         (only-in rackunit check-equal? check-true)
+         (only-in "../../private/resource.rkt" with-release)
+         (only-in "gpu.rkt" gpu-skip test-unless-skipped)
+         ;; whole-module: its syntax classes come with it
+         syntax/parse/define)
 
-(provide close?
-         check-close
+(provide check-close
+         close?
          run-twin
-         test-twin
-         twin-skip-reason)
+         test-twin)
 
 (define python (find-executable-path "python3"))
 
@@ -23,10 +25,8 @@
   (define driver (getenv "RAFT_CUDA_DRIVER_PATH"))
   (when driver
     (environment-variables-set! env #"LD_LIBRARY_PATH" (string->bytes/utf-8 driver)))
-  (for ([kv (in-list extra)])
-    (environment-variables-set! env
-                                (string->bytes/utf-8 (car kv))
-                                (string->bytes/utf-8 (cdr kv))))
+  (for ([(name value) (in-dict extra)])
+    (environment-variables-set! env (string->bytes/utf-8 name) (string->bytes/utf-8 value)))
   (parameterize ([current-environment-variables env])
     (thunk)))
 
@@ -43,33 +43,31 @@
                          [current-error-port (open-output-nowhere)])
             (system* python "-c" (format "import ~a" module)))))))
 
-(define twin-skip-reason
-  (cond
-    [(not python) "python3 is not on PATH"]
-    [(not (python-imports? "pylibraft")) "import pylibraft failed"]
-    [else #f]))
+(define twin-skip
+  (or gpu-skip
+      (cond
+        [(not python) "no Python twin (python3 is not on PATH)"]
+        [(not (python-imports? "pylibraft")) "no Python twin (import pylibraft failed)"]
+        [else #f])))
+
+(define (remove-directory dir)
+  (delete-directory/files dir #:must-exist? #f))
 
 (define (run-twin script input)
-  (define dir (make-temporary-directory "raft-twin-~a"))
-  (dynamic-wind
-   void
-   (lambda ()
-     (define in-path (build-path dir "in.json"))
-     (define out-path (build-path dir "out.json"))
-     (call-with-output-file in-path (lambda (out) (write-json input out)))
-     (define err (open-output-string))
-     (define ok?
-       (call-with-twin-env
-        (lambda ()
-          (parameterize ([current-directory dir]
-                         [current-error-port err])
-            (system* python (path->string script)
-                     (path->string in-path) (path->string out-path))))))
-     (unless ok?
-       (error 'run-twin "~a failed:\n~a" script (get-output-string err)))
-     (call-with-input-file out-path read-json))
-   (lambda ()
-     (delete-directory/files dir #:must-exist? #f))))
+  (with-release ([dir (make-temporary-directory "raft-twin-~a") remove-directory])
+    (define in-path (build-path dir "in.json"))
+    (define out-path (build-path dir "out.json"))
+    (call-with-output-file in-path (lambda (out) (write-json input out)))
+    (define err (open-output-string))
+    (define ok?
+      (call-with-twin-env
+       (lambda ()
+         (parameterize ([current-directory dir]
+                        [current-error-port err])
+           (system* python (path->string script) (path->string in-path) (path->string out-path))))))
+    (unless ok?
+      (error 'run-twin "~a failed:\n~a" script (get-output-string err)))
+    (call-with-input-file out-path read-json)))
 
 (define (close? actual expected tolerance)
   (<= (abs (- actual expected))
@@ -84,7 +82,4 @@
                 (format "element ~a: ~a against the twin's ~a" i a e))))
 
 (define-syntax-parse-rule (test-twin name:expr body:expr ...+)
-  (cond
-    [gpu-skip-reason (skip (format "no GPU (~a)" gpu-skip-reason) name)]
-    [twin-skip-reason (skip (format "no Python twin (~a)" twin-skip-reason) name)]
-    [else (test-case name body ...)]))
+  (test-unless-skipped twin-skip name body ...))

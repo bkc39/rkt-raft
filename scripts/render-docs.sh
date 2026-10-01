@@ -25,5 +25,7 @@ if grep -rl 'class="badlink"' "$dest/raft"; then
   echo "render-docs: broken links in the pages above" >&2
   status=1
 fi
+printf '<!doctype html><meta charset="utf-8"><meta http-equiv="refresh" content="0; url=raft/index.html"><a href="raft/index.html">RAFT: CUDA primitives for Racket</a>\n' \
+  > "$dest/index.html"
 [ "$status" -eq 0 ] && echo "render-docs: $dest/raft/index.html"
 exit "$status"

@@ -64,6 +64,17 @@ TEST(Message, ALongMessageIsTruncatedNotOverrun) {
   EXPECT_EQ(got, huge.substr(0, 4095));
 }
 
+TEST(Message, TruncationNeverSplitsACharacter) {
+  const std::string cut = std::string(4094, 'x') + "\xc3\xa9";
+  ASSERT_EQ(rr::translate_exceptions([&] { throw std::runtime_error(cut); }),
+            RR_ERROR);
+  EXPECT_EQ(std::string(rr::last_error()), std::string(4094, 'x'));
+  const std::string whole = std::string(4093, 'x') + "\xc3\xa9";
+  ASSERT_EQ(rr::translate_exceptions([&] { throw std::runtime_error(whole); }),
+            RR_ERROR);
+  EXPECT_EQ(std::string(rr::last_error()), whole);
+}
+
 TEST(Message, SuccessClearsIt) {
   ASSERT_EQ(rr::translate_exceptions([] { throw std::runtime_error("x"); }),
             RR_ERROR);

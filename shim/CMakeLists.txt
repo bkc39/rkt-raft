@@ -45,7 +45,6 @@ target_include_directories(raftrkt
 )
 target_link_libraries(raftrkt PRIVATE raft::raft)
 target_compile_definitions(raftrkt PRIVATE CCCL_IGNORE_DEPRECATED_STREAM_REF_HEADER)
-# --exclude-libs keeps the static CUDA runtime's symbols out of our exports.
 target_link_options(raftrkt PRIVATE
   "LINKER:--no-undefined"
   "LINKER:--exclude-libs,ALL"

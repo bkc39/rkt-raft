@@ -92,18 +92,31 @@ plans/scoping-plan.html       the approved plan, byte for byte
    - Handles come back through out-parameters typed `_rr-…/null`, and every
      handle-returning binding carries `#:wrap resources-allocator` or
      `#:wrap buffer-allocator` from `foreign/memory.rkt`. No binding returns a
-     bare `_pointer`. `raft/tests/allocator-audit-test.rkt` reads every
-     binding and enforces both; a new handle type needs an entry there.
+     bare `_pointer`. Every release is wrapped by `releaser` (a `deallocator`
+     that retags the handle after the native free), so a second release does
+     nothing and any other use of a released handle fails the cpointer tag
+     check in Racket instead of reaching freed memory.
+     `raft/tests/allocator-audit-test.rkt` reads every binding and enforces
+     all three; a new handle type needs an entry there.
+   - A host buffer crosses with its own length: the copy bindings take an
+     `f64vector` and compute the byte count from it, so a copy cannot run past
+     the host side; the shim checks the device side. A raw `_pointer` plus a
+     caller-chosen size is not allowed for host memory.
    - A fallible binding answers its result (or `#t`) on success and `#f` on
      failure, from the `_fun` result expression. The caller wraps it in
      `call/raft` (`raft/private/error.rkt`), which makes the call and reads
      the error message and kind in one `call-as-atomic`: the last-error slot
      belongs to the OS thread, which every Racket thread in the place shares.
    - The native drop counters (`rr_resources_drop_count`,
-     `rr_buffer_drop_count`) count every release; reclamation tests assert on
-     them, because Racket cannot otherwise observe a native free.
+     `rr_buffer_drop_count`) count every release, and
+     `rr_release_failure_count` every release that leaked because its device
+     was unreachable; reclamation tests assert on them, because Racket cannot
+     otherwise observe a native free.
    - A changed C signature gets a new symbol name, so a stale library fails
-     at load, not at the call.
+     at load, not at the call. L0's `rr_resources_create(device, out)` and
+     `rr_buffer_alloc(resources, bytes, out)` are narrower than the plan's §8
+     sketches; when L1a and L1b need the plan's signatures (a stream and
+     stream count, a memory kind), they get new names.
    - `scripts/check-bindings.rkt` compares the `rr_` exports (`nm -D`) with
      the bindings, both ways.
 10. **Staging the native library.** `libraftrkt.so` reaches
@@ -142,7 +155,8 @@ plans/scoping-plan.html       the approved plan, byte for byte
   `std::exception` and `...`, classifies the failure and records the cause.
   The message lives in a fixed 4 KiB thread-local buffer, so recording an
   error never allocates (the out-of-memory path included); longer messages
-  are truncated. An out-pointer is set to NULL before any work.
+  are truncated at a UTF-8 character boundary, and Racket decodes the message
+  leniently all the same. An out-pointer is set to NULL before any work.
 - Every entry point selects the device recorded in its object
   (`rmm::cuda_set_device_raii`), so calls and finalizers work from any OS
   thread. Releases (`rr_resources_free`, `rr_buffer_free`) accept NULL, never
@@ -160,7 +174,8 @@ plans/scoping-plan.html       the approved plan, byte for byte
   and must stay exported: RMM's per-device memory-resource registry is a set
   of header-inline statics that the dynamic linker unifies across every
   library that uses RMM. A `local: *` version script would give the shim a
-  private registry and break the one-memory-pool rule with a cuML shim. The
+  private registry and break the one-memory-pool rule with a cuML shim (#10
+  asks L1a and L1d to test it). The
   static CUDA runtime that `rmm::rmm` links is hidden with
   `--exclude-libs,ALL`; `--no-undefined` catches a missing library at link.
 - Two gtest binaries, installed in the shim derivation's `tests` output:
@@ -168,8 +183,10 @@ plans/scoping-plan.html       the approved plan, byte for byte
   it compiles `error.cpp` itself and does not link the library, so its
   `rr_last_error` cannot interpose the library's).
 - clang-tidy covers the host `.cpp` files; the `.cu` files get `nvcc`'s
-  `-Wall -Wextra` only. Keep logic that does not need RAFT's headers in
-  `.cpp`.
+  `-Wall -Wextra` only: clang-tidy (LLVM 21) rejects nvcc's flags and cannot
+  parse CUDA 13.2's headers (its CUDA wrapper wants
+  `texture_fetch_functions.h`, which CUDA 13 removed). Keep logic that does
+  not need RAFT's headers in `.cpp`.
 
 ### Racket (`raft/`)
 
@@ -195,7 +212,8 @@ plans/scoping-plan.html       the approved plan, byte for byte
 nix develop                        # the GPU shell (first entry builds and provisions)
 nix flake check                    # the CI-equivalent; GPU cases print SKIP
 scripts/gpu-suite.sh               # in the shell, on the GPU host: gtests, LD_BIND_NOW
-                                   #   load, raco tests with twin parity, the census
+                                   #   load, raco tests with twin parity, the census;
+                                   #   red on any SKIP but the no-driver cases
 raco test raft                     # the Racket tests
 racket scripts/check-bindings.rkt  # rr_ exports against the bindings
 scripts/render-docs.sh <dir>       # the manual, red on any warning or broken link
@@ -204,7 +222,7 @@ nix run .#copy-native-libs         # restage the shim after a C++ change
 cmake -S shim -B shim/build -G Ninja -DBUILD_TESTING=ON   # the shim's inner loop
 ```
 
-`nix develop` does this on entry:
+`nix develop` does this on entry, from the checkout's root only:
 
 - **Filters `LD_LIBRARY_PATH`.** The lab host's `~/.bashrc` puts CUDA 11.7
   (`/usr/local/cuda-11.7/lib64`) on it, which would shadow the CUDA 13
@@ -240,9 +258,9 @@ green.
 `nix flake check` runs: `shim` (build plus both gtest binaries), `c-headers`
 (the umbrella header compiled as C11 with `-Werror`), `clang-format`,
 `clang-tidy`, `line-count` (500 lines per C/C++/CUDA file), `racket` (the
-package build, `raco setup --check-pkg-deps`, `raco test raft`, the binding
-census), `racket-version` (at least 9.3), `no-syntax-rule` and
-`no-raw-malloc`.
+package build, `raco setup --check-pkg-deps`, `raco test raft`, the manual
+compiled but not rendered, the binding census), `racket-version` (at least
+9.3), `no-syntax-rule` and `no-raw-malloc`.
 
 ## CI
 
@@ -255,7 +273,9 @@ census), `racket-version` (at least 9.3), `no-syntax-rule` and
   `runs-on: [self-hosted, linux, gpu]`, only when `vars.GPU_RUNNER == 'true'`
   and the pull request's author is `bkc39` (or a manual dispatch). No runner
   is registered yet (#9); until then the GPU gates run by hand on the lab
-  host and their counts go in the review packet.
+  host and their counts go in the review packet. The `if:` is not a security
+  boundary: a fork's PR runs workflow files it controls, so keeping forks off
+  the runner is the runner group's job (#9 lists the settings).
 - No docs build in GitHub CI: doc examples need the GPU.
 
 ## Documentation
@@ -283,7 +303,8 @@ census), `racket-version` (at least 9.3), `no-syntax-rule` and
 
 - **Arcs and legs.** Epic #1 (M1) lists the legs #2 L0, #3 L1a, #4 L1b, #5
   L1c, #6 L1d. Follow-ups: #7 (RAPIDS 26.10), #8 (shared array protocol with
-  rktorch), #9 (the self-hosted GPU runner).
+  rktorch), #9 (the self-hosted GPU runner), #10 (test the one-pool rule
+  across shims).
 - **The stack.** M1 is one GitHub native stack: `master` ← L0 ← L1a ← L1b ←
   L1c ← L1d. Branch with `git fetch origin && git checkout -B <branch>
   origin/<base>`. Never force-push and never rebase a pushed branch; pick up

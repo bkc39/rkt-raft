@@ -1,6 +1,8 @@
 #lang racket/base
 
 (require (only-in ffi/unsafe
+                  _bytes/nul-terminated
+                  _enum
                   _fun
                   _int
                   _int32
@@ -11,8 +13,8 @@
          (only-in "library.rkt" _rr-resources _rr-resources/null define-raft)
          (only-in "memory.rkt" resources-allocator))
 
-(provide (struct-out rr-abi-tag)
-         rr-abi
+(provide rr-abi
+         rr-abi-tag->list
          rr-device-count
          rr-last-error
          rr-last-error-kind
@@ -36,10 +38,11 @@
    [handle-size _int64]))
 
 (define-raft rr-last-error
-  (_fun -> _string/utf-8))
+  (_fun -> _bytes/nul-terminated))
 
 (define-raft rr-last-error-kind
-  (_fun -> _int))
+  (_fun -> (_enum '(generic out-of-memory cuda logic) _int
+                  #:unknown (lambda (_) 'generic))))
 
 (define-raft rr-version
   (_fun -> _string/utf-8))

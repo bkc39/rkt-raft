@@ -1,4 +1,3 @@
-# The parity twins' Python packages, as a python packageOverrides function.
 # pylibraft and rmm are patched against the same RAPIDS prefix the shim links,
 # so both sides of a parity test load one libraft.so and one librmm.so.
 { lib, stdenv, fetchurl, autoPatchelfHook, rapids, cudaPackages }:
@@ -50,16 +49,16 @@ in
 
   rmm-cu13 = rapidsWheel {
     pname = "rmm-cu13";
-    inherit (rapids) version;
-    url = "${pypi}/33/5a/8146d352b3232a637f2055b27462a7d08a7ed3698d2092bc7cd9f21982a0/rmm_cu13-${rapids.version}-cp311-abi3-manylinux_2_24_x86_64.manylinux_2_28_x86_64.whl";
+    version = "26.8.0";
+    url = "${pypi}/33/5a/8146d352b3232a637f2055b27462a7d08a7ed3698d2092bc7cd9f21982a0/rmm_cu13-26.8.0-cp311-abi3-manylinux_2_24_x86_64.manylinux_2_28_x86_64.whl";
     sha256 = "cf696080ee307d9067eb3e283f0bab84aef82302dcd844ad98229025ef0ff058";
     dependencies = [ self.cuda-bindings self.numpy ];
   };
 
   pylibraft-cu13 = rapidsWheel {
     pname = "pylibraft-cu13";
-    inherit (rapids) version;
-    url = "${pypi}/25/7e/997b324730fa3719e1d77ce4ab30ddba6b7330365ba3bd22f3a9c8a14eed/pylibraft_cu13-${rapids.version}-cp311-abi3-manylinux_2_24_x86_64.manylinux_2_28_x86_64.whl";
+    version = "26.8.0";
+    url = "${pypi}/25/7e/997b324730fa3719e1d77ce4ab30ddba6b7330365ba3bd22f3a9c8a14eed/pylibraft_cu13-26.8.0-cp311-abi3-manylinux_2_24_x86_64.manylinux_2_28_x86_64.whl";
     sha256 = "025461bafc04c6f6cec061d1d1322d402dde568935289ae2ffd238fd0d4de134";
     dependencies = [ self.cuda-bindings self.numpy self.rmm-cu13 ];
   };

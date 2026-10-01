@@ -1,5 +1,3 @@
-# NVIDIA's RAPIDS C++ wheels for one release, unpacked into plain prefixes
-# and patched against nixpkgs' CUDA libraries. nixpkgs packages no RAPIDS.
 { lib, stdenv, fetchurl, unzip, autoPatchelfHook, symlinkJoin, cudaPackages }:
 
 let

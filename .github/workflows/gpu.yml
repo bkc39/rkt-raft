@@ -1,8 +1,8 @@
 name: GPU suite
 
-# Runs on the lab host's self-hosted runner (#9), only for the maintainer's
-# pull requests and only once vars.GPU_RUNNER is set to 'true'; a fork's PR
-# never reaches the runner.
+# The `if:` keeps this job to the maintainer's pull requests, but a fork's PR
+# runs workflow files it controls: keeping forks off the self-hosted runner is
+# the runner's registration (#9), not this file.
 on:
   pull_request:
   workflow_dispatch:

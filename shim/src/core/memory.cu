@@ -18,6 +18,13 @@ std::atomic<uint64_t>& buffer_drops() noexcept {
 
 namespace {
 
+std::atomic<uint64_t>& release_failures() noexcept {
+  static std::atomic<uint64_t> count{0};
+  return count;
+}
+
+// A release that cannot select its device leaks and is counted: unwinding
+// into a finalizer would abort the process.
 template <typename T>
 void release_on_device(T* object, std::atomic<uint64_t>& drops) noexcept {
   if (object == nullptr) {
@@ -28,7 +35,7 @@ void release_on_device(T* object, std::atomic<uint64_t>& drops) noexcept {
     delete object;
     drops.fetch_add(1, std::memory_order_relaxed);
   } catch (...) {
-    // Leaking beats unwinding into a finalizer: the device is unreachable.
+    release_failures().fetch_add(1, std::memory_order_relaxed);
   }
 }
 
@@ -52,5 +59,9 @@ uint64_t rr_resources_drop_count(void) {
 
 uint64_t rr_buffer_drop_count(void) {
   return rr::buffer_drops().load(std::memory_order_relaxed);
+}
+
+uint64_t rr_release_failure_count(void) {
+  return rr::release_failures().load(std::memory_order_relaxed);
 }
 }

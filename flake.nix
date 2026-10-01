@@ -48,7 +48,6 @@
         passthru = { inherit rapids; };
       };
 
-      # Stage libraftrkt into ./raft/native-libs by temp file + rename(2).
       # An in-place write rewrites pages a live process has mapped (rktorch
       # #72); rename leaves the old inode to whoever still runs it.
       stageNativeLibs = src: ''
@@ -95,6 +94,7 @@
         checkPhase = ''
           runHook preCheck
           raco test raft
+          raco make -v raft/scribblings/raft.scrbl
           racket scripts/check-bindings.rkt
           runHook postCheck
         '';
@@ -276,7 +276,8 @@
         _drv_farm="$PWD/.cuda-driver"
         rm -rf "$_drv_farm"; mkdir -p "$_drv_farm"
         for _l in libcuda.so.1 libnvidia-ml.so.1 libnvidia-ptxjitcompiler.so.1; do
-          _p=$(/sbin/ldconfig -p 2>/dev/null | grep -F "$_l" | grep -oE '/[^ ]+' | head -1)
+          _p=$(/sbin/ldconfig -p 2>/dev/null | grep -F "$_l (libc6,x86-64" \
+                 | grep -oE '/[^ ]+' | head -1)
           if [ -n "$_p" ]; then
             ln -sf "$_p" "$_drv_farm/$_l"
           else
@@ -333,12 +334,24 @@
             racket pythonEnv rapids pkgs.binutils pkgs.clang-tools pkgs.cmake
             pkgs.gtest pkgs.ninja cudaPackages.cuda_nvcc
           ] ++ cudaDevLibs;
-          shellHook = gpuHook + racketHome + provisionRacket + provisionResyntax;
+          shellHook = ''
+            if [ -f raft/info.rkt ]; then
+              ${gpuHook + racketHome + provisionRacket + provisionResyntax}
+            else
+              echo "rkt-raft: enter the shell from the checkout's root; nothing was provisioned" >&2
+            fi
+          '';
         };
 
         ci = pkgs.mkShell {
           packages = [ racket ];
-          shellHook = racketHome + provisionResyntax;
+          shellHook = ''
+            if [ -f raft/info.rkt ]; then
+              ${racketHome + provisionResyntax}
+            else
+              echo "rkt-raft: enter the shell from the checkout's root; nothing was provisioned" >&2
+            fi
+          '';
         };
       };
 

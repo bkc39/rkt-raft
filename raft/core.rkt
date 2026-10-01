@@ -1,22 +1,8 @@
 #lang racket/base
 
 (require (only-in racket/format ~a ~r)
-         (only-in "private/foreign/core.rkt"
-                  rr-abi
-                  rr-abi-tag-abi-version
-                  rr-abi-tag-cccl-major
-                  rr-abi-tag-cccl-minor
-                  rr-abi-tag-cccl-patch
-                  rr-abi-tag-cuda-runtime
-                  rr-abi-tag-handle-size
-                  rr-abi-tag-raft-major
-                  rr-abi-tag-raft-minor
-                  rr-abi-tag-raft-patch
-                  rr-abi-tag-resource-types
-                  rr-abi-tag-rmm-major
-                  rr-abi-tag-rmm-minor
-                  rr-abi-tag-rmm-patch
-                  rr-version))
+         (only-in racket/match match-define)
+         (only-in "private/foreign/core.rkt" rr-abi rr-abi-tag->list rr-version))
 
 (provide raft-abi
          raft-version)
@@ -34,17 +20,16 @@
   (~a (quotient code 1000) "." (quotient (remainder code 1000) 10)))
 
 (define (raft-abi)
-  (define tag (rr-abi))
-  (hasheq 'abi-version (rr-abi-tag-abi-version tag)
-          'raft (rapids-release (rr-abi-tag-raft-major tag)
-                                (rr-abi-tag-raft-minor tag)
-                                (rr-abi-tag-raft-patch tag))
-          'rmm (rapids-release (rr-abi-tag-rmm-major tag)
-                               (rr-abi-tag-rmm-minor tag)
-                               (rr-abi-tag-rmm-patch tag))
-          'cccl (~a (rr-abi-tag-cccl-major tag) "."
-                    (rr-abi-tag-cccl-minor tag) "."
-                    (rr-abi-tag-cccl-patch tag))
-          'cuda-runtime (cuda-release (rr-abi-tag-cuda-runtime tag))
-          'handle-size (rr-abi-tag-handle-size tag)
-          'resource-types (rr-abi-tag-resource-types tag)))
+  (match-define (list abi-version
+                      raft-major raft-minor raft-patch
+                      rmm-major rmm-minor rmm-patch
+                      cccl-major cccl-minor cccl-patch
+                      cuda-runtime resource-types handle-size)
+    (rr-abi-tag->list (rr-abi)))
+  (hasheq 'abi-version abi-version
+          'raft (rapids-release raft-major raft-minor raft-patch)
+          'rmm (rapids-release rmm-major rmm-minor rmm-patch)
+          'cccl (~a cccl-major "." cccl-minor "." cccl-patch)
+          'cuda-runtime (cuda-release cuda-runtime)
+          'handle-size handle-size
+          'resource-types resource-types))

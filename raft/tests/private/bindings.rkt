@@ -7,44 +7,39 @@
          ;; whole-module: define-runtime-path needs bindings only-in strips
          racket/runtime-path)
 
-(provide binding-forms
-         binding-c-id
-         binding-name
-         binding-options
-         binding-signature
-         foreign-dir)
+(provide (struct-out binding)
+         bindings-in
+         foreign-bindings
+         foreign-dir
+         foreign-modules)
+
+(struct binding (name signature options c-id))
 
 (define-runtime-path foreign-dir "../../private/foreign")
-
-(define (define-raft-forms v)
-  (match v
-    [(list* 'define-raft (? symbol?) _ _) (list v)]
-    [(? list?) (append-map define-raft-forms v)]
-    [_ '()]))
 
 (define (read-module path)
   (parameterize ([read-accept-reader #t]
                  [read-accept-lang #t])
     (call-with-input-file path read)))
 
-(define (binding-forms [dir foreign-dir])
-  (define files
-    (sort (for/list ([f (in-directory dir)]
-                     #:when (path-has-extension? f #".rkt"))
-            f)
-          path<?))
-  (append-map (lambda (f) (define-raft-forms (read-module f))) files))
-
-(define (binding-name form)
-  (cadr form))
-
-(define (binding-signature form)
-  (caddr form))
-
-(define (binding-options form)
-  (cdddr form))
-
-(define (binding-c-id form)
-  (match (memq '#:c-id (binding-options form))
+(define (c-id name options)
+  (match (memq '#:c-id options)
     [(list* _ id _) (symbol->string id)]
-    [_ (string-replace (symbol->string (binding-name form)) "-" "_")]))
+    [_ (string-replace (symbol->string name) "-" "_")]))
+
+(define (bindings-in datum)
+  (match datum
+    [(list* 'define-raft (? symbol? name) signature options)
+     (list (binding name signature options (c-id name options)))]
+    [(? list?) (append-map bindings-in datum)]
+    [_ '()]))
+
+(define (foreign-modules [dir foreign-dir])
+  (define files
+    (for/list ([f (in-directory dir)]
+               #:when (path-has-extension? f #".rkt"))
+      f))
+  (map read-module (sort files path<?)))
+
+(define (foreign-bindings [dir foreign-dir])
+  (append-map bindings-in (foreign-modules dir)))

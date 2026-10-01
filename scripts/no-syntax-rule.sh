@@ -1,7 +1,4 @@
 #!/usr/bin/env bash
-#
-# The no-syntax-rule gate: macros are define-syntax-parse-rule or
-# define-syntax-parser, so pattern variables carry syntax classes.
 set -euo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")/.."

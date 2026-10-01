@@ -1,13 +1,10 @@
 #!/usr/bin/env bash
-#
-# The no-raw-malloc gate: native memory is acquired and released only in
-# raft/private/resource.rkt, through with-* forms; everything else uses them.
 set -euo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
 allowed=raft/private/resource.rkt
-pattern='\((malloc|free)([[:space:]]|\))'
+pattern='\((malloc|free)([[:space:]]|\)|$)'
 
 hits=$(grep -rnE --include='*.rkt' --include='*.scrbl' "$pattern" raft scripts \
          | grep -v "^$allowed:" || true)
