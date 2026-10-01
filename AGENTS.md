@@ -413,8 +413,8 @@ the binding census), `racket-review`, `racket-version` (at least 9.3),
   (raco fmt alone puts every `->` on a line by itself); `hash`, `hasheq` and
   `hasheqv` keep a key and its value together; `define-cstruct` puts one
   field per line under the name; `define-raft` is laid out like `define`,
-  `generator` and `define-pretty` like `lambda`; `with-release` and the test
-  macros keep the name (and
+  `generator` and `define-pretty` like `lambda`; `with-release`,
+  `with-device-resources` and the test macros keep the name (and
   `test-unless-skipped`'s reason) on the first line and a body that holds a
   list below, as `let` does, while a body of atoms (a macro's `body ...`)
   stays on one line. The `_fun`, hash and body formatters use fmt's internal
@@ -425,7 +425,7 @@ the binding census), `racket-review`, `racket-version` (at least 9.3),
   fmt` after `resyntax fix`: Resyntax's rewrites are not laid out by these
   rules, and once formatted the tree is a fixed point of both tools.
 - **raco review** reads every `.rkt` (`scripts/review.sh`). The `raft-lint`
-  extension (`lint/review.rkt`) gives `test-gpu`, `test-twin`,
+  extension (`lint/review.rkt`) gives `test-gpu`, `test-probe`, `test-twin`,
   `test-without-gpu` and `test-unless-skipped` a scope of their own, as
   rackunit's `test-case` has, so a name defined in one test body does not
   clash with another's. It also treats `define-syntax-parse-rule` as review
@@ -433,8 +433,10 @@ the binding census), `racket-review`, `racket-version` (at least 9.3),
   without it review reads the header as a function's and reports every
   `x:expr` as an unused argument. `;; noqa` is allowed only where review cannot see a
   binding's definition or use: names that `define-cpointer-type` and
-  `define-cstruct` generate, a struct re-exported with `struct-out`, and a
-  value used only inside a macro template. `#|review: ignore|#` is for
+  `define-cstruct` generate, a struct re-exported with `struct-out`, a value
+  used only inside a macro template, and a name that `struct` leaves free
+  with `#:omit-define-syntaxes` and the module then defines (review reads
+  that as a second definition: `device-resources`). `#|review: ignore|#` is for
   `info.rkt` files and re-export facades. Test data that is quoted code lives
   in a `.rktd` fixture, which review does not read.
 - **Resyntax** exits 0 with findings; `scripts/resyntax.sh` greps for

@@ -36,43 +36,43 @@
   (check-equal? (resources-sync! (device-resources)) (void)))
 
 (test-probe "resources-sync! waits until the stream drains"
-            (define r (device-resources))
-            (define outcome (box 'waiting))
-            (define waiter
-              (call-with-held-stream r
-                                     (lambda ()
-                                       (define waiter (sync-in-thread r outcome))
-                                       (check-false (sync/timeout 0.2 waiter)
-                                                    "the sync waits while the stream is held")
-                                       waiter)))
-            (check-not-false (sync/timeout 10 waiter) "the sync returns once the stream drains")
-            (check-equal? (unbox outcome) 'synced))
+  (define r (device-resources))
+  (define outcome (box 'waiting))
+  (define waiter
+    (call-with-held-stream r
+                           (lambda ()
+                             (define pending (sync-in-thread r outcome))
+                             (check-false (sync/timeout 0.2 pending)
+                                          "the sync waits while the stream is held")
+                             pending)))
+  (check-not-false (sync/timeout 10 waiter) "the sync returns once the stream drains")
+  (check-equal? (unbox outcome) 'synced))
 
 (test-probe "a break ends a waiting sync, and the program runs meanwhile"
-            (define r (device-resources))
-            (define outcome (box 'waiting))
-            (call-with-held-stream r
-                                   (lambda ()
-                                     (define waiter (sync-in-thread r outcome))
-                                     (check-false (sync/timeout 0.2 waiter))
-                                     (collect-garbage 'major)
-                                     (check-true (thread-running? waiter)
-                                                 "a major collection finished while the sync waited")
-                                     (break-thread waiter)
-                                     (check-not-false (sync/timeout 5 waiter)
-                                                      "the break reached the waiting thread")))
-            (check-true (exn:break? (unbox outcome)))
-            (check-equal? (resources-sync! r) (void)))
+  (define r (device-resources))
+  (define outcome (box 'waiting))
+  (call-with-held-stream
+   r
+   (lambda ()
+     (define waiter (sync-in-thread r outcome))
+     (check-false (sync/timeout 0.2 waiter))
+     (collect-garbage 'major)
+     (check-true (thread-running? waiter) "a major collection finished while the sync waited")
+     (break-thread waiter)
+     (check-not-false (sync/timeout 5 waiter) "the break reached the waiting thread")))
+  (check-true (exn:break? (unbox outcome)))
+  (check-equal? (resources-sync! r) (void)))
 
 (test-probe "resources released during a sync end it with exn:fail:raft"
-            (define r (device-resources))
-            (define outcome (box 'waiting))
-            (call-with-held-stream r
-                                   (lambda ()
-                                     (define waiter (sync-in-thread r outcome))
-                                     (check-false (sync/timeout 0.2 waiter))
-                                     (with-device-resources ([released r]) (void))
-                                     (check-not-false (sync/timeout 5 waiter))))
-            (check-raft-error 'logic
-                              "resources-sync!: the device resources on device 0 were released"
-                              (lambda () (raise (unbox outcome)))))
+  (define r (device-resources))
+  (define outcome (box 'waiting))
+  (call-with-held-stream r
+                         (lambda ()
+                           (define waiter (sync-in-thread r outcome))
+                           (check-false (sync/timeout 0.2 waiter))
+                           (with-device-resources ([released r])
+                             (void))
+                           (check-not-false (sync/timeout 5 waiter))))
+  (check-raft-error 'logic
+                    "resources-sync!: the device resources on device 0 were released"
+                    (lambda () (raise (unbox outcome)))))

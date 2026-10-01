@@ -2,10 +2,10 @@
 
 (require (only-in ffi/unsafe _fun _int32 _int64 _void ffi-lib)
          (only-in ffi/unsafe/define define-ffi-definer make-not-available)
-         (only-in "../../private/foreign/library.rkt" _rr-resources)
-         (only-in "gpu.rkt" gpu-skip test-unless-skipped)
          ;; whole-module: its syntax classes come with it
-         syntax/parse/define)
+         syntax/parse/define
+         (only-in "../../private/foreign/library.rkt" _rr-resources)
+         (only-in "gpu.rkt" gpu-skip test-unless-skipped))
 
 (provide probe-current-is-async?
          probe-hold!
@@ -15,7 +15,7 @@
 
 (define probe-path (getenv "RAFT_SHIM_PROBE"))
 
-(define probe-skip
+(define probe-skip ;; noqa
   (and (not probe-path) "no probe library (RAFT_SHIM_PROBE is not set; run inside nix develop)"))
 
 (define-ffi-definer define-probe

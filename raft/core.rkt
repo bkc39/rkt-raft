@@ -17,16 +17,11 @@
                   resources-sync!
                   with-device-resources))
 
-(provide current-device-resources
+(provide (all-from-out "private/resources.rkt")
          device-count
-         device-resources
-         device-resources?
-         (struct-out exn:fail:raft)
+         (struct-out exn:fail:raft) ;; noqa
          raft-abi
-         raft-version
-         resources-device
-         resources-sync!
-         with-device-resources)
+         raft-version)
 
 (define (device-count)
   (call/raft 'device-count rr-device-count))

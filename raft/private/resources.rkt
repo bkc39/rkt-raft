@@ -1,16 +1,15 @@
 #lang racket/base
 
-(require (for-syntax racket/base
-                     ;; whole-module: syntax-parse needs its syntax classes
-                     syntax/parse)
+(require (for-syntax racket/base)
          (only-in racket/math exact-ceiling)
-         (only-in "error.rkt" call/raft raise-raft)
+         ;; whole-module: it also provides syntax/parse at phase 1
+         syntax/parse/define
+         (only-in "error.rkt" call/raft)
+         (only-in "exn.rkt" raise-raft)
          (only-in "foreign/core.rkt" rr-device-count rr-resources-create)
          (only-in "foreign/internal.rkt" rr-memory-resource-kind rr-resources-ready)
          (only-in "foreign/memory.rkt" released? rr-resources-free)
-         (only-in "resource.rkt" with-release)
-         ;; whole-module: its syntax classes come with it
-         syntax/parse/define)
+         (only-in "resource.rkt" with-release))
 
 (provide current-device-resources
          device-resources
@@ -49,7 +48,7 @@
   (define d (device-arg who device))
   (handle->device-resources (call/raft who (lambda () (rr-resources-create d))) d))
 
-(define (device-resources #:device [device 0])
+(define (device-resources #:device [device 0]) ;; noqa
   (open-resources 'device-resources device))
 
 (define (resources-device r)
@@ -64,7 +63,7 @@
                 (device-resources-device r)))
   handle)
 
-(define (release-resources! r)
+(define (release-resources! r) ;; noqa
   (rr-resources-free (device-resources-handle r)))
 
 (define spin-polls 16)

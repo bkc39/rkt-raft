@@ -2,6 +2,8 @@
 
 (require (only-in racket/generator in-generator yield)
          (only-in racket/match match-define)
+         ;; whole-module: define-runtime-path needs bindings only-in strips
+         racket/runtime-path
          (only-in rackunit
                   check-eq?
                   check-equal?
@@ -23,9 +25,7 @@
          (only-in "private/collect.rkt" collect-until drain-finalizers!)
          (only-in "private/gpu.rkt" test-gpu test-without-gpu)
          (only-in "private/python-env.rkt" run-twin test-twin)
-         (only-in "private/raft-error.rkt" check-raft-error)
-         ;; whole-module: define-runtime-path needs bindings only-in strips
-         racket/runtime-path)
+         (only-in "private/raft-error.rkt" check-raft-error))
 
 (define-runtime-path device-count-twin "python/device_count.py")
 
@@ -83,7 +83,7 @@
 (test-gpu "with-device-resources frees on return"
   (check-equal? (drops-during (lambda ()
                                 (check-equal? (with-device-resources ([r (device-resources)])
-                                                                     (resources-device r))
+                                                (resources-device r))
                                               0)))
                 1))
 
@@ -92,39 +92,40 @@
                                 (check-exn #rx"boom"
                                            (lambda ()
                                              (with-device-resources ([r (device-resources)])
-                                                                    (error 'job "boom"))))))
+                                               (error 'job "boom"))))))
                 1))
 
 (test-gpu "with-device-resources frees on an escape"
   (check-equal? (drops-during (lambda ()
                                 (check-equal? (let/ec leave
                                                 (with-device-resources ([r (device-resources)])
-                                                                       (leave 'left)))
+                                                  (leave 'left)))
                                               'left)))
                 1))
 
 (test-gpu "with-device-resources frees every binding once"
   (check-equal? (drops-during (lambda ()
                                 (with-device-resources ([a (device-resources)] [b (device-resources)])
-                                                       (check-false (eq? a b)))))
+                                  (check-false (eq? a b)))))
                 2))
 
 (test-gpu "releasing resources twice frees them once"
   (check-equal? (drops-during (lambda ()
-                                (with-device-resources
-                                 ([outer (device-resources)])
-                                 (with-device-resources ([inner outer]) (resources-sync! inner)))))
+                                (with-device-resources ([outer (device-resources)])
+                                  (with-device-resources ([inner outer])
+                                    (resources-sync! inner)))))
                 1))
 
 (test-gpu "a binding may name an outer variable of the same name"
   (check-equal? (drops-during (lambda ()
                                 (define r (device-resources))
-                                (with-device-resources ([r r]) (check-pred device-resources? r))))
+                                (with-device-resources ([r r])
+                                  (check-pred device-resources? r))))
                 1))
 
 (test-gpu "a later binding sees the earlier ones"
   (with-device-resources ([a (device-resources)] [b (device-resources #:device (resources-device a))])
-                         (check-equal? (resources-device b) (resources-device a))))
+    (check-equal? (resources-device b) (resources-device a))))
 
 (test-gpu "a generator resuming with-device-resources raises instead of acquiring again"
   (define acquired 0)
@@ -138,7 +139,9 @@
        'logic
        "with-device-resources: cannot re-enter its body after its resources were released"
        (lambda ()
-         (for/list ([r (in-generator (with-device-resources ([r (acquire!)]) (yield r) (yield r)))])
+         (for/list ([r (in-generator (with-device-resources ([r (acquire!)])
+                                       (yield r)
+                                       (yield r)))])
            r)))))
    1
    "the yield released the one handle")
@@ -167,7 +170,8 @@
 
 (test-gpu "a released default is replaced on the next request"
   (define first (current-device-resources))
-  (with-device-resources ([r first]) (resources-sync! r))
+  (with-device-resources ([r first])
+    (resources-sync! r))
   (define second (current-device-resources))
   (check-false (eq? first second))
   (check-eq? second (current-device-resources))
@@ -176,7 +180,8 @@
 (test-gpu "resources print their device and whether they were released"
   (define r (device-resources))
   (check-equal? (format "~a" r) "#<device-resources device 0>")
-  (with-device-resources ([r r]) (void))
+  (with-device-resources ([r r])
+    (void))
   (check-equal? (format "~a" r) "#<device-resources device 0 released>"))
 
 (test-gpu "device-count counts the visible devices"
