@@ -9,14 +9,9 @@
                   rr-buffer-free
                   rr-resources-free)
          (only-in "../private/resource.rkt" with-release)
+         (only-in "private/collect.rkt" collect-until)
          (only-in "private/gpu.rkt" test-gpu)
          (only-in "private/native.rkt" copy-in! copy-out new-buffer new-resources))
-
-(define (collect-until done?)
-  (for/or ([_ (in-range 50)])
-    (collect-garbage 'major)
-    (sync (system-idle-evt))
-    (done?)))
 
 (test-gpu "an explicit free releases once and cancels the finalizer"
   (with-release ([resources (new-resources) rr-resources-free])
