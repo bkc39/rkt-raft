@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+#
+# The no-raw-malloc gate: native memory is acquired and released only in
+# raft/private/resource.rkt, through with-* forms; everything else uses them.
+set -euo pipefail
+
+cd "$(dirname "${BASH_SOURCE[0]}")/.."
+
+allowed=raft/private/resource.rkt
+pattern='\((malloc|free)([[:space:]]|\))'
+
+hits=$(grep -rnE --include='*.rkt' --include='*.scrbl' "$pattern" raft scripts \
+         | grep -v "^$allowed:" || true)
+
+if [ -n "$hits" ]; then
+  while IFS=: read -r file line _; do
+    message="raw malloc/free outside $allowed: use a with-* form from it"
+    echo "$file:$line: $message"
+    if [ -n "${GITHUB_ACTIONS:-}" ]; then
+      echo "::error file=$file,line=$line::$message"
+    fi
+  done <<< "$hits"
+  exit 1
+fi
+echo "no-raw-malloc: none outside $allowed"
