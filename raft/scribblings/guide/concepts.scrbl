@@ -63,8 +63,9 @@ made without an explicit handle; Racket does not copy that, because waiting
 after every call leaves the GPU idle between operations.
 
 You will rarely make one by hand. @racket[current-device-resources] keeps one
-per Racket thread and device, created on first use, and every operation takes
-@racket[#:resources] to override it, the way pylibraft takes @tt{handle=}.
+per Racket thread and device, created on first use, and every operation on
+arrays @status{L1b} will take @racket[#:resources] to override it, the way
+pylibraft takes @tt{handle=}.
 @secref["resources"] shows them in client code.
 
 @python|{

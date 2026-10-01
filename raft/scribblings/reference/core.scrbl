@@ -46,7 +46,7 @@ r
 ]
 
 Two calls make two independent resources, each with its own stream, so work
-queued on one never waits for the other:
+queued on one need not wait for the other:
 
 @examples[#:eval ev #:label #f
 (define loader (device-resources))
@@ -128,7 +128,7 @@ then returns. It is @tt{DeviceResources.sync()}.
 Operations return as soon as they are queued, so call this before stopping a
 clock, before handing results to code outside the library, or before releasing
 memory another stream is still reading. Converting an array back to Racket
-data synchronizes by itself.
+data @status{L1b} will synchronize by itself.
 
 The wait is a poll, not a blocking call: the stream is queried, and between
 queries the thread sleeps for a few microseconds to a millisecond, so other
@@ -172,8 +172,8 @@ Released resources cannot be synced:
          device-resources?]{
 
 Returns the calling thread's default resources for @racket[device], creating
-them on first use. Every operation that takes @racket[#:resources] uses this
-when the argument is left out, the way pylibraft's functions take
+them on first use. The operations on arrays @status{L1b} will use this when
+they are given no @racket[#:resources], the way pylibraft's functions take
 @tt{handle=}.
 
 The default is kept per Racket thread, in a thread cell rather than a
@@ -222,9 +222,9 @@ here. The @racket[resources-expr]s are evaluated in order, as by
 own, so @racket[(with-device-resources ([r r]) ....)] scopes an existing
 @racket[r].
 
-Release frees the @tt{raft::handle_t} and its library handles. A stream still
-in use by an array allocated with these resources stays alive until that array
-is freed too.
+Release drops this object's hold on its @tt{raft::handle_t}. An array
+allocated with these resources @status{L1b} holds the handle too, stream and
+library handles included, so they are freed when the last such array is.
 
 @examples[#:eval ev
 (with-device-resources ([r (device-resources)])
@@ -302,7 +302,8 @@ device.
 The first time this library makes resources on a device, it replaces that
 default with RMM's CUDA async memory resource,
 @tt{rmm::mr::cuda_async_memory_resource}: a @tt{cudaMallocAsync} pool, whose
-allocations and frees are ordered on a stream and do not stop the device, and
+allocations and frees are ordered on a stream and need not wait for the rest
+of the device, and
 which can be trimmed after an out-of-memory error. It is what
 @tt{rmm.mr.set_current_device_resource(rmm.mr.CudaAsyncMemoryResource())}
 does in Python. A resource that something else installed before that point is
