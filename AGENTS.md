@@ -8,7 +8,7 @@ only points here.
 `raft` is a Racket binding to [NVIDIA RAFT](https://github.com/rapidsai/raft):
 CUDA device arrays and data-science primitives, and the base a later Racket
 cuML binding (`rkt-cuml`) stands on. The approved scoping plan is
-`plans/scoping-plan.html` (approved 2026-10-01); read its §3 Architecture, §5
+`plans/scoping-plan.md` (approved 2026-10-01); read its §3 Architecture, §5
 raft/core, §6 raft/array and raft/compat, §7 Memory model, §8 Shim ABI, §9
 Parity, §10 Build and §12 Starting cuML work before changing the design.
 
@@ -46,7 +46,7 @@ raft/                         the Racket package and collection
   scribblings/                the manual: guide/ chapters, reference/ sections
   tests/                      raco tests; tests/private/ the harness; tests/python/ the twins
 scripts/                      gates, the GPU suite, the docs render, the binding census
-plans/scoping-plan.html       the approved plan, byte for byte
+plans/scoping-plan.md         the approved plan (revision 5), as Markdown
 ```
 
 ## Owner rules
