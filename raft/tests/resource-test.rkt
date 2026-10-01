@@ -1,6 +1,8 @@
 #lang racket/base
 
-(require (only-in rackunit check-equal? check-exn test-case)
+(require (only-in racket/generator generator in-generator yield)
+         (only-in rackunit check-equal? check-exn check-pred check-regexp-match test-case)
+         (only-in "../private/exn.rkt" exn:fail:raft-kind exn:fail:raft?)
          (only-in "../private/resource.rkt" with-release))
 
 (define released '())
@@ -58,3 +60,31 @@
                   (list a b))
                 '(#f b))
   (check-equal? released '(b)))
+
+(test-case "a yield out of the body releases"
+  (fresh!)
+  (define g
+    (generator ()
+      (with-release ([a 'a release!])
+        (yield a)
+        'resumed)))
+  (check-equal? (g) 'a)
+  (check-equal? released '(a)))
+
+(test-case "a generator resuming the body raises instead of acquiring again"
+  (fresh!)
+  (define acquisitions 0)
+  (define (acquire! tag)
+    (set! acquisitions (add1 acquisitions))
+    tag)
+  (define e
+    (with-handlers ([exn:fail:raft? values])
+      (for/list ([x (in-generator (with-release ([a (acquire! 'a) release!])
+                                    (yield a)
+                                    (yield a)))])
+        x)))
+  (check-pred exn:fail:raft? e)
+  (check-equal? (exn:fail:raft-kind e) 'logic)
+  (check-regexp-match #rx"^with-release: cannot re-enter its body" (exn-message e))
+  (check-equal? acquisitions 1)
+  (check-equal? released '(a)))

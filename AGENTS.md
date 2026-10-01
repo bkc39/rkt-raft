@@ -87,7 +87,11 @@ plans/scoping-plan.md         the approved plan (revision 5), as Markdown
    it.
 7. **Scoped native resources** go through `with-*` forms that expand into
    `dynamic-wind` (`raft/private/resource.rkt`), with the finalizer as the
-   backstop. No raw `malloc`/`free` outside that module:
+   backstop. `with-release` acquires once, before the body's extent; every
+   exit from the body releases (a return, a raise, an escape, a generator's
+   `yield`), and control that jumps back in afterwards (a generator resume,
+   a re-entered continuation) raises `exn:fail:raft` (kind `'logic`) instead
+   of acquiring again. No raw `malloc`/`free` outside that module:
    `scripts/no-raw-malloc.sh` gates it.
 8. **Imports and size.** `(only-in …)` with alphabetised names, collection
    requires before relative ones (raco review enforces the order). Exempt,
@@ -349,8 +353,9 @@ the binding census), `racket-review`, `racket-version` (at least 9.3),
   wrong here: `_fun` keeps each `-> …` on its own line under the arguments
   (raco fmt alone puts every `->` on a line by itself); `hash`, `hasheq` and
   `hasheqv` keep a key and its value together; `define-cstruct` puts one
-  field per line under the name; `define-raft` is laid out like `define`;
-  `with-release` and the test macros keep the name (and
+  field per line under the name; `define-raft` is laid out like `define`,
+  `generator` and `define-pretty` like `lambda`; `with-release` and the test
+  macros keep the name (and
   `test-unless-skipped`'s reason) on the first line and a body that holds a
   list below, as `let` does, while a body of atoms (a macro's `body ...`)
   stays on one line. The `_fun`, hash and body formatters use fmt's internal
