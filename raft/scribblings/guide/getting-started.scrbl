@@ -106,9 +106,12 @@ import error or a crash. The tag exists on the Racket side because a second
 native library, the cuML binding, will compile against the same headers and
 has to check at load time that they match; see @racket[raft-abi].
 
-To see the GPU and the driver, ask the driver:
+Last, check that the driver sees a GPU. @racket[device-count] answers how
+many CUDA devices this process can use:
 
-@commandline{nvidia-smi --query-gpu=name,driver_version,compute_cap --format=csv}
+@examples[#:eval ev #:label #f
+(device-count)
+]
 
 @python|{
 import cupy as cp
@@ -116,9 +119,13 @@ cp.cuda.runtime.getDeviceCount()                         # 1
 cp.cuda.runtime.getDeviceProperties(0)["name"]           # b'NVIDIA GeForce RTX 3090 Ti'
 }|
 
-Racket has no device query yet: @racket[device-count] and
-@racket[device-properties] @status{L2} arrive with the rest of the core
-module.
+If this raises @racket[exn:fail:raft] instead, saying that the driver is
+missing or too old or that there is no device, nothing else in this manual
+will run. Racket cannot name the GPU yet; @racket[device-properties]
+@status{L2} arrives with the rest of the core module. Until then, ask the
+driver:
+
+@commandline{nvidia-smi --query-gpu=name,driver_version,compute_cap --format=csv}
 
 @section[#:tag "gs-tests"]{Running the tests}
 

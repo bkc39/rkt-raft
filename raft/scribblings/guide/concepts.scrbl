@@ -8,7 +8,7 @@
 This chapter explains the model the library is built on: where data lives,
 what a @emph{resources} object is, what an array is, how memory comes back,
 and what an error looks like. Most of the names it mentions do not exist yet;
-each is marked with the leg that adds it (@status{L1a} to @status{L3}) and is
+each is marked with the leg that adds it (@status{L1b} to @status{L3}) and is
 described here, not called, so the chapter can be read as the design before
 the code.
 
@@ -58,14 +58,15 @@ stream run in order; work on two streams may overlap. Each resources object
 owns one stream, so everything done with it is ordered. Operations return as
 soon as they are queued, and the program waits only when a value has to reach
 the host: converting an array back to Racket data, printing one, or calling
-@racket[resources-sync!] @status{L1a}. pylibraft instead synchronizes after
-every call made without an explicit handle; Racket does not copy that, because
-waiting after every call leaves the GPU idle between operations.
+@racket[resources-sync!]. pylibraft instead synchronizes after every call
+made without an explicit handle; Racket does not copy that, because waiting
+after every call leaves the GPU idle between operations.
 
-You will rarely make one by hand. @racket[current-device-resources]
-@status{L1a} keeps one per Racket thread and device, created on first use, and
-every operation takes @racket[#:resources] to override it, the way pylibraft
-takes @tt{handle=}.
+You will rarely make one by hand. @racket[current-device-resources] keeps one
+per Racket thread and device, created on first use, and every operation on
+arrays @status{L1b} will take @racket[#:resources] to override it, the way
+pylibraft takes @tt{handle=}.
+@secref["resources"] shows them in client code.
 
 @python|{
 from pylibraft.common import DeviceResources, Stream
@@ -168,7 +169,7 @@ holding a lot of host memory does.
 
 When release has to happen at a known point, a @tt{with-} form releases on
 exit, whether the body returns, raises or escapes, and the finalizer stays as
-a backstop: @racket[with-device-resources] @status{L1a} for resources, and a
+a backstop: @racket[with-device-resources] for resources, and a
 form for arrays @status{L3}.
 
 @python|{
@@ -184,7 +185,7 @@ code that wants memory back at an exact point uses a @tt{with-} form.
 @section[#:tag "concepts-errors"]{Errors}
 
 Every failure inside RAFT, RMM, CUDA or the native library raises one
-exception type, @racket[exn:fail:raft] @status{L1a}, whose message is the name
+exception type, @racket[exn:fail:raft], whose message is the name
 of the Racket function you called followed by RAFT's own message, or the
 native library's. It also records a kind (@racket['out-of-memory],
 @racket['cuda], @racket['logic] or @racket['generic]), because the memory
@@ -224,26 +225,38 @@ arrives.
              @elem{@tt{rr_abi()}, ours}
              "no counterpart"
              "here")
+       (list @racket[device-count]
+             @tt{cudaGetDeviceCount}
+             @tt{cp.cuda.runtime.getDeviceCount()}
+             "here")
        (list @racket[device-resources]
              @tt{raft::handle_t}
              @tt{pylibraft.common.DeviceResources}
-             @status{L1a})
+             "here")
        (list @racket[current-device-resources]
              @tt{raft::device_resources_manager}
              @tt{handle=None}
-             @status{L1a})
+             "here")
+       (list @racket[with-device-resources]
+             "no counterpart"
+             @elem{@tt{del handle}}
+             "here")
        (list @racket[resources-sync!]
              @tt{raft::resource::sync_stream}
              @tt{DeviceResources.sync()}
-             @status{L1a})
+             "here")
+       (list "the default memory resource"
+             @tt{rmm::mr::set_per_device_resource}
+             @tt{rmm.mr.set_current_device_resource}
+             "here, installed on first use")
        (list @racket[cuda-async-memory-resource]
              @tt{rmm::mr::cuda_async_memory_resource}
-             @tt{rmm.mr.CudaAsyncMemoryResource}
-             @status{L1a})
+             @tt{rmm.mr.CudaAsyncMemoryResource()}
+             @status{L2})
        (list @racket[exn:fail:raft]
              @elem{@tt{raft::exception}, @tt{rmm::bad_alloc}}
              @elem{@tt{RuntimeError}, @tt{MemoryError}}
-             @status{L1a})
+             "here")
        (list @racket[device-matrix]
              @tt{raft::make_device_matrix}
              @tt{device_ndarray.empty((r, c))}

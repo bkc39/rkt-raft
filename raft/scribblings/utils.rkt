@@ -3,6 +3,7 @@
 (require (for-label raft
                     racket/base
                     racket/format
+                    racket/list
                     racket/match
                     racket/string)
          (only-in racket/sandbox
@@ -19,7 +20,12 @@
 
 (provide (all-from-out scribble/example)
          (all-from-out scribble/manual)
-         (for-label (all-from-out raft racket/base racket/format racket/match racket/string))
+         (for-label (all-from-out raft
+                                  racket/base
+                                  racket/format
+                                  racket/list
+                                  racket/match
+                                  racket/string))
          make-raft-eval
          python
          status)
@@ -33,6 +39,7 @@
                  [sandbox-path-permissions '((exists "/"))])
     (make-base-eval '(require raft
                               racket/format
+                              racket/list
                               racket/match
                               racket/string))))
 

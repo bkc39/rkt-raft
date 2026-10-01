@@ -39,6 +39,8 @@ add_library(raftrkt SHARED
   src/array/buffer.cpp
   src/core/core.cpp
   src/core/memory.cpp
+  src/core/memory_resource.cpp
+  src/detail/device.cpp
   src/detail/error.cpp
 )
 add_library(raftrkt::raftrkt ALIAS raftrkt)
@@ -78,6 +80,7 @@ if(BUILD_TESTING)
     tests/array_test.cpp
     tests/core_test.cpp
     tests/memory_test.cpp
+    tests/resources_test.cpp
     $<TARGET_OBJECTS:raftrkt_c_api_compile_test>
   )
   target_include_directories(raftrkt_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
@@ -96,6 +99,21 @@ if(BUILD_TESTING)
   raftrkt_enable_warnings(raftrkt_error_tests)
   raftrkt_apply_nix_cflags(raftrkt_error_tests)
   gtest_discover_tests(raftrkt_error_tests DISCOVERY_MODE PRE_TEST)
+
+  add_library(raftrkt_probe SHARED tests/probe/probe.cpp)
+  set_target_properties(raftrkt_probe PROPERTIES
+    CXX_VISIBILITY_PRESET hidden
+    POSITION_INDEPENDENT_CODE ON
+  )
+  target_include_directories(raftrkt_probe
+    PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include ${CMAKE_CURRENT_SOURCE_DIR}/src)
+  target_link_libraries(raftrkt_probe PRIVATE raft::raft)
+  target_link_options(raftrkt_probe PRIVATE
+    "LINKER:--exclude-libs,ALL"
+    $<$<NOT:$<BOOL:${RAFTRKT_SANITIZE}>>:LINKER:--no-undefined>
+  )
+  raftrkt_enable_warnings(raftrkt_probe)
+  raftrkt_apply_nix_cflags(raftrkt_probe)
 endif()
 
 install(TARGETS raftrkt
@@ -104,7 +122,8 @@ install(TARGETS raftrkt
 )
 install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
 
-if(BUILD_TESTING AND DEFINED RAFTRKT_TESTS_DIR)
-  install(TARGETS raftrkt_tests raftrkt_error_tests
-    RUNTIME DESTINATION ${RAFTRKT_TESTS_DIR})
+if(BUILD_TESTING AND DEFINED RAFTRKT_TESTS_PREFIX)
+  install(TARGETS raftrkt_tests raftrkt_error_tests raftrkt_probe
+    RUNTIME DESTINATION ${RAFTRKT_TESTS_PREFIX}/bin
+    LIBRARY DESTINATION ${RAFTRKT_TESTS_PREFIX}/lib)
 endif()
