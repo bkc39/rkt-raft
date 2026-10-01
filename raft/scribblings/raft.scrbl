@@ -17,8 +17,9 @@ release (26.08) and loaded through the Racket FFI. It needs Linux, an NVIDIA
 GPU and the Nix toolchain described in @secref["getting-started"]; there is no
 CPU fallback.
 
-The library is young. Today it provides the native library, its build, and
-the version and ABI tag; resources, arrays and conversions come next, and
+The library is young. Today it provides the native library and its build,
+device resources and the devices they run on, the exception type, and the
+version and ABI tag; arrays and conversions come next, and
 @secref["concepts"] explains their design. A name that does not exist yet is
 marked with the leg that adds it, such as @status{L1a}, and is described in
 prose, not called.

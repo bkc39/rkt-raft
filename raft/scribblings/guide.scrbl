@@ -13,3 +13,4 @@ differ. For the definition of each name, follow its link into the
 
 @include-section["guide/getting-started.scrbl"]
 @include-section["guide/concepts.scrbl"]
+@include-section["guide/resources.scrbl"]

@@ -221,8 +221,10 @@ Binds each @racket[id] to the value of its @racket[resources-expr], evaluates
 the @racket[body]s, and releases every bound resources object when control
 leaves the form, whether the body returns, raises or escapes. Releasing is
 idempotent, and the finalizer stays as a backstop for anything not released
-here. Each @racket[resources-expr] is evaluated in order, outside the scope of
-the @racket[id]s.
+here. The @racket[resources-expr]s are evaluated in order, as by
+@racket[let*]: each one sees the @racket[id]s bound before it, but not its
+own, so @racket[(with-device-resources ([r r]) ....)] scopes an existing
+@racket[r].
 
 Release frees the @tt{raft::handle_t} and its library handles. A stream still
 in use by an array allocated with these resources stays alive until that array
