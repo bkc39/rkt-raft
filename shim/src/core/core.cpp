@@ -1,3 +1,5 @@
+#include "raftrkt/core.h"
+
 #include <cstdint>
 #include <cstdio>
 #include <cuda/std/version>
@@ -10,7 +12,6 @@
 
 #include "detail/error.hpp"
 #include "detail/handles.hpp"
-#include "raftrkt/core.h"
 
 namespace {
 

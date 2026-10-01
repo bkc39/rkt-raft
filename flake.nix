@@ -7,7 +7,12 @@
     treefmt-nix.inputs.nixpkgs.follows = "nixpkgs";
   };
 
-  outputs = { self, nixpkgs, treefmt-nix }:
+  outputs =
+    {
+      self,
+      nixpkgs,
+      treefmt-nix,
+    }:
     let
       system = "x86_64-linux";
       version = "0.1.0";
@@ -29,20 +34,34 @@
 
       rapids = pkgs.callPackage ./nix/rapids.nix { inherit cudaPackages; };
       racketTools = pkgs.callPackage ./nix/racket-tools.nix { inherit racket; };
-      treefmtEval = treefmt-nix.lib.evalModule pkgs
-        (import ./nix/treefmt.nix { inherit racketTools; });
+      treefmtEval = treefmt-nix.lib.evalModule pkgs (import ./nix/treefmt.nix { inherit racketTools; });
 
       cudaDevLibs = with cudaPackages; [
-        cuda_cudart libcublas libcurand libcusolver libcusparse
+        cuda_cudart
+        libcublas
+        libcurand
+        libcusolver
+        libcusparse
       ];
 
       shim = cudaPackages.backendStdenv.mkDerivation {
         pname = "raftrkt";
         inherit version;
         src = ./shim;
-        outputs = [ "out" "tests" ];
-        nativeBuildInputs = [ pkgs.cmake pkgs.ninja cudaPackages.cuda_nvcc ];
-        buildInputs = [ rapids pkgs.gtest ] ++ cudaDevLibs;
+        outputs = [
+          "out"
+          "tests"
+        ];
+        nativeBuildInputs = [
+          pkgs.cmake
+          pkgs.ninja
+          cudaPackages.cuda_nvcc
+        ];
+        buildInputs = [
+          rapids
+          pkgs.gtest
+        ]
+        ++ cudaDevLibs;
         cmakeFlags = [
           "-DBUILD_TESTING=ON"
           "-DCMAKE_CUDA_ARCHITECTURES=${cudaArchitectures}"
@@ -86,7 +105,10 @@
         pname = "rkt-raft";
         inherit version;
         src = lib.cleanSource ./.;
-        nativeBuildInputs = [ racket pkgs.binutils ];
+        nativeBuildInputs = [
+          racket
+          pkgs.binutils
+        ];
         buildInputs = [ shim ];
         buildPhase = ''
           runHook preBuild
@@ -120,7 +142,12 @@
       python = pkgs.python314.override {
         self = python;
         packageOverrides = import ./nix/python-twins.nix {
-          inherit (pkgs) lib stdenv fetchurl autoPatchelfHook;
+          inherit (pkgs)
+            lib
+            stdenv
+            fetchurl
+            autoPatchelfHook
+            ;
           inherit rapids cudaPackages;
         };
       };
@@ -128,24 +155,49 @@
       # CuPy finds the libraries it dlopens, and NVRTC's headers, here.
       cudaHome = pkgs.symlinkJoin {
         name = "rkt-raft-cuda-home";
-        paths = lib.concatMap (p: [ (lib.getLib p) (lib.getDev p) ])
-          (with cudaPackages; [
-            cuda_cudart cuda_nvrtc cuda_cccl libcublas libcufft libcurand
-            libcusolver libcusparse libnvjitlink
-          ]);
+        paths =
+          lib.concatMap
+            (p: [
+              (lib.getLib p)
+              (lib.getDev p)
+            ])
+            (
+              with cudaPackages;
+              [
+                cuda_cudart
+                cuda_nvrtc
+                cuda_cccl
+                libcublas
+                libcufft
+                libcurand
+                libcusolver
+                libcusparse
+                libnvjitlink
+              ]
+            );
       };
 
       pythonEnv =
         assert lib.assertMsg
-          (python.pkgs.pylibraft-cu13.version == rapids.version
-           && python.pkgs.rmm-cu13.version == rapids.version)
-          ("the twins' pylibraft/rmm wheels must be the RAPIDS release the "
-           + "shim links (" + rapids.version + ")");
+          (
+            python.pkgs.pylibraft-cu13.version == rapids.version
+            && python.pkgs.rmm-cu13.version == rapids.version
+          )
+          (
+            "the twins' pylibraft/rmm wheels must be the RAPIDS release the "
+            + "shim links ("
+            + rapids.version
+            + ")"
+          );
         (python.withPackages (ps: [
-          ps.cupy-cuda13x ps.numpy ps.pylibraft-cu13 ps.rmm-cu13
-        ])).override {
-          makeWrapperArgs = [ "--set CUDA_PATH ${cudaHome}" ];
-        };
+          ps.cupy-cuda13x
+          ps.numpy
+          ps.pylibraft-cu13
+          ps.rmm-cu13
+        ])).override
+          {
+            makeWrapperArgs = [ "--set CUDA_PATH ${cudaHome}" ];
+          };
 
       lineCount = pkgs.runCommand "rkt-raft-line-count" { src = ./shim; } ''
         failed=0
@@ -187,7 +239,10 @@
           "-DCMAKE_CUDA_ARCHITECTURES=${cudaArchitectures}"
           "-DRAFTRKT_SANITIZE=ON"
         ];
-        hardeningDisable = [ "fortify" "fortify3" ];
+        hardeningDisable = [
+          "fortify"
+          "fortify3"
+        ];
         checkPhase = ''
           runHook preCheck
           export ASAN_OPTIONS=protect_shadow_gap=0:detect_leaks=1:abort_on_error=1
@@ -224,34 +279,44 @@
         installPhase = "touch $out";
       };
 
-      cHeaders = pkgs.runCommand "rkt-raft-c-headers" {
-        src = ./shim/include;
-        nativeBuildInputs = [ pkgs.stdenv.cc ];
-      } ''
-        printf '#include "raftrkt/c_api.h"\nint main(void) { return 0; }\n' > t.c
-        cc -std=c11 -Wall -Wextra -Wpedantic -Werror -I $src -c t.c -o t.o
-        touch $out
-      '';
+      cHeaders =
+        pkgs.runCommand "rkt-raft-c-headers"
+          {
+            src = ./shim/include;
+            nativeBuildInputs = [ pkgs.stdenv.cc ];
+          }
+          ''
+            printf '#include "raftrkt/c_api.h"\nint main(void) { return 0; }\n' > t.c
+            cc -std=c11 -Wall -Wextra -Wpedantic -Werror -I $src -c t.c -o t.o
+            touch $out
+          '';
 
-      racketVersion = pkgs.runCommand "rkt-raft-racket-version" {
-        nativeBuildInputs = [ racket ];
-      } ''
-        have=$(racket -e '(display (version))')
-        lowest=$(printf '%s\n%s\n' "$have" "${minRacketVersion}" | sort -V | head -1)
-        if [ "$lowest" != "${minRacketVersion}" ]; then
-          echo "ERROR: rkt-raft needs Racket >= ${minRacketVersion}; nixpkgs pins $have" >&2
-          exit 1
-        fi
-        touch $out
-      '';
+      racketVersion =
+        pkgs.runCommand "rkt-raft-racket-version"
+          {
+            nativeBuildInputs = [ racket ];
+          }
+          ''
+            have=$(racket -e '(display (version))')
+            lowest=$(printf '%s\n%s\n' "$have" "${minRacketVersion}" | sort -V | head -1)
+            if [ "$lowest" != "${minRacketVersion}" ]; then
+              echo "ERROR: rkt-raft needs Racket >= ${minRacketVersion}; nixpkgs pins $have" >&2
+              exit 1
+            fi
+            touch $out
+          '';
 
-      grepGate = name: script: pkgs.runCommand "rkt-raft-${name}" {
-        src = lib.cleanSource ./.;
-      } ''
-        cd $src
-        ${pkgs.bash}/bin/bash scripts/${script}
-        touch $out
-      '';
+      grepGate =
+        name: script:
+        pkgs.runCommand "rkt-raft-${name}"
+          {
+            src = lib.cleanSource ./.;
+          }
+          ''
+            cd $src
+            ${pkgs.bash}/bin/bash scripts/${script}
+            touch $out
+          '';
 
       resyntaxSource = "https://github.com/jackfirth/resyntax.git#40f3497321f8590eb6a0b7c7984a9116323b7ebf";
 
@@ -358,7 +423,10 @@
         python-twins = pythonEnv;
         copy-native-libs = pkgs.writeShellApplication {
           name = "copy-native-libs";
-          runtimeInputs = [ pkgs.coreutils pkgs.diffutils ];
+          runtimeInputs = [
+            pkgs.coreutils
+            pkgs.diffutils
+          ];
           text = ''
             if [ ! -f raft/info.rkt ]; then
               echo "copy-native-libs: run from the root of an rkt-raft checkout" >&2
@@ -394,10 +462,19 @@
       devShells.${system} = {
         default = pkgs.mkShell {
           packages = [
-            racket pythonEnv rapids pkgs.binutils pkgs.clang-tools pkgs.cmake
-            pkgs.gtest pkgs.ninja cudaPackages.cuda_nvcc cudaPackages.cuda_sanitizer_api
+            racket
+            pythonEnv
+            rapids
+            pkgs.binutils
+            pkgs.clang-tools
+            pkgs.cmake
+            pkgs.gtest
+            pkgs.ninja
+            cudaPackages.cuda_nvcc
+            cudaPackages.cuda_sanitizer_api
             treefmtEval.config.build.wrapper
-          ] ++ cudaDevLibs;
+          ]
+          ++ cudaDevLibs;
           shellHook = ''
             if [ -f raft/info.rkt ]; then
               ${gpuHook + racketHome + provisionRacket + provisionTools + provisionResyntax}

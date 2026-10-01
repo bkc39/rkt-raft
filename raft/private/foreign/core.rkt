@@ -37,27 +37,20 @@
    [resource-types _int32]
    [handle-size _int64]))
 
-(define-raft rr-last-error
-  (_fun -> _bytes/nul-terminated))
+(define-raft rr-last-error (_fun -> _bytes/nul-terminated))
 
 (define-raft rr-last-error-kind
-  (_fun -> (_enum '(generic out-of-memory cuda logic) _int
-                  #:unknown (lambda (_) 'generic))))
+  (_fun -> (_enum '(generic out-of-memory cuda logic) _int #:unknown (lambda (_) 'generic))))
 
-(define-raft rr-version
-  (_fun -> _string/utf-8))
+(define-raft rr-version (_fun -> _string/utf-8))
 
-(define-raft rr-abi
-  (_fun -> _rr-abi-tag-pointer))
+(define-raft rr-abi (_fun -> _rr-abi-tag-pointer))
 
 (define-raft rr-device-count
   (_fun (out : (_ptr o _int32)) -> (status : _int) -> (and (zero? status) out)))
 
 (define-raft rr-resources-create
-  (_fun _int32 (out : (_ptr o _rr-resources/null))
-        -> (status : _int)
-        -> (and (zero? status) out))
+  (_fun _int32 (out : (_ptr o _rr-resources/null)) -> (status : _int) -> (and (zero? status) out))
   #:wrap resources-allocator)
 
-(define-raft rr-resources-sync
-  (_fun _rr-resources -> (status : _int) -> (zero? status)))
+(define-raft rr-resources-sync (_fun _rr-resources -> (status : _int) -> (zero? status)))

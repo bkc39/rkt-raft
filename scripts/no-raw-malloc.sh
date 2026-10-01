@@ -6,8 +6,8 @@ cd "$(dirname "${BASH_SOURCE[0]}")/.."
 allowed=raft/private/resource.rkt
 pattern='\((malloc|free)([[:space:]]|\)|$)'
 
-hits=$(grep -rnE --include='*.rkt' --include='*.scrbl' "$pattern" lint raft scripts \
-         | grep -v "^$allowed:" || true)
+hits=$(grep -rnE --include='*.rkt' --include='*.scrbl' "$pattern" lint raft scripts |
+  grep -v "^$allowed:" || true)
 
 if [ -n "$hits" ]; then
   while IFS=: read -r file line _; do
@@ -16,7 +16,7 @@ if [ -n "$hits" ]; then
     if [ -n "${GITHUB_ACTIONS:-}" ]; then
       echo "::error file=$file,line=$line::$message"
     fi
-  done <<< "$hits"
+  done <<<"$hits"
   exit 1
 fi
 echo "no-raw-malloc: none outside $allowed"

@@ -14,11 +14,9 @@
 
 (define gpu-skip-reason
   (with-handlers ([exn:fail:raft? exn-message])
-    (and (zero? (call/raft 'gpu-available? rr-device-count))
-         "the driver reports no CUDA device")))
+    (and (zero? (call/raft 'gpu-available? rr-device-count)) "the driver reports no CUDA device")))
 
-(define gpu-skip
-  (and gpu-skip-reason (format "no GPU (~a)" gpu-skip-reason)))
+(define gpu-skip (and gpu-skip-reason (format "no GPU (~a)" gpu-skip-reason)))
 
 (define (gpu-available?)
   (not gpu-skip-reason))
@@ -27,7 +25,8 @@
   (let ([why reason])
     (if why
         (printf "SKIP: ~a: ~a\n" why name)
-        (test-case name body ...))))
+        (test-case name
+          body ...))))
 
 (define-syntax-parse-rule (test-gpu name:expr body:expr ...+)
   (test-unless-skipped gpu-skip name body ...))

@@ -13,25 +13,26 @@
   (check-equal? (hash-ref abi 'raft) "26.08.00")
   (check-equal? (hash-ref abi 'rmm) "26.08.00")
   (check-equal? (hash-ref abi 'cuda-runtime) "13.2")
-  (check-equal? (with-output-to-string
-                  (lambda ()
-                    (for ([part (in-list '(raft rmm cccl cuda-runtime))])
-                      (printf "~a ~a\n" (~a part #:min-width 13) (hash-ref abi part)))))
-                (string-append "raft          26.08.00\n"
-                               "rmm           26.08.00\n"
-                               "cccl          3.4.3\n"
-                               "cuda-runtime  13.2\n")))
+  (check-equal?
+   (with-output-to-string (lambda ()
+                            (for ([part (in-list '(raft rmm cccl cuda-runtime))])
+                              (printf "~a ~a\n" (~a part #:min-width 13) (hash-ref abi part)))))
+   (string-append "raft          26.08.00\n"
+                  "rmm           26.08.00\n"
+                  "cccl          3.4.3\n"
+                  "cuda-runtime  13.2\n")))
 
 (test-case "concepts: row-major and column-major order"
   (define m '((1 2 3) (4 5 6)))
-  (define (row-major rows) (apply append rows))
-  (define (column-major rows) (apply append (apply map list rows)))
+  (define (row-major rows)
+    (apply append rows))
+  (define (column-major rows)
+    (apply append (apply map list rows)))
   (check-equal? (row-major m) '(1 2 3 4 5 6))
   (check-equal? (column-major m) '(1 4 2 5 3 6)))
 
 (test-case "reference: raft-version"
-  (match-define (list year month _)
-    (map string->number (string-split (raft-version) ".")))
+  (match-define (list year month _) (map string->number (string-split (raft-version) ".")))
   (check-equal? (list year month) '(26 8))
   (check-true (>= (+ (* 100 year) month) 2608))
   (define (require-raft-release! wanted)

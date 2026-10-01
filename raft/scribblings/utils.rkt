@@ -31,12 +31,13 @@
                  [sandbox-eval-limits #f]
                  [sandbox-security-guard current-security-guard]
                  [sandbox-path-permissions '((exists "/"))])
-    (make-base-eval '(require raft racket/format racket/match racket/string))))
+    (make-base-eval '(require raft
+                              racket/format
+                              racket/match
+                              racket/string))))
 
 (define (python . lines)
-  (nested #:style 'code-inset
-          (para (italic "Python"))
-          (apply verbatim lines)))
+  (nested #:style 'code-inset (para (italic "Python")) (apply verbatim lines)))
 
 (define (status leg)
   (elem #:style (style #f (list (color-property "gray"))) leg))

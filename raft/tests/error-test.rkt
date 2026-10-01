@@ -33,8 +33,8 @@
 
 (test-gpu "an impossible allocation is out of memory"
   (with-release ([resources (new-resources) rr-resources-free])
-    (define e (raised (lambda ()
-                        (call/raft 'oom (lambda () (rr-buffer-alloc resources (expt 2 52)))))))
+    (define e
+      (raised (lambda () (call/raft 'oom (lambda () (rr-buffer-alloc resources (expt 2 52)))))))
     (check-pred exn:fail:raft? e)
     (check-equal? (exn:fail:raft-kind e) 'out-of-memory)))
 

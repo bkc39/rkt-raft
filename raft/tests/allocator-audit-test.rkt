@@ -48,32 +48,33 @@
 (define (binding-violations b)
   (define-values (argument-types result parts) (split-signature b))
   (cond
-    [(not argument-types)
-     (list (format "~a: the signature is not a literal _fun" (binding-name b)))]
+    [(not argument-types) (list (format "~a: the signature is not a literal _fun" (binding-name b)))]
     [else
      (define returned (cons result (filter-map output-type parts)))
      (define wrap (wrap-of b))
-     (append
-      (if (memq '_pointer returned)
-          (list (format "~a returns a bare _pointer" (binding-name b)))
-          '())
-      (if (memq '_pointer argument-types)
-          (list (format "~a takes a bare _pointer" (binding-name b)))
-          '())
-      (for/list ([type (in-list returned)]
-                 #:when (hash-has-key? handle-allocators type)
-                 #:unless (eq? wrap (hash-ref handle-allocators type)))
-        (format "~a returns ~a without #:wrap ~a"
-                (binding-name b) type (hash-ref handle-allocators type))))]))
+     (append (if (memq '_pointer returned)
+                 (list (format "~a returns a bare _pointer" (binding-name b)))
+                 '())
+             (if (memq '_pointer argument-types)
+                 (list (format "~a takes a bare _pointer" (binding-name b)))
+                 '())
+             (for/list ([type (in-list returned)]
+                        #:when (hash-has-key? handle-allocators type)
+                        #:unless (eq? wrap (hash-ref handle-allocators type)))
+               (format "~a returns ~a without #:wrap ~a"
+                       (binding-name b)
+                       type
+                       (hash-ref handle-allocators type))))]))
 
 (define (release-problem by-name allocator release)
   (define b (hash-ref by-name release #f))
   (define-values (argument-types _result _parts)
-    (if b (split-signature b) (values #f #f #f)))
+    (if b
+        (split-signature b)
+        (values #f #f #f)))
   (cond
     [(not b) (format "~a releases through ~a, which is not a binding" allocator release)]
-    [(not (eq? (wrap-of b) 'release-once))
-     (format "~a is not wrapped by release-once" release)]
+    [(not (eq? (wrap-of b) 'release-once)) (format "~a is not wrapped by release-once" release)]
     [(not (match argument-types
             [(list type) (eq? (hash-ref handle-allocators type #f) allocator)]
             [_ #f]))
@@ -84,7 +85,8 @@
   (define by-name
     (for/hasheq ([b (in-list bindings)])
       (values (binding-name b) b)))
-  (filter-map (match-lambda [(cons allocator release) (release-problem by-name allocator release)])
+  (filter-map (match-lambda
+                [(cons allocator release) (release-problem by-name allocator release)])
               pairs))
 
 (define (collect wanted? datum)
@@ -94,14 +96,16 @@
     [_ '()]))
 
 (define (allocator-pairs modules)
-  (map (match-lambda [(list _ name (list _ release)) (cons name release)])
+  (map (match-lambda
+         [(list _ name (list _ release)) (cons name release)])
        (collect (match-lambda
                   [(list 'define (? symbol?) (list 'allocator (? symbol?))) #t]
                   [_ #f])
                 modules)))
 
 (define (cpointer-types modules)
-  (map (match-lambda [(list* _ type _) type])
+  (map (match-lambda
+         [(list* _ type _) type])
        (collect (match-lambda
                   [(list* 'define-cpointer-type _ _) #t]
                   [_ #f])

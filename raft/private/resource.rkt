@@ -15,13 +15,13 @@
 ;; extent never runs it, so the resource's finalizer stays the backstop.
 (define-syntax-parser with-release
   [(_ () body:expr ...+)
-   #'(let () body ...)]
+   #'(let ()
+       body ...)]
   [(_ (b:release-binding more:release-binding ...) body:expr ...+)
    #'(let ([held #f])
-       (dynamic-wind
-        (lambda () (set! held b.acquire))
-        (lambda () (let ([b.name held]) (with-release (more ...) body ...)))
-        (lambda ()
-          (when held
-            (b.release held)
-            (set! held #f)))))])
+       (dynamic-wind (lambda () (set! held b.acquire))
+                     (lambda () (let ([b.name held]) (with-release (more ...) body ...)))
+                     (lambda ()
+                       (when held
+                         (b.release held)
+                         (set! held #f)))))])

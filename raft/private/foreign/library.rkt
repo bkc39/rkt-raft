@@ -21,29 +21,29 @@
 ;; ffi-lib reports a missing file and a failed dlopen of a dependency alike.
 (define (native-library-error staged where loader-message)
   (if staged
-      (format "libraftrkt is staged but would not load\n  found in: ~a\n  the loader said: ~a\n  check that a CUDA 13 driver is installed and LD_LIBRARY_PATH holds no other CUDA"
-              where loader-message)
+      (format
+       "libraftrkt is staged but would not load\n  found in: ~a\n  the loader said: ~a\n  check that a CUDA 13 driver is installed and LD_LIBRARY_PATH holds no other CUDA"
+       where
+       loader-message)
       (format "libraftrkt is not staged\n  looked in: ~a\n  ~a" where not-staged-advice)))
 
 (define native-library
-  (with-handlers ([exn:fail?
-                   (lambda (e)
-                     (error 'raft "~a"
-                            (native-library-error (staged? native-libs-dir)
-                                                  (simplify-path native-libs-dir)
-                                                  (exn-message e))))])
+  (with-handlers ([exn:fail? (lambda (e)
+                               (error 'raft
+                                      "~a"
+                                      (native-library-error (staged? native-libs-dir)
+                                                            (simplify-path native-libs-dir)
+                                                            (exn-message e))))])
     (ffi-lib (build-path native-libs-dir "libraftrkt"))))
 
-(define-ffi-definer define-raft native-library
-  #:make-c-id convention:hyphen->underscore)
+(define-ffi-definer define-raft native-library #:make-c-id convention:hyphen->underscore)
 
 (define released-tag 'rr-released)
 
 (define ((refuse-released what) handle)
   (when (and handle (cpointer? handle) (cpointer-has-tag? handle released-tag))
-    (raise (exn:fail:raft (format "~a: used after its release" what)
-                          (current-continuation-marks)
-                          'logic)))
+    (raise
+     (exn:fail:raft (format "~a: used after its release" what) (current-continuation-marks) 'logic)))
   handle)
 
 (define-cpointer-type _rr-resources #f (refuse-released 'rr-resources) #f)

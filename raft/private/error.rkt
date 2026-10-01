@@ -17,7 +17,4 @@
        (if result
            (values result #f #f)
            (values #f (bytes->string/utf-8 (rr-last-error) #\uFFFD) (rr-last-error-kind))))))
-  (or result
-      (raise (exn:fail:raft (format "~a: ~a" who message)
-                            (current-continuation-marks)
-                            kind))))
+  (or result (raise (exn:fail:raft (format "~a: ~a" who message) (current-continuation-marks) kind))))

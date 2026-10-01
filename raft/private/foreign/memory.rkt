@@ -16,11 +16,10 @@
 ;; other use raises exn:fail:raft before reaching freed memory. A handle of the
 ;; wrong type fails its type's tag check here, before the finalizer is dropped.
 (define (release-once release-native)
-  ((deallocator)
-   (lambda (handle)
-     (unless (cpointer-has-tag? handle released-tag)
-       (release-native handle)
-       (set-cpointer-tag! handle released-tag)))))
+  ((deallocator) (lambda (handle)
+                   (unless (cpointer-has-tag? handle released-tag)
+                     (release-native handle)
+                     (set-cpointer-tag! handle released-tag)))))
 
 (define-raft rr-resources-free
   (_fun _rr-resources -> _void)

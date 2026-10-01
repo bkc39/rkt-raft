@@ -40,6 +40,7 @@
 
 (test-twin "the round trip matches pylibraft's device_ndarray"
   (define twin-result (run-twin twin (hasheq 'values values-in)))
-  (check-equal? (hash-ref twin-result 'version) (raft-version)
+  (check-equal? (hash-ref twin-result 'version)
+                (raft-version)
                 "the twin runs the RAPIDS release the shim links")
   (check-close (round-trip values-in) (hash-ref twin-result 'values)))

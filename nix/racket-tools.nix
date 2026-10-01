@@ -1,13 +1,25 @@
 # raco fmt and raco review from the package catalog, captured as unpacked
 # source trees by a fixed-output derivation so sandboxed checks install them
 # offline. Bump outputHash when the catalog's fmt or review moves.
-{ lib, stdenv, stdenvNoCC, racket, cacert, unzip, makeWrapper }:
+{
+  lib,
+  stdenv,
+  stdenvNoCC,
+  racket,
+  cacert,
+  unzip,
+  makeWrapper,
+}:
 
 let
   sources = stdenvNoCC.mkDerivation {
     name = "rkt-raft-racket-tool-sources";
     dontUnpack = true;
-    nativeBuildInputs = [ racket cacert unzip ];
+    nativeBuildInputs = [
+      racket
+      cacert
+      unzip
+    ];
     buildPhase = ''
       runHook preBuild
       export HOME=$TMPDIR/home
@@ -35,7 +47,10 @@ in
 stdenv.mkDerivation {
   name = "rkt-raft-racket-tools";
   dontUnpack = true;
-  nativeBuildInputs = [ racket makeWrapper ];
+  nativeBuildInputs = [
+    racket
+    makeWrapper
+  ];
   buildPhase = ''
     runHook preBuild
     export HOME=$TMPDIR/home

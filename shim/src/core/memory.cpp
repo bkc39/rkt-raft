@@ -1,8 +1,9 @@
+#include "raftrkt/memory.h"
+
 #include <atomic>
 #include <cstdint>
 
 #include "detail/handles.hpp"
-#include "raftrkt/memory.h"
 
 namespace rr {
 

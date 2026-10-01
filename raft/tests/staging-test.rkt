@@ -13,42 +13,41 @@
     (proc src (build-path root "dst"))))
 
 (define (write-lib! dir contents)
-  (call-with-output-file (build-path dir "libraftrkt.so") #:exists 'truncate
-    (lambda (out) (write-bytes contents out))))
+  (call-with-output-file (build-path dir "libraftrkt.so")
+                         #:exists 'truncate
+                         (lambda (out) (write-bytes contents out))))
 
 (test-case "staging copies the library and nothing else"
-  (call-with-dirs
-   (lambda (src dst)
-     (write-lib! src #"v1")
-     (call-with-output-file (build-path src "README") (lambda (out) (write-string "x" out)))
-     (check-false (staged? dst))
-     (stage-native-libs! src dst)
-     (check-true (staged? dst))
-     (check-equal? (map path->string (directory-list dst)) '("libraftrkt.so"))
-     (check-equal? (file->bytes (build-path dst "libraftrkt.so")) #"v1"))))
+  (call-with-dirs (lambda (src dst)
+                    (write-lib! src #"v1")
+                    (call-with-output-file (build-path src "README")
+                                           (lambda (out) (write-string "x" out)))
+                    (check-false (staged? dst))
+                    (stage-native-libs! src dst)
+                    (check-true (staged? dst))
+                    (check-equal? (map path->string (directory-list dst)) '("libraftrkt.so"))
+                    (check-equal? (file->bytes (build-path dst "libraftrkt.so")) #"v1"))))
 
 (test-case "identical bytes are left in place"
-  (call-with-dirs
-   (lambda (src dst)
-     (write-lib! src #"v1")
-     (stage-native-libs! src dst)
-     (define staged (build-path dst "libraftrkt.so"))
-     (define before (file-or-directory-identity staged))
-     (stage-native-libs! src dst)
-     (check-equal? (file-or-directory-identity staged) before))))
+  (call-with-dirs (lambda (src dst)
+                    (write-lib! src #"v1")
+                    (stage-native-libs! src dst)
+                    (define staged (build-path dst "libraftrkt.so"))
+                    (define before (file-or-directory-identity staged))
+                    (stage-native-libs! src dst)
+                    (check-equal? (file-or-directory-identity staged) before))))
 
 (test-case "new bytes arrive by rename, never by rewriting the old file"
-  (call-with-dirs
-   (lambda (src dst)
-     (write-lib! src #"v1")
-     (stage-native-libs! src dst)
-     (define staged (build-path dst "libraftrkt.so"))
-     (define before (file-or-directory-identity staged))
-     (write-lib! src #"v2")
-     (stage-native-libs! src dst)
-     (check-equal? (file->bytes staged) #"v2")
-     (check-false (equal? (file-or-directory-identity staged) before))
-     (check-equal? (map path->string (directory-list dst)) '("libraftrkt.so")))))
+  (call-with-dirs (lambda (src dst)
+                    (write-lib! src #"v1")
+                    (stage-native-libs! src dst)
+                    (define staged (build-path dst "libraftrkt.so"))
+                    (define before (file-or-directory-identity staged))
+                    (write-lib! src #"v2")
+                    (stage-native-libs! src dst)
+                    (check-equal? (file->bytes staged) #"v2")
+                    (check-false (equal? (file-or-directory-identity staged) before))
+                    (check-equal? (map path->string (directory-list dst)) '("libraftrkt.so")))))
 
 (test-case "the two load failures read differently"
   (define absent (native-library-error #f "/x/native-libs" "ignored"))
