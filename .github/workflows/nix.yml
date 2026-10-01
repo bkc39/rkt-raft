@@ -1,0 +1,61 @@
+name: Nix checks
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  lint:
+    name: Format and lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/nix-cache
+        with:
+          ts-oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          ts-oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+      - name: treefmt (formatters, shellcheck, actionlint, ruff), raco review, grep gates
+        run: >-
+          nix build --keep-going --print-build-logs
+          .#checks.x86_64-linux.formatting
+          .#checks.x86_64-linux.racket-review
+          .#checks.x86_64-linux.no-syntax-rule
+          .#checks.x86_64-linux.no-raw-malloc
+          .#checks.x86_64-linux.line-count
+          .#checks.x86_64-linux.racket-version
+
+  check:
+    name: nix flake check
+    runs-on: ubuntu-latest
+    steps:
+      # The CUDA 13 redistributables are unfree, so no public cache has them
+      # and they unpack on the runner.
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+            /opt/hostedtoolcache/CodeQL
+          df -h /
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/nix-cache
+        with:
+          ts-oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          ts-oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+      - name: Build, test, sanitize and lint (GPU cases print SKIP)
+        run: nix flake check --keep-going --print-build-logs
+
+  resyntax:
+    name: Resyntax lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: ./.github/actions/nix-cache
+        with:
+          ts-oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          ts-oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+      - name: Resyntax lint (default rules)
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.sha || 'origin/master' }}
+        run: nix develop .#ci --command scripts/resyntax.sh "$BASE_REF"
