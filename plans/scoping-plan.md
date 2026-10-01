@@ -665,7 +665,7 @@ Move the pin to 26.10 (`cuda::stream_ref`). Then deliver exactly what cuML work 
 
 Done when M1's six exit criteria pass.
 
-M1 · cuML-ready Reached when the exit criteria pass. rkt-cuml starts here and runs alongside everything below.
+**M1 · cuML-ready.** Reached when the exit criteria pass. rkt-cuml starts here and runs alongside everything below.
 
 ### Arc A, part 2: the rest of the foundation, alongside rkt-cuml
 
@@ -840,27 +840,27 @@ cuML deleted its C API in April 2026 (NVIDIA/cuml#8011, shipped in 26.06), so rk
 
 Each has a recommendation. Leg 0 can start once 1 to 4 are settled, and decision 11 is needed during leg 1; the rest can wait until the leg they affect.
 
-1.  **Repo and package name.** Recommendrepo `rkt-raft`, with one package and one collection named `raft`, matching rkt-polars and keeping to one manual.
+1.  **Repo and package name.** **Recommend:** repo `rkt-raft`, with one package and one collection named `raft`, matching rkt-polars and keeping to one manual.
 
-2.  **RAPIDS pin.** Recommendbuilding leg 0 on the 26.08 wheels and moving to 26.10 at the start of leg 1, once it is tagged. 26.10 changes the stream type that the core API is built on.
+2.  **RAPIDS pin.** **Recommend:** building leg 0 on the 26.08 wheels and moving to 26.10 at the start of leg 1, once it is tagged. 26.10 changes the stream type that the core API is built on.
 
-3.  **CUDA major version.** Recommend13 only, which matches rktorch's cu130 and your 580 driver. Supporting 12 as well doubles the wheel and twin matrix.
+3.  **CUDA major version.** **Recommend:** 13 only, which matches rktorch's cu130 and your 580 driver. Supporting 12 as well doubles the wheel and twin matrix.
 
-4.  **GPU CI.** Recommenda self-hosted GitHub runner on the lab host, used only for your PRs. The alternative is a local pre-push GPU gate with committed results bundles.
+4.  **GPU CI.** **Recommend:** a self-hosted GitHub runner on the lab host, used only for your PRs. The alternative is a local pre-push GPU gate with committed results bundles.
 
 5.  **Module list.** Do you accept dropping `raft/distance` and `raft/neighbors` (they go to a later rkt-cuvs) and adding `raft/matrix`, `raft/solver` and `raft/label`?
 
-6.  **A shared array protocol.** rktorch already exports `shape`, `dtype` and `numel`, and raft wants the same names. Recommenda small shared package: the DLPack structs plus a generic interface for shape, dtype, device and `->dlpack`. rktorch, raft and later rkt-cuml would implement it, so `(require torch raft)` does not collide and interop is a single protocol. The alternative is that raft uses only long names such as `array-shape`.
+6.  **A shared array protocol.** rktorch already exports `shape`, `dtype` and `numel`, and raft wants the same names. **Recommend:** a small shared package: the DLPack structs plus a generic interface for shape, dtype, device and `->dlpack`. rktorch, raft and later rkt-cuml would implement it, so `(require torch raft)` does not collide and interop is a single protocol. The alternative is that raft uses only long names such as `array-shape`.
 
-7.  **Default memory resource.** RecommendCUDA's async resource, which can be trimmed after an OOM, over RMM's pool.
+7.  **Default memory resource.** **Recommend:** CUDA's async resource, which can be trimmed after an OOM, over RMM's pool.
 
-8.  **Sync policy.** Recommendasynchronous ops that synchronize at host reads, documented as a departure from pylibraft's `auto_sync_handle`.
+8.  **Sync policy.** **Recommend:** asynchronous ops that synchronize at host reads, documented as a departure from pylibraft's `auto_sync_handle`.
 
 9.  **Scoreboard workload.** Is the GPU statistics notebook (PCA, select_k and spectral embedding on a real dataset) the right acceptance test, or do you have a notebook in mind, as nycflights was for rkt-polars?
 
 10. **CuPy as the main twin.** Is it OK to add `cupy-cuda13x` to the twin environment?
 
-11. **Where the k-means canary lives.** Recommendraft's repo, under `downstream/kmeans-canary/`, run on the GPU runner only. It then guards the frozen interface on every raft change, at the cost of pulling `libcuml` into raft's GPU test closure. The alternative is to keep it only in rkt-cuml, which finds interface breaks one step later.
+11. **Where the k-means canary lives.** **Recommend:** raft's repo, under `downstream/kmeans-canary/`, run on the GPU runner only. It then guards the frozen interface on every raft change, at the cost of pulling `libcuml` into raft's GPU test closure. The alternative is to keep it only in rkt-cuml, which finds interface breaks one step later.
 
 **Sources read:** RAFT `release/26.10` at f3b5d0f and the v26.08.00 wheels (`libraft-cu13`, `librmm-cu13`, `rapids-logger`); cuML `release/26.10` at 7daaa4d; cuVS `release/26.10` at 5d501a5; rktorch `origin/master` 9d1437f; rkt-polars `origin/master` 0aa75c3.
 
