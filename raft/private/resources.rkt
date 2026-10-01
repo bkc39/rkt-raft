@@ -5,8 +5,8 @@
                      syntax/parse)
          (only-in racket/math exact-ceiling)
          (only-in "error.rkt" call/raft raise-raft)
-         (only-in "foreign/core.rkt" rr-device-count rr-resources-create rr-resources-ready)
-         (only-in "foreign/internal.rkt" rr-memory-resource-kind)
+         (only-in "foreign/core.rkt" rr-device-count rr-resources-create)
+         (only-in "foreign/internal.rkt" rr-memory-resource-kind rr-resources-ready)
          (only-in "foreign/memory.rkt" released? rr-resources-free)
          (only-in "resource.rkt" with-release)
          ;; whole-module: its syntax classes come with it

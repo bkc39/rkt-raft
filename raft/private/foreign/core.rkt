@@ -19,7 +19,6 @@
          rr-last-error
          rr-last-error-kind
          rr-resources-create
-         rr-resources-ready
          rr-resources-sync
          rr-version)
 
@@ -62,8 +61,3 @@
 
 (define-raft rr-resources-sync
   (_fun _rr-resources -> (status : _int) -> (zero? status)))
-
-(define-raft rr-resources-ready
-  (_fun _rr-resources (out : (_ptr o _int32))
-        -> (status : _int)
-        -> (and (zero? status) (if (zero? out) 'pending 'ready))))

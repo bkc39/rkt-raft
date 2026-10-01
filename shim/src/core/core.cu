@@ -9,6 +9,7 @@
 
 #include "detail/error.hpp"
 #include "detail/handles.hpp"
+#include "detail/internal_api.h"
 #include "detail/memory_resource.hpp"
 #include "raftrkt/core.h"
 
@@ -90,8 +91,6 @@ int rr_resources_ready(rr_resources* resources, int32_t* out) {
     const rr::device_guard guard{r.device};
     const cudaError_t status =
         cudaStreamQuery(raft::resource::get_cuda_stream(*r.handle));
-    // Cleared as PyTorch does, so no later peek-style check (RAFT's
-    // RAFT_CHECK_CUDA) can report a pending stream as a failure.
     if (status == cudaErrorNotReady) {
       static_cast<void>(cudaGetLastError());
       return;

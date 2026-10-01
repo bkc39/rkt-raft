@@ -41,8 +41,6 @@ rr_resources* create_or_null() {
   return rr_resources_create(0, &r) == RR_OK ? r : nullptr;
 }
 
-// Each case runs in a fresh process: which resources come first on a device
-// is process-wide state.
 int first_use_installs_the_async_pool() {
   if (current_kind() != rr::memory_resource_cuda) {
     return 1;

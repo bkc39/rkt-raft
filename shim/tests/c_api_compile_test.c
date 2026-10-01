@@ -13,7 +13,6 @@ void raftrkt_c_api_compile_check(void) {
   int (*device_count)(int32_t*) = rr_device_count;
   int (*resources_create)(int32_t, rr_resources**) = rr_resources_create;
   int (*resources_sync)(rr_resources*) = rr_resources_sync;
-  int (*resources_ready)(rr_resources*, int32_t*) = rr_resources_ready;
   void (*resources_free)(rr_resources*) = rr_resources_free;
   void (*buffer_free)(rr_buffer*) = rr_buffer_free;
   uint64_t (*resources_drop_count)(void) = rr_resources_drop_count;
@@ -30,7 +29,6 @@ void raftrkt_c_api_compile_check(void) {
   (void)device_count;
   (void)resources_create;
   (void)resources_sync;
-  (void)resources_ready;
   (void)resources_free;
   (void)buffer_free;
   (void)resources_drop_count;

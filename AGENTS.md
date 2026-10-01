@@ -178,6 +178,12 @@ plans/scoping-plan.html       the approved plan, byte for byte
   to whichever OS thread a finalizer ran on.
 - `rr_resources_ready` queries the stream without blocking
   (`cudaStreamQuery`); Racket's `resources-sync!` polls it.
+- **Internal entry points.** `rr_resources_ready` and
+  `rr_memory_resource_kind` are exported for raft's own Racket code and
+  tests, but declared only in `src/detail/internal_api.h` and bound in
+  `private/foreign/internal.rkt`. They are not part of the downstream
+  interface L1d freezes; L2's stream API (`rr_stream_query`) may replace
+  the first.
   `rr_resources_sync` blocks and stays for C callers and the gtests.
 - **The default memory resource.** `rr_resources_create` calls
   `rr::install_default_memory_resource` (`src/core/memory_resource.cpp`)
@@ -189,10 +195,12 @@ plans/scoping-plan.html       the approved plan, byte for byte
   (`cudaDevAttrMemoryPoolsSupported`, checked first, since constructing the
   pool there throws); nothing is installed again after that first visit. If
   another library sets a resource between the check and the swap, the
-  previous resource `set_per_device_resource` returns is put back.
+  previous resource `set_per_device_resource` returns is put back. That is
+  best effort: the put-back is itself an unlocked write, so a third library
+  setting a resource in that instant would be overwritten. It is never
+  unsafe, because every allocation holds its resource by value.
   `rr_memory_resource_kind` reads the registry back (`cuda`, `cuda-async`,
-  `other`) for the tests; it is declared in `src/detail/memory_resource.hpp`,
-  not in the public headers, and bound in `private/foreign/internal.rkt`.
+  `other`) for the tests.
 - `src/detail/device.{hpp,cpp}`: `device_guard` and `require_device`, host
   code that needs no RAFT header.
 - `rr_buffer` holds that same `shared_ptr`, its device and an
