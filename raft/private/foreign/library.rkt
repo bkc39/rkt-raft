@@ -3,17 +3,17 @@
 (require (only-in ffi/unsafe cpointer-has-tag? cpointer? define-cpointer-type ffi-lib)
          (only-in ffi/unsafe/define define-ffi-definer)
          (only-in ffi/unsafe/define/conventions convention:hyphen->underscore)
-         (only-in "../exn.rkt" exn:fail:raft)
-         (only-in "../install-native.rkt" not-staged-advice staged?)
          ;; whole-module: define-runtime-path needs bindings only-in strips
-         racket/runtime-path)
+         racket/runtime-path
+         (only-in "../exn.rkt" exn:fail:raft)
+         (only-in "../install-native.rkt" not-staged-advice staged?))
 
 (provide define-raft
          native-library-error
          _rr-buffer
-         _rr-buffer/null
+         _rr-buffer/null ;; noqa
          _rr-resources
-         _rr-resources/null
+         _rr-resources/null ;; noqa
          released-tag)
 
 (define-runtime-path native-libs-dir "../../native-libs")

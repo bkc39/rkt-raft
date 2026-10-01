@@ -30,12 +30,12 @@
 (define (missing-from present wanted)
   (sort (remove* present wanted) string<?))
 
-(module+ main
+(define (main)
   (define digest (call-with-input-file library sha256-bytes))
   (printf "libraftrkt: ~a (sha256 ~a)\n" library (substring (bytes->hex-string digest) 0 16))
   (define bound (map binding-c-id (foreign-bindings)))
   (define duplicates
-    (filter-map (match-lambda [(list id _ _ ...) id] [_ #f])
+    (filter-map (match-lambda [(list* id _ _) id] [_ #f])
                 (group-by values bound)))
   (define exported (exports library))
   (define unbound (missing-from bound exported))
@@ -49,3 +49,6 @@
   (printf "~a exports, ~a bindings\n" (length exported) (length bound))
   (unless (and (null? unbound) (null? missing) (null? duplicates))
     (exit 1)))
+
+(module+ main
+  (main))

@@ -92,9 +92,10 @@ TEST(BufferArguments, NullArgumentsAreLogicErrors) {
   EXPECT_EQ(rr_buffer_alloc(nullptr, 8, &b), RR_ERROR);
   EXPECT_EQ(rr_last_error_kind(), RR_ERROR_LOGIC);
   EXPECT_EQ(std::string(rr_last_error()), "rr_buffer_alloc: resources is NULL");
-  EXPECT_EQ(rr_copy_h2d(nullptr, &b, 8), RR_ERROR);
+  double host = 0.0;
+  EXPECT_EQ(rr_copy_h2d(nullptr, &host, sizeof host), RR_ERROR);
   EXPECT_EQ(rr_last_error_kind(), RR_ERROR_LOGIC);
-  EXPECT_EQ(rr_copy_d2h(&b, nullptr, 8), RR_ERROR);
+  EXPECT_EQ(rr_copy_d2h(&host, nullptr, sizeof host), RR_ERROR);
   EXPECT_EQ(rr_last_error_kind(), RR_ERROR_LOGIC);
 }
 

@@ -6,10 +6,10 @@
          (only-in racket/port open-output-nowhere)
          (only-in racket/system system*)
          (only-in rackunit check-equal? check-true)
-         (only-in "../../private/resource.rkt" with-release)
-         (only-in "gpu.rkt" gpu-skip test-unless-skipped)
          ;; whole-module: its syntax classes come with it
-         syntax/parse/define)
+         syntax/parse/define
+         (only-in "../../private/resource.rkt" with-release)
+         (only-in "gpu.rkt" gpu-skip test-unless-skipped))
 
 (provide check-close
          close?
@@ -43,7 +43,7 @@
                          [current-error-port (open-output-nowhere)])
             (system* python "-c" (format "import ~a" module)))))))
 
-(define twin-skip
+(define twin-skip ;; noqa
   (or gpu-skip
       (cond
         [(not python) "no Python twin (python3 is not on PATH)"]

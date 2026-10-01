@@ -1,6 +1,11 @@
 #lang racket/base
 
-(require (only-in racket/sandbox
+(require (for-label raft
+                    racket/base
+                    racket/format
+                    racket/match
+                    racket/string)
+         (only-in racket/sandbox
                   sandbox-error-output
                   sandbox-eval-limits
                   sandbox-memory-limit
@@ -10,12 +15,7 @@
          (only-in scribble/core color-property style)
          ;; whole-module: both are re-exported to every chapter
          scribble/example
-         scribble/manual
-         (for-label raft
-                    racket/base
-                    racket/format
-                    racket/match
-                    racket/string))
+         scribble/manual)
 
 (provide (all-from-out scribble/example)
          (all-from-out scribble/manual)

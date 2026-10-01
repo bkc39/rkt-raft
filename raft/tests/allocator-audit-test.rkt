@@ -1,7 +1,9 @@
 #lang racket/base
 
 (require (only-in racket/list append-map filter-map remove-duplicates splitf-at)
-         (only-in racket/match match match-lambda)
+         (only-in racket/match match match-define match-lambda)
+         ;; whole-module: define-runtime-path needs bindings only-in strips
+         racket/runtime-path
          (only-in rackunit check-equal? check-true test-case)
          (only-in "private/bindings.rkt"
                   binding-name
@@ -10,6 +12,8 @@
                   bindings-in
                   foreign-bindings
                   foreign-modules))
+
+(define-runtime-path case-file "fixtures/audit-cases.rktd")
 
 (define handle-allocators
   (hasheq '_rr-resources 'resources-allocator
@@ -24,7 +28,7 @@
 
 (define (output-type part)
   (match (strip-name part)
-    [(list (or '_ptr '_list '_vector) (or 'o 'io) type _ ...) type]
+    [(list* (or '_ptr '_list '_vector) (or 'o 'io) type _) type]
     [(list '_box type) type]
     [_ #f]))
 
@@ -37,8 +41,8 @@
   (match (binding-signature b)
     [(list* '_fun parts)
      (define-values (arguments after) (splitf-at parts (lambda (p) (not (eq? p '->)))))
-     (match after
-       [(list* '-> result _) (values (map strip-name arguments) (strip-name result) arguments)])]
+     (match-define (list* '-> result _) after)
+     (values (map strip-name arguments) (strip-name result) arguments)]
     [_ (values #f #f #f)]))
 
 (define (binding-violations b)
@@ -122,45 +126,15 @@
     (define nullable (string->symbol (format "~a/null" type)))
     (check-true (hash-has-key? handle-allocators nullable) (format "~a" nullable))))
 
-(define (violations-of form)
-  (append-map binding-violations (bindings-in form)))
+(define cases (call-with-input-file case-file read))
 
 (test-case "the binding audit rejects what it is meant to"
-  (check-equal? (violations-of '(define-raft f (_fun -> _pointer)))
-                '("f returns a bare _pointer"))
-  (check-equal? (violations-of '(define-raft g (_fun (out : (_ptr o _pointer)) -> _int)))
-                '("g returns a bare _pointer"))
-  (check-equal? (violations-of '(define-raft h (_fun _size -> _rr-buffer/null)))
-                '("h returns _rr-buffer/null without #:wrap buffer-allocator"))
-  (check-equal? (violations-of '(define-raft i (_fun (out : (_ptr io _rr-buffer/null)) -> _int)))
-                '("i returns _rr-buffer/null without #:wrap buffer-allocator"))
-  (check-equal? (violations-of '(define-raft j (_fun (_box _rr-resources/null) -> _int)))
-                '("j returns _rr-resources/null without #:wrap resources-allocator"))
-  (check-equal? (violations-of '(define-raft k
-                                  (_fun (out : (_ptr o _rr-resources/null))
-                                        -> (status : _int)
-                                        -> (and (zero? status) out))
-                                  #:wrap buffer-allocator))
-                '("k returns _rr-resources/null without #:wrap resources-allocator"))
-  (check-equal? (violations-of '(define-raft m some-ctype))
-                '("m: the signature is not a literal _fun"))
-  (check-equal? (violations-of '(define-raft n (_fun _rr-buffer _pointer _size -> _int)))
-                '("n takes a bare _pointer"))
-  (check-equal? (violations-of '(define-raft ok
-                                  (_fun (out : (_ptr o _rr-buffer/null))
-                                        -> (status : _int)
-                                        -> (and (zero? status) out))
-                                  #:wrap buffer-allocator))
-                '()))
+  (for ([example (in-list (hash-ref cases 'bindings))])
+    (match-define (list form expected) example)
+    (check-equal? (append-map binding-violations (bindings-in form)) expected (format "~s" form))))
 
 (test-case "the release audit rejects what it is meant to"
-  (define releases
-    (bindings-in '((define-raft free-r (_fun _rr-resources -> _void) #:wrap release-once)
-                   (define-raft free-b (_fun _rr-buffer -> _void) #:wrap (deallocator)))))
-  (check-equal? (release-violations releases '((resources-allocator . free-r))) '())
-  (check-equal? (release-violations releases '((buffer-allocator . free-r)))
-                '("buffer-allocator releases through free-r, which takes (_rr-resources)"))
-  (check-equal? (release-violations releases '((buffer-allocator . free-b)))
-                '("free-b is not wrapped by release-once"))
-  (check-equal? (release-violations releases '((buffer-allocator . gone)))
-                '("buffer-allocator releases through gone, which is not a binding")))
+  (define releases (bindings-in (hash-ref cases 'release-bindings)))
+  (for ([example (in-list (hash-ref cases 'releases))])
+    (match-define (list pairs expected) example)
+    (check-equal? (release-violations releases pairs) expected (format "~s" pairs))))

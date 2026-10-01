@@ -6,6 +6,25 @@ on:
   pull_request:
 
 jobs:
+  lint:
+    name: Format and lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/nix-cache
+        with:
+          ts-oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          ts-oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+      - name: treefmt (formatters, shellcheck, actionlint, ruff), raco review, grep gates
+        run: >-
+          nix build --keep-going --print-build-logs
+          .#checks.x86_64-linux.formatting
+          .#checks.x86_64-linux.racket-review
+          .#checks.x86_64-linux.no-syntax-rule
+          .#checks.x86_64-linux.no-raw-malloc
+          .#checks.x86_64-linux.line-count
+          .#checks.x86_64-linux.racket-version
+
   check:
     name: nix flake check
     runs-on: ubuntu-latest
@@ -17,42 +36,26 @@ jobs:
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
             /opt/hostedtoolcache/CodeQL
           df -h /
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: ./.github/actions/nix-cache
         with:
           ts-oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
           ts-oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
-      - name: Build, test and lint (GPU cases print SKIP)
+      - name: Build, test, sanitize and lint (GPU cases print SKIP)
         run: nix flake check --keep-going --print-build-logs
 
   resyntax:
     name: Resyntax lint
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - uses: ./.github/actions/nix-cache
         with:
           ts-oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
           ts-oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
-      - name: Resyntax lint
+      - name: Resyntax lint (default rules)
         env:
           BASE_REF: ${{ github.event.pull_request.base.sha || 'origin/master' }}
-        run: |
-          nix develop .#ci --command bash -c '
-            set -euo pipefail
-            rc=0
-            out=$(resyntax analyze --local-git-repository . "$BASE_REF" \
-                    --analyzer-timeout 30000 2>&1) || rc=$?
-            echo "$out"
-            if [ "$rc" -ne 0 ]; then
-              echo "::error::Resyntax exited $rc without completing the analysis."
-              exit 1
-            fi
-            if echo "$out" | grep -qE "resyntax: .*\.rkt:[0-9]+:[0-9]+ \["; then
-              echo "::error::Resyntax found refactoring suggestions. Run: resyntax fix --local-git-repository . $BASE_REF"
-              exit 1
-            fi
-            echo "Resyntax: no suggestions."
-          '
+        run: nix develop .#ci --command scripts/resyntax.sh "$BASE_REF"

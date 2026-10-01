@@ -1,6 +1,8 @@
 #lang racket/base
 
 (require (only-in ffi/vector f64vector->list list->f64vector)
+         ;; whole-module: define-runtime-path needs bindings only-in strips
+         racket/runtime-path
          (only-in rackunit check-equal? check-true)
          (only-in "../main.rkt" raft-version)
          (only-in "../private/error.rkt" call/raft)
@@ -9,9 +11,7 @@
          (only-in "../private/resource.rkt" with-release)
          (only-in "private/gpu.rkt" test-gpu)
          (only-in "private/native.rkt" copy-in! copy-out new-buffer new-resources)
-         (only-in "private/python-env.rkt" check-close run-twin test-twin)
-         ;; whole-module: define-runtime-path needs bindings only-in strips
-         racket/runtime-path)
+         (only-in "private/python-env.rkt" check-close run-twin test-twin))
 
 (define-runtime-path twin "python/round_trip.py")
 

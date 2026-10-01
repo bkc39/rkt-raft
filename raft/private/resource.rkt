@@ -1,9 +1,7 @@
 #lang racket/base
 
-(require (for-syntax racket/base
-                     ;; whole-module: syntax-parse needs its syntax classes
-                     syntax/parse)
-         ;; whole-module: its syntax classes come with it
+(require (for-syntax racket/base)
+         ;; whole-module: it also provides syntax/parse at phase 1
          syntax/parse/define)
 
 (provide with-release)

@@ -29,7 +29,7 @@ runs:
         timeout: 60s
       continue-on-error: true
 
-    - uses: DeterminateSystems/nix-installer-action@v22
+    - uses: DeterminateSystems/nix-installer-action@v23
       with:
         extra-conf: |
           extra-substituters = https://lab.tailb6061b.ts.net
@@ -38,4 +38,4 @@ runs:
           stalled-download-timeout = 20
           fallback = true
 
-    - uses: DeterminateSystems/magic-nix-cache-action@v13
+    - uses: DeterminateSystems/magic-nix-cache-action@v15

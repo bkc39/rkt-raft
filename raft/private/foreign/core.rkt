@@ -14,7 +14,7 @@
          (only-in "memory.rkt" resources-allocator))
 
 (provide rr-abi
-         rr-abi-tag->list
+         rr-abi-tag->list ;; noqa
          rr-device-count
          rr-last-error
          rr-last-error-kind

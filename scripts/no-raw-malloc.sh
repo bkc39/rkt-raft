@@ -6,7 +6,7 @@ cd "$(dirname "${BASH_SOURCE[0]}")/.."
 allowed=raft/private/resource.rkt
 pattern='\((malloc|free)([[:space:]]|\)|$)'
 
-hits=$(grep -rnE --include='*.rkt' --include='*.scrbl' "$pattern" raft scripts \
+hits=$(grep -rnE --include='*.rkt' --include='*.scrbl' "$pattern" lint raft scripts \
          | grep -v "^$allowed:" || true)
 
 if [ -n "$hits" ]; then

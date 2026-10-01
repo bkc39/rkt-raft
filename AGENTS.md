@@ -21,9 +21,9 @@ Parity, §10 Build and §12 Starting cuML work before changing the design.
 - **Package.** One package and one collection, `raft` (the `raft/`
   directory), one manual. Apache-2.0.
 - **Status.** Milestone M1 "cuML-ready" (epic #1) is in progress. Leg 0 (#2)
-  landed the scaffold: the flake, the wheels, the `nvcc` shim, the FFI layer,
-  the gates, CI and the manual skeleton. Its public surface is `raft-version`
-  and `raft-abi`.
+  landed the scaffold: the flake, the wheels, the shim, the FFI layer, the
+  gates, the formatting and lint toolchain, CI and the manual skeleton. Its
+  public surface is `raft-version` and `raft-abi`.
 
 ## Layout
 
@@ -31,9 +31,13 @@ Parity, §10 Build and §12 Starting cuML work before changing the design.
 flake.nix  flake.lock         one system: x86_64-linux
 nix/rapids.nix                the RAPIDS wheels as one patched prefix (packages.rapids)
 nix/python-twins.nix          pylibraft, rmm, CuPy, cuda-bindings wheels for the twins
-shim/                         libraftrkt: CUDA C++20 built with nvcc
+nix/treefmt.nix               what `nix fmt` runs: formatters and linters
+nix/racket-tools.nix          raco fmt and raco review, pinned as a fixed-output derivation
+.fmt.rkt                      raco fmt's layout rules for this repository's own forms
+lint/                         raft-lint: the raco review extension for the test macros
+shim/                         libraftrkt: C++20 over RAFT's headers (CMake, g++; nvcc for .cu)
   include/raftrkt/            C headers: core.h memory.h array.h, umbrella c_api.h
-  src/{core,array,detail}/    .cu for anything that includes RAFT, .cpp for host-only code
+  src/{core,array,detail}/    host C++ (.cpp); a .cu only for code that launches kernels
   tests/                      gtest; GPU cases print SKIP without a device
 raft/                         the Racket package and collection
   main.rkt core.rkt           the public surface
@@ -74,16 +78,21 @@ plans/scoping-plan.html       the approved plan, byte for byte
    use `make-do-sequence`. The short getters `shape`, `dtype`, `layout`
    collide with rktorch's; accepted for M1 (#8).
 6. **Macros.** `define-syntax-parse-rule`, or `define-syntax-parser` for
-   several clauses, with a syntax class on every pattern variable. Never
-   `define-syntax-rule` or `syntax-rules`: `scripts/no-syntax-rule.sh` gates it.
+   several clauses (Resyntax rewrites a single-clause parser into a parse
+   rule), with a syntax class on every pattern variable. Never
+   `define-syntax-rule` or `syntax-rules`: `scripts/no-syntax-rule.sh` gates
+   it.
 7. **Scoped native resources** go through `with-*` forms that expand into
    `dynamic-wind` (`raft/private/resource.rkt`), with the finalizer as the
    backstop. No raw `malloc`/`free` outside that module:
    `scripts/no-raw-malloc.sh` gates it.
-8. **Imports and size.** `(only-in …)` with alphabetised names. Exempt, with a
-   comment at the require: pure re-export facades (`main.rkt`, marked
-   `#|review: ignore|#`), `racket/runtime-path` and `syntax/parse/define`,
-   whose expansions need bindings `only-in` strips. Racket modules of 500
+8. **Imports and size.** `(only-in …)` with alphabetised names, collection
+   requires before relative ones (raco review enforces the order). Exempt,
+   with a comment at the require: pure re-export facades (`main.rkt`, marked
+   `#|review: ignore|#`), modules re-exported whole (`scribble/manual` and
+   `scribble/example` in `scribblings/utils.rkt`), and `racket/runtime-path`,
+   `syntax/parse/define` and `syntax/parse/pre`, whose expansions or syntax
+   classes need bindings `only-in` strips. Racket modules of 500
    lines or fewer is a target; C, C++ and CUDA files of 500 lines or fewer is
    a gate.
 9. **The FFI layer** lives in `raft/private/foreign/`, one module per shim
@@ -182,16 +191,30 @@ plans/scoping-plan.html       the approved plan, byte for byte
   private registry and break the one-memory-pool rule with a cuML shim (#10
   asks L1a and L1d to test it). The
   static CUDA runtime that `rmm::rmm` links is hidden with
-  `--exclude-libs,ALL`; `--no-undefined` catches a missing library at link.
+  `--exclude-libs,ALL`; `--no-undefined` catches a missing library at link
+  (except under `RAFTRKT_SANITIZE`, where the sanitizer runtime's symbols
+  resolve from the executable).
 - Two gtest binaries, installed in the shim derivation's `tests` output:
   `raftrkt_tests` (the C API, black box) and `raftrkt_error_tests` (white box;
   it compiles `error.cpp` itself and does not link the library, so its
   `rr_last_error` cannot interpose the library's).
-- clang-tidy covers the host `.cpp` files; the `.cu` files get `nvcc`'s
-  `-Wall -Wextra` only: clang-tidy (LLVM 21) rejects nvcc's flags and cannot
-  parse CUDA 13.2's headers (its CUDA wrapper wants
-  `texture_fetch_functions.h`, which CUDA 13 removed). Keep logic that does
-  not need RAFT's headers in `.cpp`.
+- **Host C++ unless it launches kernels.** Every L0 source is a `.cpp`
+  compiled by g++: `raft::handle_t`, RMM and the copies are host APIs, so
+  nvcc is not needed until a leg instantiates a RAFT kernel. A `.cu` holds
+  only that instantiation and calls back into `.cpp` for the rest, because
+  clang-tidy cannot read a `.cu`: in CUDA mode (`-x cuda
+  --cuda-path=<cudaPackages_13> --cuda-gpu-arch=sm_86`) LLVM 21.1.8 stops at
+  `__clang_cuda_runtime_wrapper.h:388:10: error: 'texture_fetch_functions.h'
+  file not found` (CUDA 13 removed it) and
+  `crt/math_functions.hpp:2987:40: error: expected function body after
+  function declarator`. CMake keeps the CUDA language enabled with
+  `--threads=1`, `-Werror=all-warnings` and `-Xcompiler=-Wall,-Wextra,-Werror`;
+  probed on the RAFT baseline, `gemm<float, row_major>`,
+  `reduce<float, row_major>` and `reduce<double, col_major>`, all compile
+  clean.
+- C++20 module scanning is off (`CMAKE_CXX_SCAN_FOR_MODULES`): the shim uses
+  no modules, and the scanner's gcc flags (`-fmodules-ts`,
+  `-fmodule-mapper=…`) break clang-tidy.
 
 ### Racket (`raft/`)
 
@@ -225,7 +248,9 @@ scripts/gpu-suite.sh               # in the shell, on the GPU host: gtests, LD_B
 raco test raft                     # the Racket tests
 racket scripts/check-bindings.rkt  # rr_ exports against the bindings
 scripts/render-docs.sh <dir>       # the manual, red on any warning or broken link
-resyntax analyze --local-git-repository . origin/master
+nix fmt                            # format and lint everything; `-- --ci` fails on a change
+scripts/review.sh                  # raco review over every .rkt
+scripts/resyntax.sh origin/master  # Resyntax, red on any suggestion
 nix run --max-jobs 1 --cores 4 .#copy-native-libs   # restage the shim after a C++ change
 cmake -S shim -B shim/build -G Ninja -DBUILD_TESTING=ON   # the shim's inner loop
 ```
@@ -246,9 +271,10 @@ cmake -S shim -B shim/build -G Ninja -DBUILD_TESTING=ON   # the shim's inner loo
 - **Gives each checkout its own `PLTUSERHOME`** under
   `~/.cache/rkt-raft-devshell/<hash of the path>`, installs `raft` there in
   link mode once (re-run when `raft/info.rkt` changes) and installs the pinned
-  Resyntax.
-- Provides `python3` with the twins, `CUDA_PATH` set for CuPy, and `nvcc`,
-  CMake and the CUDA headers for the shim's inner loop.
+  Resyntax, raco fmt, raco review and `raft-lint` (from `lint/`, linked).
+- Provides `python3` with the twins, `CUDA_PATH` set for CuPy, `nvcc`,
+  CMake, the CUDA headers and `compute-sanitizer` for the shim's inner loop,
+  and the `treefmt` that `nix fmt` runs.
 
 The GPU is shared with other sessions: keep test sizes small and leave no
 process running.
@@ -274,27 +300,107 @@ The lab host has 62 GB of RAM shared with other sessions, and a global OOM on
 ### Gates
 
 `.racket-dev.rktd` declares them for the racket-dev plugin's runner
-(`racket <plugin>/hooks/gate.rkt . all`). Before every push: `nix flake check`
-green, the GPU suite green with its counts, the docs rendered with no
-warnings, Resyntax clean (it exits 0 with findings; grep for
-`resyntax: .*\.rkt:N:N [`), clang-format and clang-tidy clean. After pushing,
-poll `gh pr checks <n>` (it exits non-zero while checks are pending) until
-green.
+(`racket <plugin>/hooks/gate.rkt . all`); the pre-push hook runs `format`,
+`no-syntax-rule`, `no-raw-malloc`, `review`, `compile`, `test` and
+`bindings`. Before every push: `nix flake check` green, the GPU suite green
+with its counts, the docs rendered with no warnings, and Resyntax clean with
+both rule sets (see Tooling). After pushing, poll `gh pr checks <n>` (it exits
+non-zero while checks are pending) until green.
 
-`nix flake check` runs: `shim` (build plus both gtest binaries), `c-headers`
-(the umbrella header compiled as C11 with `-Werror`), `clang-format`,
-`clang-tidy`, `line-count` (500 lines per C/C++/CUDA file), `racket` (the
-package build, `raco setup --check-pkg-deps`, `raco test raft`, the manual
-compiled but not rendered, the binding census), `racket-version` (at least
-9.3), `no-syntax-rule` and `no-raw-malloc`.
+`nix flake check` runs eleven checks: `shim` (build plus both gtest
+binaries), `shim-sanitizers` (both gtest binaries under ASAN and UBSAN),
+`c-headers` (the umbrella header compiled as C11 with `-Werror`),
+`clang-tidy`, `line-count` (500 lines per C/C++/CUDA file), `formatting`
+(treefmt), `racket` (the package build, `raco setup --check-pkg-deps
+--unused-pkg-deps`, `raco test raft`, the manual compiled but not rendered,
+the binding census), `racket-review`, `racket-version` (at least 9.3),
+`no-syntax-rule` and `no-raw-malloc`.
+
+## Tooling
+
+| Tool | What it checks | Where it runs | How to fix |
+|---|---|---|---|
+| treefmt (`nix fmt`, `nix/treefmt.nix`) | runs every formatter and linter in the next seven rows; fails on any change or finding | flake check `formatting`; CI "Format and lint"; pre-push `format` | `nix fmt`, then fix what the linters report |
+| raco fmt, width 102 (`.fmt.rkt`) | layout of every `.rkt` | treefmt | `nix fmt` |
+| clang-format (`.clang-format`) | C, C++ and CUDA layout | treefmt | `nix fmt` |
+| nixfmt | `*.nix` | treefmt | `nix fmt` |
+| shfmt, indent 2 | shell scripts | treefmt | `nix fmt` |
+| ruff format, ruff check | the Python twins | treefmt | `nix fmt`; `ruff check` findings by hand |
+| shellcheck | shell scripts | treefmt | by hand |
+| actionlint (`.github/actionlint.yaml`) | workflows, including the shell in their `run:` steps | treefmt | by hand; move a long `run:` script into `scripts/` |
+| raco review, with `lint/` | Racket lint: unused and shadowed bindings, require order, unbound names | flake check `racket-review`; CI "Format and lint"; pre-push `review` (`scripts/review.sh`) | by hand; `;; noqa` only as below |
+| Resyntax, default rules (pinned `40f3497`) | refactoring suggestions in `.rkt` files changed since the base | CI "Resyntax lint"; gate `resyntax` (`scripts/resyntax.sh`) | `resyntax fix --local-git-repository . origin/master`, then `nix fmt` |
+| Resyntax, bkc-style rules | the owner's style suite from the racket-dev plugin | locally, before a push | as above |
+| `raco setup --check-pkg-deps --unused-pkg-deps` | `raft/info.rkt`'s dependencies, missing and unused | flake check `racket` | edit `deps` and `build-deps` |
+| grep gates | `define-syntax-rule`/`syntax-rules`; raw `malloc`/`free` outside `resource.rkt` | flake checks; CI "Format and lint"; pre-push | rules 6 and 7 |
+| compiler warnings | g++: `-Wall -Wextra -Wpedantic -Werror`; nvcc: `-Werror=all-warnings -Xcompiler=-Wall,-Wextra,-Werror` | every shim build | by hand |
+| clang-tidy (`shim/.clang-tidy`) | every `.cpp` under `shim/src` and `shim/tests`, warnings as errors | flake check `clang-tidy` | by hand |
+| `c-headers`, `line-count` | the umbrella header as C11; 500 lines per C/C++/CUDA file | flake checks | by hand |
+| ASAN and UBSAN (`-DRAFTRKT_SANITIZE=ON`) | host memory errors, leaks and undefined behaviour in both gtest binaries; GPU cases SKIP in the sandbox | flake check `shim-sanitizers`; gate `sanitizers` | by hand |
+| compute-sanitizer memcheck | device memory errors in the C-API gtests | the GPU suite (gate `gpu`, `gpu.yml`) | by hand |
+
+- **raco fmt** formats `.rkt` files only. It crashes on Scribble's
+  at-expressions (`regexp-match: contract violation … given: 'text` in
+  `fmt/core.rkt`), so `.scrbl` is excluded; `.rktd` keeps its hand layout
+  (the audit fixtures, the gate config). `.fmt.rkt` adds what raco fmt gets
+  wrong here: `_fun` keeps each `-> …` on its own line under the arguments
+  (raco fmt alone puts every `->` on a line by itself); `hash`, `hasheq` and
+  `hasheqv` keep a key and its value together; `define-cstruct` puts one
+  field per line under the name; `define-raft` is laid out like `define`;
+  `with-release` and the test macros keep the name (and
+  `test-unless-skipped`'s reason) on the first line and a body that holds a
+  list below, as `let` does, while a body of atoms (a macro's `body ...`)
+  stays on one line. The `_fun`, hash and body formatters use fmt's internal
+  document model, which fmt calls unstable: check them when
+  `nix/racket-tools.nix` moves to a new fmt. Any form whose head is a
+  configured name gets that layout, even inside a quote, so keep such lists
+  out of quoted data (as `lint/review.rkt` does with a `seteq`). Run `nix
+  fmt` after `resyntax fix`: Resyntax's rewrites are not laid out by these
+  rules, and once formatted the tree is a fixed point of both tools.
+- **raco review** reads every `.rkt` (`scripts/review.sh`). The `raft-lint`
+  extension (`lint/review.rkt`) gives `test-gpu`, `test-twin`,
+  `test-without-gpu` and `test-unless-skipped` a scope of their own, as
+  rackunit's `test-case` has, so a name defined in one test body does not
+  clash with another's. It also treats `define-syntax-parse-rule` as review
+  treats `define-syntax-rule`, recording the name and skipping the template;
+  without it review reads the header as a function's and reports every
+  `x:expr` as an unused argument. `;; noqa` is allowed only where review cannot see a
+  binding's definition or use: names that `define-cpointer-type` and
+  `define-cstruct` generate, a struct re-exported with `struct-out`, and a
+  value used only inside a macro template. `#|review: ignore|#` is for
+  `info.rkt` files and re-export facades. Test data that is quoted code lives
+  in a `.rktd` fixture, which review does not read.
+- **Resyntax** exits 0 with findings; `scripts/resyntax.sh` greps for
+  `resyntax: .*\.rkt:N:N [` and fails. The pin `40f3497` was upstream HEAD on
+  2026-10-01. CI runs the default rules only. The bkc-style rules live in the
+  racket-dev plugin, which has no remote yet; publishing it is the owner's
+  decision, so the rules are not vendored here. Run them locally with the
+  plugin's `resyntax/bkc-style` package linked into the dev shell's
+  `PLTUSERHOME`:
+  `resyntax analyze --local-git-repository . origin/master --refactoring-suite bkc-style bkc-style`.
+- **Sanitizers.** ASAN needs `protect_shadow_gap=0` beside the CUDA runtime;
+  the check also sets `detect_leaks=1:abort_on_error=1`,
+  `UBSAN_OPTIONS=print_stacktrace=1:halt_on_error=1` and turns
+  `_FORTIFY_SOURCE` off. In the sandbox the GPU cases SKIP; on the GPU host
+  (2026-10-01) the sanitized binaries passed 16 and 11 cases with the one
+  no-driver SKIP and no reports. compute-sanitizer runs with
+  `--report-api-errors no`: the error-path tests provoke failing CUDA calls on
+  purpose (an out-of-range device, an impossible allocation).
 
 ## CI
 
-- `.github/workflows/nix.yml`: `nix flake check` on `ubuntu-latest` (after
-  freeing disk: the CUDA 13 redistributables are unfree, so no public cache
-  serves them) and a Resyntax job in the lean `.#ci` shell. The
+- `.github/workflows/nix.yml`, three jobs on `ubuntu-latest`: "Format and
+  lint" (the `formatting`, `racket-review`, grep, `line-count` and
+  `racket-version` checks, which need no CUDA, so it reports in minutes);
+  `nix flake check` (after freeing disk: the CUDA 13 redistributables are
+  unfree, so no public cache serves them); and "Resyntax lint"
+  (`scripts/resyntax.sh` in the lean `.#ci` shell, default rules; the shell
+  also installs raco fmt, because Resyntax expands `.fmt.rkt`). The
   `nix-cache` action is rktorch's; this repository has no Tailscale secrets,
-  so it falls back to `cache.nixos.org`.
+  so it falls back to `cache.nixos.org`. Actions: `actions/checkout@v7`,
+  `DeterminateSystems/nix-installer-action@v23`,
+  `DeterminateSystems/magic-nix-cache-action@v15`,
+  `tailscale/github-action@v4`.
 - `.github/workflows/gpu.yml`: the GPU suite and the docs render on
   `runs-on: [self-hosted, linux, gpu]`, only when `vars.GPU_RUNNER == 'true'`
   and the pull request's author is `bkc39` (or a manual dispatch). No runner

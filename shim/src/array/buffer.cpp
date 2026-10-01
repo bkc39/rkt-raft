@@ -19,7 +19,7 @@ void require_fits(const char* who, std::size_t bytes, std::size_t capacity) {
 void copy_sync(void* dst, const void* src, std::size_t bytes,
                cudaMemcpyKind kind, const rr_buffer& buffer) {
   const rr::device_guard guard{buffer.device};
-  auto stream = buffer.data.stream().value();
+  cudaStream_t stream = buffer.data.stream().value();
   rr::cuda_check(cudaMemcpyAsync(dst, src, bytes, kind, stream),
                  "cudaMemcpyAsync");
   rr::cuda_check(cudaStreamSynchronize(stream), "cudaStreamSynchronize");

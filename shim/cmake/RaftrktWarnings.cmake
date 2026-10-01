@@ -1,8 +1,8 @@
 function(raftrkt_enable_warnings target)
   target_compile_options(${target}
     PRIVATE
-      $<$<COMPILE_LANGUAGE:C,CXX>:-Wall -Wextra -Wpedantic>
-      $<$<COMPILE_LANGUAGE:CUDA>:-Xcompiler=-Wall,-Wextra>
+      $<$<COMPILE_LANGUAGE:C,CXX>:-Wall -Wextra -Wpedantic -Werror>
+      $<$<COMPILE_LANGUAGE:CUDA>:-Werror=all-warnings -Xcompiler=-Wall,-Wextra,-Werror>
   )
 endfunction()
 

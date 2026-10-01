@@ -3,9 +3,11 @@
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/07e1d92cdc0ed416cfa11ff3ca40d17e61cfba7a";
+    treefmt-nix.url = "github:numtide/treefmt-nix";
+    treefmt-nix.inputs.nixpkgs.follows = "nixpkgs";
   };
 
-  outputs = { self, nixpkgs }:
+  outputs = { self, nixpkgs, treefmt-nix }:
     let
       system = "x86_64-linux";
       version = "0.1.0";
@@ -26,6 +28,9 @@
       racket = pkgs.racket;
 
       rapids = pkgs.callPackage ./nix/rapids.nix { inherit cudaPackages; };
+      racketTools = pkgs.callPackage ./nix/racket-tools.nix { inherit racket; };
+      treefmtEval = treefmt-nix.lib.evalModule pkgs
+        (import ./nix/treefmt.nix { inherit racketTools; });
 
       cudaDevLibs = with cudaPackages; [
         cuda_cudart libcublas libcurand libcusolver libcusparse
@@ -156,26 +161,12 @@
         touch $out
       '';
 
-      clangFormat = pkgs.runCommand "rkt-raft-clang-format" {
-        src = lib.fileset.toSource {
-          root = ./.;
-          fileset = lib.fileset.unions [ ./.clang-format ./shim ];
-        };
-        nativeBuildInputs = [ pkgs.clang-tools ];
-      } ''
-        cd $src
-        find shim -type f \( -name '*.c' -o -name '*.h' -o -name '*.hpp' \
-          -o -name '*.cpp' -o -name '*.cu' \) -print0 \
-          | xargs -0 clang-format --dry-run --Werror
-        touch $out
-      '';
-
       clangTidy = shim.overrideAttrs (old: {
         pname = "raftrkt-clang-tidy";
         outputs = [ "out" ];
         nativeBuildInputs = old.nativeBuildInputs ++ [ pkgs.clang-tools ];
         cmakeFlags = [
-          "-DBUILD_TESTING=OFF"
+          "-DBUILD_TESTING=ON"
           "-DCMAKE_CUDA_ARCHITECTURES=${cudaArchitectures}"
         ];
         buildPhase = ''
@@ -187,6 +178,51 @@
         doCheck = false;
         installPhase = "touch $out";
       });
+
+      shimSanitizers = shim.overrideAttrs (old: {
+        pname = "raftrkt-sanitizers";
+        outputs = [ "out" ];
+        cmakeFlags = [
+          "-DBUILD_TESTING=ON"
+          "-DCMAKE_CUDA_ARCHITECTURES=${cudaArchitectures}"
+          "-DRAFTRKT_SANITIZE=ON"
+        ];
+        hardeningDisable = [ "fortify" "fortify3" ];
+        checkPhase = ''
+          runHook preCheck
+          export ASAN_OPTIONS=protect_shadow_gap=0:detect_leaks=1:abort_on_error=1
+          export UBSAN_OPTIONS=print_stacktrace=1:halt_on_error=1
+          ./raftrkt_error_tests
+          ./raftrkt_tests
+          runHook postCheck
+        '';
+        installPhase = "touch $out";
+        dontFixup = true;
+      });
+
+      racketReview = pkgs.stdenv.mkDerivation {
+        pname = "rkt-raft-racket-review";
+        inherit version;
+        src = lib.cleanSource ./.;
+        nativeBuildInputs = [ racket ];
+        dontConfigure = true;
+        buildPhase = ''
+          runHook preBuild
+          export HOME=$TMPDIR/home
+          export PLTUSERHOME=$TMPDIR/racket-home
+          mkdir -p $PLTUSERHOME
+          raco pkg install --batch --copy --no-docs --deps fail --scope user \
+            ${racketTools.sources}/*/
+          raco pkg install --batch --no-docs --no-setup --deps fail --scope user \
+            --link --name raft-lint ./lint
+          raco pkg install --batch --no-docs --no-setup --deps fail --scope user \
+            --link --name raft ./raft
+          raco setup --no-docs --pkgs raft raft-lint
+          bash scripts/review.sh
+          runHook postBuild
+        '';
+        installPhase = "touch $out";
+      };
 
       cHeaders = pkgs.runCommand "rkt-raft-c-headers" {
         src = ./shim/include;
@@ -246,6 +282,23 @@
             touch "$_pkg_stamp"
           else
             echo "raft setup FAILED; not stamped, so the next shell entry retries" >&2
+          fi
+        fi
+      '';
+
+      provisionTools = ''
+        _tools_id=$(printf '%s' "${racketTools.sources}" | sha256sum | cut -c1-16)
+        _tools_stamp="$PLTUSERHOME/.tools-installed-$_tools_id"
+        if [ ! -f "$_tools_stamp" ]; then
+          echo "Installing raco fmt, raco review and raft-lint into $PLTUSERHOME"
+          rm -f "$PLTUSERHOME"/.tools-installed-* 2>/dev/null || true
+          if raco pkg install --batch --copy --no-docs --scope user --skip-installed \
+               ${racketTools.sources}/*/ \
+             && raco pkg install --batch --no-docs --scope user --skip-installed \
+                  --link --name raft-lint "$PWD/lint"; then
+            touch "$_tools_stamp"
+          else
+            echo "tool setup FAILED; not stamped, so the next shell entry retries" >&2
           fi
         fi
       '';
@@ -327,8 +380,10 @@
       checks.${system} = {
         inherit shim;
         racket = racketPackage;
+        racket-review = racketReview;
+        shim-sanitizers = shimSanitizers;
+        formatting = treefmtEval.config.build.check self;
         c-headers = cHeaders;
-        clang-format = clangFormat;
         clang-tidy = clangTidy;
         line-count = lineCount;
         racket-version = racketVersion;
@@ -340,11 +395,12 @@
         default = pkgs.mkShell {
           packages = [
             racket pythonEnv rapids pkgs.binutils pkgs.clang-tools pkgs.cmake
-            pkgs.gtest pkgs.ninja cudaPackages.cuda_nvcc
+            pkgs.gtest pkgs.ninja cudaPackages.cuda_nvcc cudaPackages.cuda_sanitizer_api
+            treefmtEval.config.build.wrapper
           ] ++ cudaDevLibs;
           shellHook = ''
             if [ -f raft/info.rkt ]; then
-              ${gpuHook + racketHome + provisionRacket + provisionResyntax}
+              ${gpuHook + racketHome + provisionRacket + provisionTools + provisionResyntax}
             else
               echo "rkt-raft: enter the shell from the checkout's root; nothing was provisioned" >&2
             fi
@@ -355,7 +411,7 @@
           packages = [ racket ];
           shellHook = ''
             if [ -f raft/info.rkt ]; then
-              ${racketHome + provisionResyntax}
+              ${racketHome + provisionTools + provisionResyntax}
             else
               echo "rkt-raft: enter the shell from the checkout's root; nothing was provisioned" >&2
             fi
@@ -363,6 +419,6 @@
         };
       };
 
-      formatter.${system} = pkgs.nixfmt-rfc-style;
+      formatter.${system} = treefmtEval.config.build.wrapper;
     };
 }

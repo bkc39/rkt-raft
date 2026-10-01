@@ -1,10 +1,10 @@
 #lang racket/base
 
 (require (only-in rackunit test-case)
-         (only-in "../../private/error.rkt" call/raft exn:fail:raft?)
-         (only-in "../../private/foreign/core.rkt" rr-device-count)
          ;; whole-module: its syntax classes come with it
-         syntax/parse/define)
+         syntax/parse/define
+         (only-in "../../private/error.rkt" call/raft exn:fail:raft?)
+         (only-in "../../private/foreign/core.rkt" rr-device-count))
 
 (provide gpu-available?
          gpu-skip
