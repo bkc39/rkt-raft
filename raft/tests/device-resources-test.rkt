@@ -204,25 +204,3 @@
 
 (test-without-gpu "without a driver, device-count raises a CUDA error"
   (check-raft-error 'cuda #rx"^device-count: cudaGetDeviceCount: " device-count))
-
-(test-case "an argument of the wrong kind raises exn:fail:raft naming the procedure"
-  (check-raft-error 'logic
-                    "resources-device: expected device resources, given: 5"
-                    (lambda () (resources-device 5)))
-  (check-raft-error 'logic
-                    "resources-sync!: expected device resources, given: 5"
-                    (lambda () (resources-sync! 5)))
-  (check-raft-error 'logic
-                    "device-resources: expected a device number, given: \"0\""
-                    (lambda () (device-resources #:device "0")))
-  (check-raft-error 'logic
-                    "current-device-resources: expected a device number, given: 0.0"
-                    (lambda () (current-device-resources 0.0)))
-  (check-raft-error 'logic
-                    "with-device-resources: expected device resources, given: 'gpu"
-                    (lambda () (with-device-resources ([r 'gpu]) r))))
-
-(test-gpu "a device number beyond what the driver can count is a missing device"
-  (check-raft-error 'logic
-                    (format "device-resources: no device ~a among ~a" (expt 2 40) (device-count))
-                    (lambda () (device-resources #:device (expt 2 40)))))

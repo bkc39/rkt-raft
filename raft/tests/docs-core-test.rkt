@@ -263,9 +263,6 @@
       (device-resources #:device (device-count))))
   (check-equal? (exn-message missing) (missing-device-message (device-count)))
   (check-equal? (exn:fail:raft-kind missing) 'logic)
-  (check-raft-error 'logic
-                    "resources-device: expected device resources, given: 5"
-                    (lambda () (resources-device 5)))
   (define (describe-failure thunk)
     (with-handlers ([exn:fail:raft? (lambda (e)
                                       (case (exn:fail:raft-kind e)

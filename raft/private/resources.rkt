@@ -6,7 +6,7 @@
          syntax/parse/define
          (only-in "error.rkt" call/raft)
          (only-in "exn.rkt" raise-raft)
-         (only-in "foreign/core.rkt" rr-device-count rr-resources-create)
+         (only-in "foreign/core.rkt" rr-resources-create)
          (only-in "foreign/internal.rkt" rr-memory-resource-kind rr-resources-ready)
          (only-in "foreign/memory.rkt" released? rr-resources-free)
          (only-in "resource.rkt" with-release))
@@ -31,31 +31,17 @@
              (device-resources-device r)
              (if (released? (device-resources-handle r)) " released" ""))))
 
-(define (resources-arg who v)
-  (if (device-resources? v)
-      v
-      (raise-raft who 'logic "expected device resources, given: ~e" v)))
-
-(define int32-limit (expt 2 31))
-
-(define (device-arg who d)
-  (cond
-    [(not (exact-integer? d)) (raise-raft who 'logic "expected a device number, given: ~e" d)]
-    [(< (- int32-limit) d int32-limit) d]
-    [else (raise-raft who 'logic "no device ~a among ~a" d (call/raft who rr-device-count))]))
-
 (define (open-resources who device)
-  (define d (device-arg who device))
-  (handle->device-resources (call/raft who (lambda () (rr-resources-create d))) d))
+  (handle->device-resources (call/raft who (lambda () (rr-resources-create device))) device))
 
 (define (device-resources #:device [device 0]) ;; noqa
   (open-resources 'device-resources device))
 
 (define (resources-device r)
-  (device-resources-device (resources-arg 'resources-device r)))
+  (device-resources-device r))
 
 (define (resources-handle who r)
-  (define handle (device-resources-handle (resources-arg who r)))
+  (define handle (device-resources-handle r))
   (when (released? handle)
     (raise-raft who
                 'logic
@@ -91,7 +77,7 @@
 
 (define (current-device-resources [device 0])
   (define table (thread-cell-ref defaults))
-  (define cached (hash-ref table (device-arg 'current-device-resources device) #f))
+  (define cached (hash-ref table device #f))
   (cond
     [(and cached (not (released? (device-resources-handle cached)))) cached]
     [else
@@ -111,5 +97,5 @@
   #:fail-when (check-duplicate-identifier (syntax->list #'(b.name ...))) "duplicate binding name"
   (with-release #:who
     'with-device-resources
-    ([b.name (resources-arg 'with-device-resources b.init) release-resources!] ...)
+    ([b.name b.init release-resources!] ...)
     body ...))
