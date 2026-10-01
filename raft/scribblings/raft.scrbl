@@ -17,11 +17,11 @@ release (26.08) and loaded through the Racket FFI. It needs Linux, an NVIDIA
 GPU and the Nix toolchain described in @secref["getting-started"]; there is no
 CPU fallback.
 
-This is the first leg of the first milestone. What exists today is the
-scaffold: the native library, its build, the version and ABI tag, and the
-design the next legs implement, which @secref["concepts"] explains. Names that
-arrive in a later leg are marked with the leg (@status{L1a}, @status{L1b},
-@status{L1c}) and are described in prose, not called.
+The library is young. Today it provides the native library, its build, and
+the version and ABI tag; resources, arrays and conversions come next, and
+@secref["concepts"] explains their design. A name that does not exist yet is
+marked with the leg that adds it, such as @status{L1a}, and is described in
+prose, not called.
 
 The manual has two parts: the @secref["guide"] works through the library by
 example, with the equivalent Python beside the Racket, and the

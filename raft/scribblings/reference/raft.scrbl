@@ -7,17 +7,15 @@
 
 @defmodule[raft]
 
-@racket[(require raft)] provides the whole library. In this first leg that is
-the version of RAFT the native library was built against and its ABI tag; the
-core resources, arrays and conversions join it in the next legs.
+@racket[(require raft)] provides the whole library. Today that is the version
+of RAFT the native library was built against and its ABI tag.
 
 @defproc[(raft-version) string?]{
 
 Returns the RAFT release that @tt{libraftrkt} was compiled against, spelled as
 RAFT spells it: two digits each for the year, the month and the patch, so
 @racket["26.08.00"] is the August 2026 release. It is the same string
-@tt{pylibraft.__version__} gives for the same release, which is how the parity
-tests check that the Python they compare against runs the same RAFT build.
+@tt{pylibraft.__version__} gives for the same release.
 
 @examples[#:eval ev
 (raft-version)
@@ -26,9 +24,10 @@ tests check that the Python they compare against runs the same RAFT build.
 Split it to compare releases numerically:
 
 @examples[#:eval ev #:label #f
-(define release (map string->number (string-split (raft-version) ".")))
-release
-(apply (lambda (year month patch) (>= (+ (* 100 year) month) 2608)) release)
+(match-define (list year month _)
+  (map string->number (string-split (raft-version) ".")))
+(list year month)
+(>= (+ (* 100 year) month) 2608)
 ]
 
 A program that depends on one release can refuse to start on another:
@@ -70,12 +69,12 @@ the tag it was built against and compares it with this one when it loads.
 
 @examples[#:eval ev
 (raft-abi)
-(hash-ref (raft-abi) 'handle-size)
 ]
 
 A downstream library checks the tag before it loads its own native code. Here
-the expected tag is the current one, and then the same tag as a library built
-against RAFT 26.10 would record it:
+the expected tag is the current one, then the tag of a library built against
+RAFT 26.10, then one built against headers whose @tt{raft::handle_t} has a
+different layout, which a version check alone would miss:
 
 @examples[#:eval ev #:label #f
 (define (abi-mismatches built-against)
@@ -84,6 +83,7 @@ against RAFT 26.10 would record it:
     key))
 (abi-mismatches (raft-abi))
 (abi-mismatches (hash-set (raft-abi) 'raft "26.10.00"))
+(abi-mismatches (hash-update (raft-abi) 'handle-size add1))
 ]
 
 The tag also makes a one-line support report:

@@ -1,6 +1,7 @@
 #lang racket/base
 
 (require (only-in racket/format ~a)
+         (only-in racket/match match-define)
          (only-in racket/port with-output-to-string)
          (only-in racket/string string-join string-split)
          (only-in rackunit check-equal? check-exn check-pred check-true test-case)
@@ -29,9 +30,10 @@
   (check-equal? (column-major m) '(1 4 2 5 3 6)))
 
 (test-case "reference: raft-version"
-  (define release (map string->number (string-split (raft-version) ".")))
-  (check-equal? release '(26 8 0))
-  (check-true (apply (lambda (year month patch) (>= (+ (* 100 year) month) 2608)) release))
+  (match-define (list year month _)
+    (map string->number (string-split (raft-version) ".")))
+  (check-equal? (list year month) '(26 8))
+  (check-true (>= (+ (* 100 year) month) 2608))
   (define (require-raft-release! wanted)
     (unless (string=? (raft-version) wanted)
       (error 'my-pipeline "built for RAFT ~a, but this is RAFT ~a" wanted (raft-version))))
@@ -48,13 +50,13 @@
                         'raft "26.08.00"
                         'resource-types 22
                         'rmm "26.08.00"))
-  (check-equal? (hash-ref (raft-abi) 'handle-size) 32)
   (define (abi-mismatches built-against)
     (for/list ([(key value) (in-hash built-against)]
                #:unless (equal? value (hash-ref (raft-abi) key #f)))
       key))
   (check-equal? (abi-mismatches (raft-abi)) '())
   (check-equal? (abi-mismatches (hash-set (raft-abi) 'raft "26.10.00")) '(raft))
+  (check-equal? (abi-mismatches (hash-update (raft-abi) 'handle-size add1)) '(handle-size))
   (check-equal? (string-join (for/list ([key (in-list '(raft rmm cccl cuda-runtime))])
                                (~a key "=" (hash-ref (raft-abi) key)))
                              " ")

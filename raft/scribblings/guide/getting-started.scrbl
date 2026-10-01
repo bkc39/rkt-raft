@@ -14,8 +14,9 @@ loaded RAFT and checked that it matches the GPU stack underneath it.
  @item{@bold{Linux on x86-64.} There is no macOS or Windows build, and no CPU
        fallback: every array lives on a GPU.}
  @item{@bold{An NVIDIA GPU.} Development builds compile kernels for compute
-       capability 8.6 only (the RTX 30 series and the A10/A40 class); a
-       release build will cover RAPIDS' own list, 7.5 to 12.0.}
+       capability 8.6, which also run on the later 8.x devices: the RTX 30 and
+       40 series, A10, A40, L4 and L40. A release build will cover RAPIDS' own
+       list, 7.5 to 12.0.}
  @item{@bold{An NVIDIA driver for CUDA 13}, that is, release 580 or newer.
        The CUDA toolkit itself comes from Nix; nothing else needs installing.}
  @item{@bold{Nix with flakes enabled.} The flake pins Racket 9.3, CUDA 13.2,
@@ -66,9 +67,10 @@ module attribute.
 
 @section[#:tag "gs-checking"]{Checking the stack}
 
-A GPU program depends on four things agreeing: the driver, the CUDA runtime,
+A GPU program depends on its layers agreeing: the driver, the CUDA runtime,
 RAFT and RMM, and CCCL, the CUDA C++ template libraries RAFT's headers build
-on. @racket[raft-abi] reports what @tt{libraftrkt} was compiled against:
+on. @racket[raft-abi] reports what @tt{libraftrkt} was compiled against, which
+is everything but the driver:
 
 @examples[#:eval ev #:label #f
 (define abi (raft-abi))
@@ -91,14 +93,15 @@ print("rmm", rmm.__version__)                               # rmm 26.08.00
 print("cuda-runtime", cp.cuda.runtime.runtimeGetVersion())  # cuda-runtime 13020
 }|
 
-Python has no single ABI tag: each package reports its own version, and a
-mismatch between, say, the RMM that pylibraft was built against and the one
-that is installed shows up as an import error or a crash. The tag exists on
-the Racket side because a second native library, the cuML binding, will
-compile against the same headers and has to check at load time that they
-match; see @racket[raft-abi].
+CuPy reports the CUDA runtime as one integer, @tt{13020}, where
+@racket[raft-abi] spells it @racket["13.2"]. Python has no single ABI tag:
+each package reports its own version, and a mismatch between, say, the RMM
+that pylibraft was built against and the one that is installed shows up as an
+import error or a crash. The tag exists on the Racket side because a second
+native library, the cuML binding, will compile against the same headers and
+has to check at load time that they match; see @racket[raft-abi].
 
-To see the GPU itself, ask the driver:
+To see the GPU and the driver, ask the driver:
 
 @commandline{nvidia-smi --query-gpu=name,driver_version,compute_cap --format=csv}
 
@@ -108,9 +111,9 @@ cp.cuda.runtime.getDeviceCount()                         # 1
 cp.cuda.runtime.getDeviceProperties(0)["name"]           # b'NVIDIA GeForce RTX 3090 Ti'
 }|
 
-Racket has no device query yet: @racketidfont{device-count} and
-@racketidfont{device-properties} arrive with the rest of the core module in a
-later leg.
+Racket has no device query yet: @racket[device-count] and
+@racket[device-properties] @status{L2} arrive with the rest of the core
+module.
 
 @section[#:tag "gs-tests"]{Running the tests}
 
@@ -122,15 +125,13 @@ GPU: the native library's own tests, a load of @tt{libraftrkt} with every
 symbol resolved, the Racket tests and the parity checks against Python. A test
 that cannot run where it is (no GPU, or no @tt{pylibraft}) prints a line
 starting with @tt{SKIP:} and the reason. A green run with SKIP lines has not
-tested what was skipped; the GitHub build, which has no GPU, prints one for
-every GPU case.
+tested what was skipped.
 
 @section[#:tag "gs-examples"]{How the examples in this manual run}
 
 Every Racket example in this manual is evaluated when the manual is built,
 against the real library, and its output is what you see; nothing is pasted
-by hand. Once arrays arrive, that means building the manual needs a GPU, so
-the manual is built on a GPU host rather than in GitHub's CI. The behaviour
+by hand. Once arrays arrive, building the manual needs a GPU. The behaviour
 each example shows is also pinned by a test, so an example cannot drift from
 the library without a test failing.
 
