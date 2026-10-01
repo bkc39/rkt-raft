@@ -1,0 +1,23 @@
+name: GPU suite
+
+# Runs on the lab host's self-hosted runner (#9), only for the maintainer's
+# pull requests and only once vars.GPU_RUNNER is set to 'true'; a fork's PR
+# never reaches the runner.
+on:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  gpu:
+    name: GPU suite, twin parity and docs
+    if: >-
+      vars.GPU_RUNNER == 'true' &&
+      (github.event_name == 'workflow_dispatch' ||
+       github.event.pull_request.user.login == 'bkc39')
+    runs-on: [self-hosted, linux, gpu]
+    steps:
+      - uses: actions/checkout@v5
+      - name: Shim gtests, LD_BIND_NOW load, Racket tests, twin parity, census
+        run: nix develop --command scripts/gpu-suite.sh
+      - name: Manual, with every example evaluated
+        run: nix develop --command scripts/render-docs.sh "$RUNNER_TEMP/rkt-raft-docs"
