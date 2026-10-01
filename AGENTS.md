@@ -22,8 +22,11 @@ Parity, §10 Build and §12 Starting cuML work before changing the design.
   directory), one manual. Apache-2.0.
 - **Status.** Milestone M1 "cuML-ready" (epic #1) is in progress. Leg 0 (#2)
   landed the scaffold: the flake, the wheels, the `nvcc` shim, the FFI layer,
-  the gates, CI and the manual skeleton. Its public surface is `raft-version`
-  and `raft-abi`.
+  the gates, CI and the manual skeleton, with `raft-version` and `raft-abi`.
+  Leg L1a (#3) landed `raft/core`: `device-resources`, `device-resources?`,
+  `resources-device`, `resources-sync!`, `current-device-resources`,
+  `with-device-resources`, `device-count` and `exn:fail:raft`, and the
+  default async memory resource.
 
 ## Layout
 
@@ -35,10 +38,11 @@ shim/                         libraftrkt: CUDA C++20 built with nvcc
   include/raftrkt/            C headers: core.h memory.h array.h, umbrella c_api.h
   src/{core,array,detail}/    .cu for anything that includes RAFT, .cpp for host-only code
   tests/                      gtest; GPU cases print SKIP without a device
+  tests/probe/                libraftrkt_probe, a second RMM user for the tests
 raft/                         the Racket package and collection
   main.rkt core.rkt           the public surface
   private/foreign/*.rkt       FFI bindings, one module per shim header
-  private/{error,resource,install-native}.rkt
+  private/{error,resource,resources,install-native}.rkt
   scribblings/                the manual: guide/ chapters, reference/ sections
   tests/                      raco tests; tests/private/ the harness; tests/python/ the twins
 scripts/                      gates, the GPU suite, the docs render, the binding census
@@ -140,7 +144,9 @@ plans/scoping-plan.html       the approved plan, byte for byte
     `cudaPackages_13`. The flake asserts the twins' version equals the
     shim's. Twins are compared by machine, never by eye.
 14. **Every doc example is a test** (rkt-polars #152): the behaviour each
-    manual example shows is pinned in `raft/tests/docs-test.rkt`.
+    manual example shows is pinned in `raft/tests/docs-*test.rkt`
+    (`docs-test.rkt` for leg 0's pages, `docs-core-test.rkt` for
+    `raft/core`'s reference and the *Resources and the GPU* chapter).
 15. **Every review finding is addressed**, from reviewer agents and from bots
     (`chatgpt-codex-connector[bot]` leaves inline comments): fixed with a
     test, or explained with evidence. No silent deferrals.
@@ -170,6 +176,18 @@ plans/scoping-plan.html       the approved plan, byte for byte
   that aliases an owner holding an `rmm::cuda_stream` and the handle. Each
   resources object owns its stream; the per-thread default stream would bind
   to whichever OS thread a finalizer ran on.
+- `rr_resources_ready` queries the stream without blocking
+  (`cudaStreamQuery`); Racket's `resources-sync!` polls it.
+  `rr_resources_sync` blocks and stays for C callers and the gtests.
+- **The default memory resource.** `rr_resources_create` calls
+  `rr::install_default_memory_resource` (`src/core/memory_resource.cu`)
+  before it builds the handle, so RAFT's workspace factories see the pool.
+  Once per device and process it replaces RMM's initial
+  `cuda_memory_resource` with a default-constructed
+  `rmm::mr::cuda_async_memory_resource`; a resource of any other type is
+  left alone, and nothing is installed again after that first visit.
+  `rr_memory_resource_kind` reads the registry back (`cuda`, `cuda-async`,
+  `other`) for the tests.
 - `rr_buffer` holds that same `shared_ptr`, its device and an
   `rmm::device_buffer` allocated on the handle's stream from the current
   device resource. The `shared_ptr` is declared first, so the buffer is freed
@@ -179,14 +197,22 @@ plans/scoping-plan.html       the approved plan, byte for byte
   and must stay exported: RMM's per-device memory-resource registry is a set
   of header-inline statics that the dynamic linker unifies across every
   library that uses RMM. A `local: *` version script would give the shim a
-  private registry and break the one-memory-pool rule with a cuML shim (#10
-  asks L1a and L1d to test it). The
+  private registry and break the one-memory-pool rule with a cuML shim (#10).
+  L1a tests it with `libraftrkt_probe` (`tests/probe/probe.cu`, installed as
+  `$tests/lib/libraftrkt_probe.so`): a second library that links RMM on its
+  own and is loaded `RTLD_LOCAL` by the Racket tests, as a cuML binding will
+  be. It sees the async pool `libraftrkt` installed, and a buffer
+  `libraftrkt` allocates shows in that pool's used bytes. L1d repeats the
+  check with the cuML canary. The
   static CUDA runtime that `rmm::rmm` links is hidden with
   `--exclude-libs,ALL`; `--no-undefined` catches a missing library at link.
-- Two gtest binaries, installed in the shim derivation's `tests` output:
-  `raftrkt_tests` (the C API, black box) and `raftrkt_error_tests` (white box;
-  it compiles `error.cpp` itself and does not link the library, so its
-  `rr_last_error` cannot interpose the library's).
+- Two gtest binaries, installed in the shim derivation's `tests` output
+  (`bin/`): `raftrkt_tests` (the C API, plus white-box cases that include
+  `detail/handles.hpp`) and `raftrkt_error_tests` (white box; it compiles
+  `error.cpp` itself and does not link the library, so its `rr_last_error`
+  cannot interpose the library's). Cases that depend on which resources come
+  first in a process run as gtest death tests (`threadsafe` style, a fresh
+  process each).
 - clang-tidy covers the host `.cpp` files; the `.cu` files get `nvcc`'s
   `-Wall -Wextra` only: clang-tidy (LLVM 21) rejects nvcc's flags and cannot
   parse CUDA 13.2's headers (its CUDA wrapper wants
@@ -195,7 +221,18 @@ plans/scoping-plan.html       the approved plan, byte for byte
 
 ### Racket (`raft/`)
 
-- `main.rkt` re-exports `core.rkt` (`raft-version`, `raft-abi`).
+- `main.rkt` re-exports `core.rkt`, which defines `device-count`,
+  `raft-version` and `raft-abi` and re-exports `private/resources.rkt` and
+  `exn:fail:raft`.
+- `private/resources.rkt`: the `device-resources` struct (built with
+  `#:name`/`#:constructor-name`, so the constructor procedure can carry the
+  type's name), `resources-sync!`, the thread-cell defaults and
+  `with-device-resources` (over `with-release`). It also provides two
+  internal names: `resources-handle`, which every binding that takes
+  resources goes through (`(resources-handle who r)` answers the native
+  handle or raises `exn:fail:raft` naming `who` if the resources were
+  released), and `memory-resource-kind`, the tests' view of the default
+  memory resource.
 - `private/foreign/library.rkt`: the runtime path to `native-libs/`, `ffi-lib`
   (default local binding: only one copy of each RAPIDS library can load per
   process), `define-raft`, and the cpointer types `_rr-resources`,
@@ -206,6 +243,8 @@ plans/scoping-plan.html       the approved plan, byte for byte
   pre-install hook, honouring `RAFT_NATIVE_LIB_PATH` (a directory whose
   `lib/` holds `libraftrkt.so`).
 - Tests: `tests/private/gpu.rkt` (`gpu-available?`, `test-gpu`),
+  `tests/private/probe.rkt` (the probe library, from `RAFT_SHIM_PROBE`, and
+  `test-probe`), `tests/private/collect.rkt` (`collect-until`),
   `tests/private/python-env.rkt` (the twin runner: `PYTHONSAFEPATH` probes,
   a temp directory, JSON in and out, `check-close`, `test-twin`),
   `tests/private/bindings.rkt` (the binding reader shared by the audit and
@@ -238,8 +277,8 @@ cmake -S shim -B shim/build -G Ninja -DBUILD_TESTING=ON   # the shim's inner loo
   found with `ldconfig -p` and symlinked into `.cuda-driver/`, which goes
   first on `LD_LIBRARY_PATH` (rktorch's `cudaHook`). Twin subprocesses get
   only that directory (`RAFT_CUDA_DRIVER_PATH`).
-- **Stages the shim** and exports `RAFT_NATIVE_LIB_PATH` and
-  `RAFT_SHIM_TESTS` (the gtest binaries).
+- **Stages the shim** and exports `RAFT_NATIVE_LIB_PATH`, `RAFT_SHIM_TESTS`
+  (the gtest binaries) and `RAFT_SHIM_PROBE` (the probe library).
 - **Gives each checkout its own `PLTUSERHOME`** under
   `~/.cache/rkt-raft-devshell/<hash of the path>`, installs `raft` there in
   link mode once (re-run when `raft/info.rkt` changes) and installs the pinned
@@ -316,7 +355,7 @@ compiled but not rendered, the binding census), `racket-version` (at least
 - Every exported name gets a `@defproc`/`@defform`/`@defthing` with prose and
   at least three live examples showing real use, not trivial calls.
 - Examples run through `scribble/example`; output is never pasted by hand.
-  Each one's behaviour is pinned in `raft/tests/docs-test.rkt`.
+  Each one's behaviour is pinned in `raft/tests/docs-*test.rkt`.
 - Render after the leg's final commit with
   `scripts/render-docs.sh ~/dev/rkt/rkt-raft-docs/<leg-slug>`
   (`l0`, `l1a`, `l1b`, `l1c`, `l1d`); it fails on `undefined tag`,
@@ -366,3 +405,33 @@ compiled but not rendered, the binding census), `racket-version` (at least
   tag version, RAFT, RMM and CCCL versions, CUDA runtime,
   `sizeof(raft::handle_t)` and the resource-type count.
 - **Errors carry a kind** (a field of `exn:fail:raft`, not a subtype).
+
+## Decisions recorded in L1a
+
+- **The default memory resource is installed by the shim,** on the first
+  `rr_resources_create` for a device, not by Racket: every C caller,
+  including a downstream shim that creates resources through the C API, gets
+  the same behaviour. "Already replaced" means the registry holds anything
+  but a `cuda_memory_resource` (`cuda::mr::resource_cast`); a plain
+  `cuda_memory_resource` set on purpose before that point cannot be told
+  from RMM's initial one and is replaced too.
+- **The pool takes RMM's defaults**, as `rmm.mr.CudaAsyncMemoryResource()`
+  does: no initial size, and a release threshold of `UINT64_MAX`, so freed
+  memory stays in the pool. Sizes and trimming are leg 2 and leg 5.
+- **`resources-sync!` polls.** It queries the stream, yields for 16 polls,
+  then sleeps from 10 µs, doubling to 1 ms. A `cudaErrorNotReady` from the
+  query is cleared from the runtime's last error, as PyTorch does.
+- **Per-thread defaults** live in a thread cell (not preserved) holding an
+  immutable `hasheqv` from device to resources. A released default is
+  replaced on the next request.
+- **Use after release raises `exn:fail:raft`** of kind `'logic`, with the
+  message `<who>: the device resources on device N were released`, from
+  `resources-handle`; the cpointer retag stays as the memory-safety net
+  underneath. `resources-device` still answers after release.
+- **`with-device-resources` binds like `let*`:** each expression sees the
+  names bound before it, never its own, and duplicate names are a syntax
+  error.
+- **`abi-version` stays 1.** L1a only adds entry points; the tag's version
+  changes when a change would break a library built against the previous
+  one, and L1d freezes the downstream interface.
+
