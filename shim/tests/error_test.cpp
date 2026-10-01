@@ -1,6 +1,9 @@
 #include "detail/error.hpp"
 
+#include <cuda/std/__exception/cuda_error.h>
 #include <gtest/gtest.h>
+#include <thrust/system/cuda/error.h>
+#include <thrust/system/system_error.h>
 
 #include <new>
 #include <raft/core/error.hpp>
@@ -23,6 +26,21 @@ TEST(Classify, DeviceAllocationFailuresAreOutOfMemory) {
   EXPECT_EQ(
       kind_of(rmm::cuda_error("cudaErrorMemoryAllocation: out of memory")),
       rr::error_kind::oom);
+}
+
+TEST(Classify, CcclAndThrustCudaErrorsKeepTheirStatus) {
+  EXPECT_EQ(kind_of(::cuda::cuda_error(cudaErrorMemoryAllocation, "alloc")),
+            rr::error_kind::oom);
+  EXPECT_EQ(kind_of(::cuda::cuda_error(cudaErrorInvalidValue, "launch")),
+            rr::error_kind::cuda);
+  EXPECT_EQ(kind_of(thrust::system_error(cudaErrorMemoryAllocation,
+                                         thrust::cuda_category())),
+            rr::error_kind::oom);
+  EXPECT_EQ(kind_of(thrust::system_error(cudaErrorInvalidValue,
+                                         thrust::cuda_category())),
+            rr::error_kind::cuda);
+  EXPECT_EQ(kind_of(thrust::system_error(1, thrust::generic_category())),
+            rr::error_kind::generic);
 }
 
 TEST(Classify, HostAllocationFailureIsOutOfMemory) {

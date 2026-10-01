@@ -97,9 +97,9 @@
                 modules)))
 
 (define (cpointer-types modules)
-  (map (match-lambda [(list _ type) type])
+  (map (match-lambda [(list* _ type _) type])
        (collect (match-lambda
-                  [(list 'define-cpointer-type _) #t]
+                  [(list* 'define-cpointer-type _ _) #t]
                   [_ #f])
                 modules)))
 

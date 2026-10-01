@@ -34,6 +34,16 @@
                  'unreached)))
   (check-equal? released '(a)))
 
+(define x 'outer)
+
+(test-case "an acquisition sees the enclosing binding of its own name"
+  (check-equal? (with-release ([x (list 'wrapped x) void]) x) '(wrapped outer)))
+
+(test-case "a later acquisition sees the earlier names"
+  (fresh!)
+  (check-equal? (with-release ([a 'a release!] [b (list a 'b) release!]) b) '(a b))
+  (check-equal? released '(a (a b))))
+
 (test-case "an acquisition answering #f is not released"
   (fresh!)
   (check-equal? (with-release ([a #f release!] [b 'b release!]) (list a b)) '(#f b))

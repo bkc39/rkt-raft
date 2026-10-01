@@ -93,8 +93,13 @@ print("rmm", rmm.__version__)                               # rmm 26.08.00
 print("cuda-runtime", cp.cuda.runtime.runtimeGetVersion())  # cuda-runtime 13020
 }|
 
-CuPy reports the CUDA runtime as one integer, @tt{13020}, where
-@racket[raft-abi] spells it @racket["13.2"]. Python has no single ABI tag:
+The two CUDA numbers measure different things. @racket[raft-abi]'s
+@racket['cuda-runtime] is the runtime @tt{libraftrkt} was compiled with;
+CuPy's @tt{runtimeGetVersion} is the runtime CuPy itself runs on, as one
+integer. Each library in the process carries its own copy of the CUDA runtime
+(the RAPIDS 26.08 wheels were built with CUDA 13.3, the shim with 13.2), and
+what they all share is the driver, which must support CUDA 13.0 or later.
+Python has no single ABI tag:
 each package reports its own version, and a mismatch between, say, the RMM
 that pylibraft was built against and the one that is installed shows up as an
 import error or a crash. The tag exists on the Racket side because a second

@@ -1,5 +1,9 @@
 #include "detail/error.hpp"
 
+#include <cuda/std/__exception/cuda_error.h>
+#include <thrust/system/cuda/error.h>
+#include <thrust/system/system_error.h>
+
 #include <array>
 #include <cstddef>
 #include <cstdio>
@@ -18,8 +22,8 @@ constexpr std::size_t message_capacity = 4096;
 thread_local std::array<char, message_capacity> last_message{};
 thread_local error_kind last_kind = error_kind::generic;
 
-bool is_oom_code(cudaError_t code) noexcept {
-  return code == cudaErrorMemoryAllocation;
+error_kind cuda_kind(cudaError_t code) noexcept {
+  return code == cudaErrorMemoryAllocation ? error_kind::oom : error_kind::cuda;
 }
 
 std::size_t utf8_sequence_length(unsigned char lead) noexcept {
@@ -75,7 +79,15 @@ error_kind classify(const std::exception& e) noexcept {
     return error_kind::oom;
   }
   if (const auto* c = dynamic_cast<const cuda_error*>(&e); c != nullptr) {
-    return is_oom_code(c->code()) ? error_kind::oom : error_kind::cuda;
+    return cuda_kind(c->code());
+  }
+  if (const auto* c = dynamic_cast<const ::cuda::cuda_error*>(&e);
+      c != nullptr) {
+    return cuda_kind(c->status());
+  }
+  if (const auto* t = dynamic_cast<const thrust::system_error*>(&e);
+      t != nullptr && t->code().category() == thrust::cuda_category()) {
+    return cuda_kind(static_cast<cudaError_t>(t->code().value()));
   }
   if (dynamic_cast<const rmm::bad_alloc*>(&e) != nullptr ||
       dynamic_cast<const rmm::cuda_error*>(&e) != nullptr ||

@@ -11,8 +11,6 @@
       version = "0.1.0";
       minRacketVersion = "9.3";
       cudaArchitectures = "86";
-      # Each nvcc job over RAFT's headers peaks at several GB (AGENTS.md,
-      # "Build memory"); the lab host has 62 GB shared with other builds.
       buildJobs = 4;
       capJobs = ''
         NIX_BUILD_CORES=$(( NIX_BUILD_CORES < ${toString buildJobs} ? NIX_BUILD_CORES : ${toString buildJobs} ))

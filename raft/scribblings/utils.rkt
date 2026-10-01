@@ -8,6 +8,7 @@
                   sandbox-path-permissions
                   sandbox-security-guard)
          (only-in scribble/core color-property style)
+         ;; whole-module: both are re-exported to every chapter
          scribble/example
          scribble/manual
          (for-label raft

@@ -18,6 +18,6 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - name: Shim gtests, LD_BIND_NOW load, Racket tests, twin parity, census
-        run: nix develop --command scripts/gpu-suite.sh
+        run: nix develop --max-jobs 1 --cores 4 --command scripts/gpu-suite.sh
       - name: Manual, with every example evaluated
-        run: nix develop --command scripts/render-docs.sh "$RUNNER_TEMP/rkt-raft-docs"
+        run: nix develop --max-jobs 1 --cores 4 --command scripts/render-docs.sh "$RUNNER_TEMP/rkt-raft-docs"

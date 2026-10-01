@@ -11,7 +11,7 @@
                   cpointer-has-tag?
                   set-cpointer-tag!)
          (only-in ffi/unsafe/alloc allocator deallocator)
-         (only-in "library.rkt" _rr-buffer _rr-resources define-raft))
+         (only-in "library.rkt" _rr-buffer _rr-resources define-raft released-tag))
 
 (provide buffer-allocator
          buffer-drop-count
@@ -24,17 +24,17 @@
          rr-resources-free)
 
 ;; A released handle is retagged: releasing it again does nothing, and any
-;; other use fails its type's tag check before reaching freed memory. A handle
-;; of the wrong type fails that check here too, before the finalizer is dropped.
+;; other use raises exn:fail:raft before reaching freed memory. A handle of the
+;; wrong type fails its type's tag check here, before the finalizer is dropped.
 (define (released? handle)
-  (cpointer-has-tag? handle 'rr-released))
+  (cpointer-has-tag? handle released-tag))
 
 (define (release-once release-native)
   ((deallocator)
    (lambda (handle)
      (unless (released? handle)
        (release-native handle)
-       (set-cpointer-tag! handle 'rr-released)))))
+       (set-cpointer-tag! handle released-tag)))))
 
 (define-raft rr-resources-free
   (_fun _rr-resources -> _void)
