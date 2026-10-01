@@ -1,6 +1,12 @@
 #lang racket/base
 
-(require (only-in racket/sandbox
+(require (for-label raft
+                    racket/base
+                    racket/format
+                    racket/list
+                    racket/match
+                    racket/string)
+         (only-in racket/sandbox
                   sandbox-error-output
                   sandbox-eval-limits
                   sandbox-memory-limit
@@ -10,13 +16,7 @@
          (only-in scribble/core color-property style)
          ;; whole-module: both are re-exported to every chapter
          scribble/example
-         scribble/manual
-         (for-label raft
-                    racket/base
-                    racket/format
-                    racket/list
-                    racket/match
-                    racket/string))
+         scribble/manual)
 
 (provide (all-from-out scribble/example)
          (all-from-out scribble/manual)
@@ -37,12 +37,14 @@
                  [sandbox-eval-limits #f]
                  [sandbox-security-guard current-security-guard]
                  [sandbox-path-permissions '((exists "/"))])
-    (make-base-eval '(require raft racket/format racket/list racket/match racket/string))))
+    (make-base-eval '(require raft
+                              racket/format
+                              racket/list
+                              racket/match
+                              racket/string))))
 
 (define (python . lines)
-  (nested #:style 'code-inset
-          (para (italic "Python"))
-          (apply verbatim lines)))
+  (nested #:style 'code-inset (para (italic "Python")) (apply verbatim lines)))
 
 (define (status leg)
   (elem #:style (style #f (list (color-property "gray"))) leg))

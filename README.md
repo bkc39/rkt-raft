@@ -13,7 +13,7 @@ racket -l racket/base -l raft -e '(raft-version)'
 
 - The manual is `raft/scribblings/raft.scrbl`: a guide (Getting started,
   Concepts) and a reference. Render it with `scripts/render-docs.sh <dir>`.
-- The approved plan is [`plans/scoping-plan.html`](plans/scoping-plan.html).
+- The approved plan is [`plans/scoping-plan.md`](plans/scoping-plan.md).
 - Contributors and agents: [`AGENTS.md`](AGENTS.md).
 
 Apache-2.0.

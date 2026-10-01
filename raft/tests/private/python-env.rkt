@@ -6,10 +6,10 @@
          (only-in racket/port open-output-nowhere)
          (only-in racket/system system*)
          (only-in rackunit check-equal? check-true)
-         (only-in "../../private/resource.rkt" with-release)
-         (only-in "gpu.rkt" gpu-skip test-unless-skipped)
          ;; whole-module: its syntax classes come with it
-         syntax/parse/define)
+         syntax/parse/define
+         (only-in "../../private/resource.rkt" with-release)
+         (only-in "gpu.rkt" gpu-skip test-unless-skipped))
 
 (provide check-close
          close?
@@ -35,15 +35,14 @@
 ;; the wheel and answer yes with nothing installed.
 (define (python-imports? module)
   (and python
-       (call-with-twin-env
-        #:env '(("PYTHONSAFEPATH" . "1"))
-        (lambda ()
-          (parameterize ([current-directory (find-system-path 'temp-dir)]
-                         [current-output-port (open-output-nowhere)]
-                         [current-error-port (open-output-nowhere)])
-            (system* python "-c" (format "import ~a" module)))))))
+       (call-with-twin-env #:env '(("PYTHONSAFEPATH" . "1"))
+                           (lambda ()
+                             (parameterize ([current-directory (find-system-path 'temp-dir)]
+                                            [current-output-port (open-output-nowhere)]
+                                            [current-error-port (open-output-nowhere)])
+                               (system* python "-c" (format "import ~a" module)))))))
 
-(define twin-skip
+(define twin-skip ;; noqa
   (or gpu-skip
       (cond
         [(not python) "no Python twin (python3 is not on PATH)"]
@@ -70,16 +69,14 @@
     (call-with-input-file out-path read-json)))
 
 (define (close? actual expected tolerance)
-  (<= (abs (- actual expected))
-      (* tolerance (max 1.0 (abs expected)))))
+  (<= (abs (- actual expected)) (* tolerance (max 1.0 (abs expected)))))
 
 (define (check-close actual expected #:tolerance [tolerance 0.0])
   (check-equal? (length actual) (length expected) "element count")
   (for ([a (in-list actual)]
         [e (in-list expected)]
         [i (in-naturals)])
-    (check-true (close? a e tolerance)
-                (format "element ~a: ~a against the twin's ~a" i a e))))
+    (check-true (close? a e tolerance) (format "element ~a: ~a against the twin's ~a" i a e))))
 
 (define-syntax-parse-rule (test-twin name:expr body:expr ...+)
   (test-unless-skipped twin-skip name body ...))

@@ -1,4 +1,12 @@
-{ lib, stdenv, fetchurl, unzip, autoPatchelfHook, symlinkJoin, cudaPackages }:
+{
+  lib,
+  stdenv,
+  fetchurl,
+  unzip,
+  autoPatchelfHook,
+  symlinkJoin,
+  cudaPackages,
+}:
 
 let
   version = "26.8.0";
@@ -20,19 +28,34 @@ let
     };
   };
 
-  cudaLibs = with cudaPackages; map lib.getLib [
-    libcublas libcurand libcusolver libcusparse libnvjitlink
-  ];
+  cudaLibs =
+    with cudaPackages;
+    map lib.getLib [
+      libcublas
+      libcurand
+      libcusolver
+      libcusparse
+      libnvjitlink
+    ];
 
   # The prefix keeps the wheel's lib64/ because the CMake configs name it;
   # lib/ is a link so nix's own tooling finds the libraries too.
-  prefix = { module, deps ? [ ] }:
-    let w = wheels.${module}; in
+  prefix =
+    {
+      module,
+      deps ? [ ],
+    }:
+    let
+      w = wheels.${module};
+    in
     stdenv.mkDerivation {
       pname = "${module}-cu13";
       version = w.version or version;
       src = fetchurl { inherit (w) url sha256; };
-      nativeBuildInputs = [ unzip autoPatchelfHook ];
+      nativeBuildInputs = [
+        unzip
+        autoPatchelfHook
+      ];
       buildInputs = [ stdenv.cc.cc.lib ] ++ deps;
       unpackPhase = ''
         runHook preUnpack
@@ -57,18 +80,38 @@ let
     };
 
   rapids-logger = prefix { module = "rapids_logger"; };
-  librmm = prefix { module = "librmm"; deps = [ rapids-logger ]; };
-  libraft = prefix { module = "libraft"; deps = [ librmm rapids-logger ] ++ cudaLibs; };
+  librmm = prefix {
+    module = "librmm";
+    deps = [ rapids-logger ];
+  };
+  libraft = prefix {
+    module = "libraft";
+    deps = [
+      librmm
+      rapids-logger
+    ]
+    ++ cudaLibs;
+  };
 in
 symlinkJoin {
   name = "rapids-cu13-${version}";
-  paths = [ libraft librmm rapids-logger ];
+  paths = [
+    libraft
+    librmm
+    rapids-logger
+  ];
   postBuild = ''
     rm $out/lib
     ln -s lib64 $out/lib
   '';
   passthru = {
-    inherit version libraft librmm rapids-logger cudaLibs;
+    inherit
+      version
+      libraft
+      librmm
+      rapids-logger
+      cudaLibs
+      ;
     raftVersion = "26.08.00";
   };
 }

@@ -20,11 +20,10 @@
   (cpointer-has-tag? handle released-tag))
 
 (define (release-once release-native)
-  ((deallocator)
-   (lambda (handle)
-     (unless (released? handle)
-       (release-native handle)
-       (set-cpointer-tag! handle released-tag)))))
+  ((deallocator) (lambda (handle)
+                   (unless (released? handle)
+                     (release-native handle)
+                     (set-cpointer-tag! handle released-tag)))))
 
 (define-raft rr-resources-free
   (_fun _rr-resources -> _void)

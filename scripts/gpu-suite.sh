@@ -13,9 +13,16 @@ echo "== shim gtests"
 "$RAFT_SHIM_TESTS/raftrkt_tests" --gtest_brief=1 | tee -a "$log"
 "$RAFT_SHIM_TESTS/raftrkt_error_tests" --gtest_brief=1 | tee -a "$log"
 
+echo "== shim gtests under compute-sanitizer memcheck"
+compute-sanitizer --tool memcheck --error-exitcode 1 --report-api-errors no \
+  "$RAFT_SHIM_TESTS/raftrkt_tests" --gtest_brief=1 | tee -a "$log"
+
 echo "== LD_BIND_NOW load of the staged shim"
 case ":$LD_LIBRARY_PATH:" in
-  *:/usr/local/cuda*) echo "host CUDA is still on LD_LIBRARY_PATH" >&2; exit 1 ;;
+  *:/usr/local/cuda*)
+    echo "host CUDA is still on LD_LIBRARY_PATH" >&2
+    exit 1
+    ;;
 esac
 LD_BIND_NOW=1 racket -l racket/base -l ffi/unsafe \
   -e '(void (ffi-lib (simplify-path (build-path "raft" "native-libs" "libraftrkt"))))' \
@@ -23,9 +30,12 @@ LD_BIND_NOW=1 racket -l racket/base -l ffi/unsafe \
 
 echo "== Racket tests"
 raco make -v raft/main.rkt scripts/check-bindings.rkt
-raco test raft > "$racket_log" 2>&1 || { cat "$racket_log"; exit 1; }
+raco test raft >"$racket_log" 2>&1 || {
+  cat "$racket_log"
+  exit 1
+}
 grep -E "^SKIP|tests? passed|failure" "$racket_log"
-cat "$racket_log" >> "$log"
+cat "$racket_log" >>"$log"
 
 echo "== binding census"
 racket scripts/check-bindings.rkt

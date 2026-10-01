@@ -16,7 +16,7 @@ jobs:
        github.event.pull_request.user.login == 'bkc39')
     runs-on: [self-hosted, linux, gpu]
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - name: Shim gtests, LD_BIND_NOW load, Racket tests, twin parity, census
         run: nix develop --max-jobs 1 --cores 4 --command scripts/gpu-suite.sh
       - name: Manual, with every example evaluated

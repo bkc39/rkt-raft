@@ -3,9 +3,9 @@
 (require (only-in racket/list append-map)
          (only-in racket/match match)
          (only-in racket/path path-has-extension?)
-         (only-in racket/string string-replace)
          ;; whole-module: define-runtime-path needs bindings only-in strips
-         racket/runtime-path)
+         racket/runtime-path
+         (only-in racket/string string-replace))
 
 (provide (struct-out binding)
          bindings-in

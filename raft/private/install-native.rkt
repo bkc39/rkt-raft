@@ -18,19 +18,16 @@
          (regexp-match? library-pattern f))))
 
 (define (same-bytes? a b)
-  (and (file-exists? b)
-       (= (file-size a) (file-size b))
-       (equal? (file->bytes a) (file->bytes b))))
+  (and (file-exists? b) (= (file-size a) (file-size b)) (equal? (file->bytes a) (file->bytes b))))
 
 ;; A temp file and rename(2), never a write in place: rewriting a library
 ;; that a live process has mapped faults that process.
 (define (stage-file! src dst)
   (unless (same-bytes? src dst)
-    (call-with-atomic-output-file
-     dst
-     (lambda (out tmp)
-       (write-bytes (file->bytes src) out)
-       (file-or-directory-permissions tmp #o555)))))
+    (call-with-atomic-output-file dst
+                                  (lambda (out tmp)
+                                    (write-bytes (file->bytes src) out)
+                                    (file-or-directory-permissions tmp #o555)))))
 
 (define (stage-native-libs! source-dir dest-dir)
   (make-directory* dest-dir)

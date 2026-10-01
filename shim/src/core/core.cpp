@@ -1,3 +1,5 @@
+#include "raftrkt/core.h"
+
 #include <cstdint>
 #include <cstdio>
 #include <cuda/std/version>
@@ -11,7 +13,6 @@
 #include "detail/handles.hpp"
 #include "detail/internal_api.h"
 #include "detail/memory_resource.hpp"
-#include "raftrkt/core.h"
 
 namespace {
 
@@ -54,7 +55,7 @@ const rr_abi_tag* rr_abi(void) {
 
 int rr_device_count(int32_t* out) {
   return rr::translate_exceptions([&] {
-    auto& count = *rr::require(out, "rr_device_count: out");
+    auto& count = *rr::require(out, "out");
     count = 0;
     int n = 0;
     rr::cuda_check(cudaGetDeviceCount(&n), "cudaGetDeviceCount");
@@ -64,7 +65,7 @@ int rr_device_count(int32_t* out) {
 
 int rr_resources_create(int32_t device, rr_resources** out) {
   return rr::translate_exceptions([&] {
-    auto& result = *rr::require(out, "rr_resources_create: out");
+    auto& result = *rr::require(out, "out");
     result = nullptr;
     rr::require_device(device);
     const rr::device_guard guard{device};
@@ -77,7 +78,7 @@ int rr_resources_create(int32_t device, rr_resources** out) {
 
 int rr_resources_sync(rr_resources* resources) {
   return rr::translate_exceptions([&] {
-    auto& r = *rr::require(resources, "rr_resources_sync: resources");
+    auto& r = *rr::require(resources, "resources");
     const rr::device_guard guard{r.device};
     raft::resource::sync_stream(*r.handle);
   });

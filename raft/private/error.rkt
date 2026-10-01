@@ -11,7 +11,7 @@
 
 (provide call/raft
          raise-raft
-         (struct-out exn:fail:raft))
+         (struct-out exn:fail:raft)) ;; noqa
 
 ;; One atomic section for the call and the read: the last-error slot belongs
 ;; to the OS thread, which every Racket thread in the place shares.

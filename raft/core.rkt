@@ -45,10 +45,18 @@
 
 (define (raft-abi)
   (match-define (list abi-version
-                      raft-major raft-minor raft-patch
-                      rmm-major rmm-minor rmm-patch
-                      cccl-major cccl-minor cccl-patch
-                      cuda-runtime resource-types handle-size)
+                      raft-major
+                      raft-minor
+                      raft-patch
+                      rmm-major
+                      rmm-minor
+                      rmm-patch
+                      cccl-major
+                      cccl-minor
+                      cccl-patch
+                      cuda-runtime
+                      resource-types
+                      handle-size)
     (rr-abi-tag->list (rr-abi)))
   (hasheq 'abi-version abi-version
           'raft (rapids-release raft-major raft-minor raft-patch)
