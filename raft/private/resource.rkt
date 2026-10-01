@@ -34,7 +34,12 @@
                        (when entered?
                          (refuse-reentry who))
                        (set! entered? #t))
-                     (lambda () (let ([b.name held]) (with-release #:who who (more ...) body ...)))
+                     (lambda ()
+                       (let ([b.name held])
+                         (with-release #:who
+                           who
+                           (more ...)
+                           body ...)))
                      (lambda ()
                        (when held
                          (b.release held)

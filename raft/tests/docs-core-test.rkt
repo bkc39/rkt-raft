@@ -58,19 +58,19 @@
 
 (define (run-worker device batches)
   (with-device-resources ([r (current-device-resources device)])
-    (for/list ([rows (in-list batches)])
-      (define-values (n ms) (timed r (lambda () (process-batch rows))))
-      (list n ms))))
+                         (for/list ([rows (in-list batches)])
+                           (define-values (n ms) (timed r (lambda () (process-batch rows))))
+                           (list n ms))))
 
 (define (run-workers worker jobs)
   (define pending
     (for/list ([job (in-list jobs)])
       (match-define (list device batches) job)
       (define done (make-channel))
-      (define (send thunk) (channel-put done thunk))
+      (define (send thunk)
+        (channel-put done thunk))
       (thread (lambda ()
-                (with-handlers ([exn:fail?
-                                 (lambda (e) (send (lambda () (raise e))))])
+                (with-handlers ([exn:fail? (lambda (e) (send (lambda () (raise e))))])
                   (define result (worker device batches))
                   (send (lambda () result)))))
       done))
@@ -82,8 +82,7 @@
         [i (in-naturals)])
     (for ([batch (in-list batches)])
       (match-define (list n ms) batch)
-      (printf "worker ~a: ~a rows in ~a ms\n"
-              i n (~r ms #:precision '(= 2))))))
+      (printf "worker ~a: ~a rows in ~a ms\n" i n (~r ms #:precision '(= 2))))))
 
 (define all-batches
   (list (list '((1.0 2.0) (3.0 4.0)) '((5.0 6.0)))
@@ -114,7 +113,8 @@
 (test-gpu "resources guide: finding the GPU"
   (check-pred exact-positive-integer? (device-count))
   (check-equal? (map device-for-worker '(0 1 2 3))
-                (for/list ([i (in-range 4)]) (modulo i (device-count))))
+                (for/list ([i (in-range 4)])
+                  (modulo i (device-count))))
   (check-raft-error 'logic (missing-device-message 4) (lambda () (device-resources #:device 4))))
 
 (test-gpu "resources guide: each worker's resources"
@@ -151,15 +151,12 @@
 
 (test-gpu "resources guide: reporting failed workers"
   (match-define (list batches-0 batches-1 _) all-batches)
-  (define results
-    (run-workers run-worker/caught (list (list 0 batches-0) (list 4 batches-1))))
+  (define results (run-workers run-worker/caught (list (list 0 batches-0) (list 4 batches-1))))
   (match-define (list worker-0 _) results)
   (check-batch-times (list worker-0) '((2 1)))
-  (check-equal? (failures results)
-                (list (list 1
-                            'logic
-                            (format "current-device-resources: no device 4 among ~a"
-                                    (device-count))))))
+  (check-equal?
+   (failures results)
+   (list (list 1 'logic (format "current-device-resources: no device 4 among ~a" (device-count))))))
 
 (test-gpu "reference: device-resources"
   (define r (device-resources))
@@ -189,8 +186,8 @@
   (define loader (device-resources))
   (define trainer (device-resources))
   (check-equal? (resources-device (current-device-resources)) 0)
-  (check-equal? (with-output-to-string
-                  (lambda () (printf "training on cuda:~a\n" (resources-device trainer))))
+  (check-equal? (with-output-to-string (lambda ()
+                                         (printf "training on cuda:~a\n" (resources-device trainer))))
                 "training on cuda:0\n")
   (define (same-device? a b)
     (= (resources-device a) (resources-device b)))
@@ -206,12 +203,12 @@
     (resources-sync! r)
     (- (current-inexact-milliseconds) start))
   (check-true (<= 0 (milliseconds-on trainer void) 1000.0))
-  (check-equal? (with-output-to-string
-                  (lambda ()
-                    (thread-wait (thread (lambda ()
-                                           (resources-sync! trainer)
-                                           (displayln "the trainer's stream has drained"))))))
-                "the trainer's stream has drained\n")
+  (check-equal?
+   (with-output-to-string (lambda ()
+                            (thread-wait (thread (lambda ()
+                                                   (resources-sync! trainer)
+                                                   (displayln "the trainer's stream has drained"))))))
+   "the trainer's stream has drained\n")
   (check-raft-error 'logic released-message (lambda () (resources-sync! (released-resources)))))
 
 (test-gpu "reference: current-device-resources"
@@ -225,31 +222,27 @@
   (define b (worker-resources))
   (check-equal? (list (eq? a b) (eq? a (current-device-resources))) '(#f #f))
   (define before (current-device-resources))
-  (with-device-resources ([r before])
-    (resources-sync! r))
+  (with-device-resources ([r before]) (resources-sync! r))
   (check-equal? (printed before) "#<device-resources device 0 released>")
   (check-false (eq? before (current-device-resources))))
 
 (test-gpu "reference: with-device-resources"
-  (check-equal? (with-device-resources ([r (device-resources)])
-                  (resources-sync! r)
-                  (resources-device r))
-                0)
+  (check-equal?
+   (with-device-resources ([r (device-resources)]) (resources-sync! r) (resources-device r))
+   0)
   (define (run-batch items)
     (with-device-resources ([r (device-resources)])
-      (for ([item (in-list items)])
-        (when (negative? item)
-          (error 'run-batch "bad item ~a" item)))
-      (resources-sync! r)
-      (length items)))
+                           (for ([item (in-list items)])
+                             (when (negative? item)
+                               (error 'run-batch "bad item ~a" item)))
+                           (resources-sync! r)
+                           (length items)))
   (check-equal? (run-batch '(1 2 3)) 3)
   (check-exn #rx"^run-batch: bad item -2$" (lambda () (run-batch '(1 -2 3))))
   (define-values (left right)
-    (with-device-resources ([left (device-resources)]
-                            [right (device-resources)])
-      (values left right)))
-  (check-equal? (map printed (list left right))
-                (make-list 2 "#<device-resources device 0 released>"))
+    (with-device-resources ([left (device-resources)] [right (device-resources)])
+                           (values left right)))
+  (check-equal? (map printed (list left right)) (make-list 2 "#<device-resources device 0 released>"))
   (check-raft-error 'logic released-message (lambda () (resources-sync! left))))
 
 (test-gpu "reference: device-count"
@@ -257,7 +250,8 @@
   (define (device-for-worker i)
     (modulo i (device-count)))
   (check-equal? (map device-for-worker '(0 1 2 3))
-                (for/list ([i (in-range 4)]) (modulo i (device-count))))
+                (for/list ([i (in-range 4)])
+                  (modulo i (device-count))))
   (define per-device
     (for/list ([d (in-range (device-count))])
       (device-resources #:device d)))
@@ -273,20 +267,18 @@
                     "resources-device: expected device resources, given: 5"
                     (lambda () (resources-device 5)))
   (define (describe-failure thunk)
-    (with-handlers ([exn:fail:raft?
-                     (lambda (e)
-                       (case (exn:fail:raft-kind e)
-                         [(out-of-memory) 'free-memory-and-retry]
-                         [(logic) 'fix-the-call]
-                         [else 'report]))])
+    (with-handlers ([exn:fail:raft? (lambda (e)
+                                      (case (exn:fail:raft-kind e)
+                                        [(out-of-memory) 'free-memory-and-retry]
+                                        [(logic) 'fix-the-call]
+                                        [else 'report]))])
       (thunk)
       'ok))
   (check-equal? (describe-failure (lambda () (current-device-resources))) 'ok)
   (check-equal? (describe-failure (lambda () (device-resources #:device 99))) 'fix-the-call)
-  (check-equal? (with-handlers ([exn:fail:raft?
-                                 (lambda (e)
-                                   (match-define (list who _ ...)
-                                     (string-split (exn-message e) ": "))
-                                   who)])
+  (check-equal? (with-handlers ([exn:fail:raft? (lambda (e)
+                                                  (match-define (list who _ ...)
+                                                    (string-split (exn-message e) ": "))
+                                                  who)])
                   (resources-sync! (released-resources)))
                 "resources-sync!"))
