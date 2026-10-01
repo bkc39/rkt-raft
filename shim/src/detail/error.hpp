@@ -28,7 +28,9 @@ class cuda_error : public std::runtime_error {
  public:
   cuda_error(const std::string& what, cudaError_t code)
       : std::runtime_error(what), code_(code) {}
-  [[nodiscard]] cudaError_t code() const noexcept { return code_; }
+  [[nodiscard]] cudaError_t code() const noexcept {
+    return code_;
+  }
 
  private:
   cudaError_t code_;

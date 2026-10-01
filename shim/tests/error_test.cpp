@@ -1,12 +1,12 @@
+#include "detail/error.hpp"
+
 #include <gtest/gtest.h>
-#include <raft/core/error.hpp>
-#include <rmm/error.hpp>
 
 #include <new>
+#include <raft/core/error.hpp>
+#include <rmm/error.hpp>
 #include <stdexcept>
 #include <string>
-
-#include "detail/error.hpp"
 
 namespace {
 
@@ -20,8 +20,9 @@ TEST(Classify, DeviceAllocationFailuresAreOutOfMemory) {
   EXPECT_EQ(kind_of(rmm::out_of_memory("pool exhausted")), rr::error_kind::oom);
   EXPECT_EQ(kind_of(rr::cuda_error("cudaMalloc", cudaErrorMemoryAllocation)),
             rr::error_kind::oom);
-  EXPECT_EQ(kind_of(rmm::cuda_error("cudaErrorMemoryAllocation: out of memory")),
-            rr::error_kind::oom);
+  EXPECT_EQ(
+      kind_of(rmm::cuda_error("cudaErrorMemoryAllocation: out of memory")),
+      rr::error_kind::oom);
 }
 
 TEST(Classify, HostAllocationFailureIsOutOfMemory) {

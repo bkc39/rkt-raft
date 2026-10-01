@@ -3,7 +3,7 @@
 
 #include <stdint.h>
 
-#if defined(__GNUC__)
+#ifdef __GNUC__
 #define RR_API __attribute__((visibility("default")))
 #else
 #define RR_API
@@ -13,14 +13,14 @@
 extern "C" {
 #endif
 
-enum { RR_OK = 0, RR_ERROR = 1, RR_BUFFER_TOO_SMALL = 2 };
+#define RR_OK 0
+#define RR_ERROR 1
+#define RR_BUFFER_TOO_SMALL 2
 
-enum {
-  RR_ERROR_GENERIC = 0,
-  RR_ERROR_OOM = 1,
-  RR_ERROR_CUDA = 2,
-  RR_ERROR_LOGIC = 3
-};
+#define RR_ERROR_GENERIC 0
+#define RR_ERROR_OOM 1
+#define RR_ERROR_CUDA 2
+#define RR_ERROR_LOGIC 3
 
 #define RR_ABI_VERSION 1
 

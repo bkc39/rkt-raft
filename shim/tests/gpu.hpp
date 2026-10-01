@@ -23,11 +23,11 @@ inline std::string gpu_unavailable_reason() {
 
 }  // namespace rr::test
 
-#define RR_REQUIRE_GPU()                                        \
-  do {                                                          \
+#define RR_REQUIRE_GPU()                                              \
+  do {                                                                \
     const std::string rr_reason = rr::test::gpu_unavailable_reason(); \
-    if (!rr_reason.empty()) {                                   \
-      std::printf("SKIP: %s\n", rr_reason.c_str());             \
-      GTEST_SKIP() << rr_reason;                                \
-    }                                                           \
+    if (!rr_reason.empty()) {                                         \
+      std::printf("SKIP: %s\n", rr_reason.c_str());                   \
+      GTEST_SKIP() << rr_reason;                                      \
+    }                                                                 \
   } while (0)

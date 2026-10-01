@@ -15,7 +15,9 @@ class Buffers : public ::testing::Test {
     RR_REQUIRE_GPU();
     ASSERT_EQ(rr_resources_create(0, &resources_), RR_OK) << rr_last_error();
   }
-  void TearDown() override { rr_resources_free(resources_); }
+  void TearDown() override {
+    rr_resources_free(resources_);
+  }
 
   rr_resources* resources_ = nullptr;
 };
@@ -89,8 +91,7 @@ TEST(BufferArguments, NullArgumentsAreLogicErrors) {
   rr_buffer* b = nullptr;
   EXPECT_EQ(rr_buffer_alloc(nullptr, 8, &b), RR_ERROR);
   EXPECT_EQ(rr_last_error_kind(), RR_ERROR_LOGIC);
-  EXPECT_EQ(std::string(rr_last_error()),
-            "rr_buffer_alloc: resources is NULL");
+  EXPECT_EQ(std::string(rr_last_error()), "rr_buffer_alloc: resources is NULL");
   EXPECT_EQ(rr_copy_h2d(nullptr, &b, 8), RR_ERROR);
   EXPECT_EQ(rr_last_error_kind(), RR_ERROR_LOGIC);
   EXPECT_EQ(rr_copy_d2h(&b, nullptr, 8), RR_ERROR);

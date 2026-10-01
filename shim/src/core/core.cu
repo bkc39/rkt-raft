@@ -1,12 +1,11 @@
+#include <cstdint>
+#include <cstdio>
 #include <cuda/std/version>
+#include <memory>
 #include <raft/core/resource/cuda_stream.hpp>
 #include <raft/core/resource/resource_types.hpp>
 #include <raft/version_config.hpp>
 #include <rmm/version_config.hpp>
-
-#include <cstdint>
-#include <cstdio>
-#include <memory>
 #include <string>
 
 #include "detail/error.hpp"
@@ -58,7 +57,9 @@ const char* rr_version(void) {
   return version.text;
 }
 
-const rr_abi_tag* rr_abi(void) { return &abi_tag; }
+const rr_abi_tag* rr_abi(void) {
+  return &abi_tag;
+}
 
 int rr_device_count(int32_t* out) {
   return rr::translate_exceptions([&] {

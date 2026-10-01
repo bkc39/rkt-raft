@@ -1,13 +1,12 @@
 #include "detail/error.hpp"
 
-#include <raft/core/error.hpp>
-#include <raft/util/cuda_rt_essentials.hpp>
-#include <rmm/error.hpp>
-
 #include <array>
 #include <cstddef>
 #include <cstdio>
 #include <new>
+#include <raft/core/error.hpp>
+#include <raft/util/cuda_rt_essentials.hpp>
+#include <rmm/error.hpp>
 #include <string_view>
 
 namespace rr {
@@ -71,9 +70,13 @@ void clear_error() noexcept {
   last_kind = error_kind::generic;
 }
 
-const char* last_error() noexcept { return last_message.data(); }
+const char* last_error() noexcept {
+  return last_message.data();
+}
 
-error_kind last_error_kind() noexcept { return last_kind; }
+error_kind last_error_kind() noexcept {
+  return last_kind;
+}
 
 void record_failure(const std::exception& e) noexcept {
   record_error(e.what(), classify(e));
@@ -87,7 +90,11 @@ void record_unknown_failure() noexcept {
 
 extern "C" {
 
-const char* rr_last_error(void) { return rr::last_error(); }
+const char* rr_last_error(void) {
+  return rr::last_error();
+}
 
-int rr_last_error_kind(void) { return static_cast<int>(rr::last_error_kind()); }
+int rr_last_error_kind(void) {
+  return static_cast<int>(rr::last_error_kind());
+}
 }

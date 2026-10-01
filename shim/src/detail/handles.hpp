@@ -1,13 +1,12 @@
 #pragma once
 
+#include <atomic>
+#include <cstdint>
+#include <memory>
 #include <raft/core/handle.hpp>
 #include <rmm/cuda_device.hpp>
 #include <rmm/cuda_stream.hpp>
 #include <rmm/device_buffer.hpp>
-
-#include <atomic>
-#include <cstdint>
-#include <memory>
 
 #include "raftrkt/core.h"
 

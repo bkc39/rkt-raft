@@ -1,6 +1,5 @@
-#include <raft/core/resource/cuda_stream.hpp>
-
 #include <cstddef>
+#include <raft/core/resource/cuda_stream.hpp>
 #include <string>
 
 #include "detail/error.hpp"
@@ -37,7 +36,8 @@ int rr_buffer_alloc(rr_resources* resources, size_t bytes, rr_buffer** out) {
     auto& r = *rr::require(resources, "rr_buffer_alloc: resources");
     const rmm::cuda_set_device_raii guard{rr::device_id(r.device)};
     auto stream = raft::resource::get_cuda_stream(*r.handle);
-    result = new rr_buffer{r.handle, r.device, rmm::device_buffer{bytes, stream}};
+    result =
+        new rr_buffer{r.handle, r.device, rmm::device_buffer{bytes, stream}};
   });
 }
 
