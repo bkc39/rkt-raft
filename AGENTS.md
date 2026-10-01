@@ -569,7 +569,8 @@ the binding census), `racket-review`, `racket-version` (at least 9.3),
   underneath. `resources-device` still answers after release.
 - **`with-device-resources` binds like `let*`:** each expression sees the
   names bound before it, never its own, and duplicate names are a syntax
-  error.
+  error. It passes `#:who 'with-device-resources` to `with-release`, so a
+  refused re-entry (rule 7) names the public form.
 - **`device-count` never answers 0,** as CuPy's `getDeviceCount` does not:
   with no device, CUDA reports `cudaErrorNoDevice`, which raises.
 - **`abi-version` stays 1.** L1a only adds entry points; the tag's version

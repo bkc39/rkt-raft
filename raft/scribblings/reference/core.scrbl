@@ -220,7 +220,13 @@ idempotent, and the finalizer stays as a backstop for anything not released
 here. The @racket[resources-expr]s are evaluated in order, as by
 @racket[let*]: each one sees the @racket[id]s bound before it, but not its
 own, so @racket[(with-device-resources ([r r]) ....)] scopes an existing
-@racket[r].
+@racket[r]. A value that is not a resources object raises
+@racket[exn:fail:raft] before the body runs.
+
+Every jump out of the body releases, a generator's @racket[yield] included.
+Control that jumps back in afterwards, such as a generator resumed after that
+@racket[yield], raises @racket[exn:fail:raft] of kind @racket['logic]
+instead of acquiring the resources again.
 
 Release drops this object's hold on its @tt{raft::handle_t}. An array
 allocated with these resources @status{L1b} holds the handle too, stream and

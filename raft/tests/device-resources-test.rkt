@@ -1,6 +1,7 @@
 #lang racket/base
 
-(require (only-in racket/match match-define)
+(require (only-in racket/generator in-generator yield)
+         (only-in racket/match match-define)
          (only-in rackunit check-eq? check-equal? check-exn check-false check-pred check-true test-case)
          (only-in syntax/macro-testing convert-syntax-error)
          (only-in "../main.rkt"
@@ -120,6 +121,26 @@
   (with-device-resources ([a (device-resources)]
                           [b (device-resources #:device (resources-device a))])
     (check-equal? (resources-device b) (resources-device a))))
+
+(test-gpu "a generator resuming with-device-resources raises instead of acquiring again"
+  (define acquired 0)
+  (define (acquire!)
+    (set! acquired (add1 acquired))
+    (device-resources))
+  (check-equal?
+   (drops-during
+    (lambda ()
+      (check-raft-error
+       'logic
+       "with-device-resources: cannot re-enter its body after its resources were released"
+       (lambda ()
+         (for/list ([r (in-generator (with-device-resources ([r (acquire!)])
+                                       (yield r)
+                                       (yield r)))])
+           r)))))
+   1
+   "the yield released the one handle")
+  (check-equal? acquired 1 "no second handle was acquired"))
 
 (test-case "a name bound twice is a syntax error"
   (check-exn #rx"duplicate binding name"
