@@ -3,7 +3,7 @@
 (require (only-in ffi/unsafe cpointer-has-tag? cpointer? define-cpointer-type ffi-lib)
          (only-in ffi/unsafe/define define-ffi-definer)
          (only-in ffi/unsafe/define/conventions convention:hyphen->underscore)
-         (only-in "../exn.rkt" exn:fail:raft)
+         (only-in "../exn.rkt" raise-raft)
          (only-in "../install-native.rkt" not-staged-advice staged?)
          ;; whole-module: define-runtime-path needs bindings only-in strips
          racket/runtime-path)
@@ -41,9 +41,7 @@
 
 (define ((refuse-released what) handle)
   (when (and handle (cpointer? handle) (cpointer-has-tag? handle released-tag))
-    (raise (exn:fail:raft (format "~a: used after its release" what)
-                          (current-continuation-marks)
-                          'logic)))
+    (raise-raft what 'logic "used after its release"))
   handle)
 
 (define-cpointer-type _rr-resources #f (refuse-released 'rr-resources) #f)

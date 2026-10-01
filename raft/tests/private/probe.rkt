@@ -13,9 +13,6 @@
          probe-release!
          test-probe)
 
-;; libraftrkt_probe links RMM on its own, as a cuML binding will, and is
-;; loaded RTLD_LOCAL like libraftrkt: it sees RMM's per-device registry only
-;; through its own copies of RMM's header-inline functions.
 (define probe-path (getenv "RAFT_SHIM_PROBE"))
 
 (define probe-skip

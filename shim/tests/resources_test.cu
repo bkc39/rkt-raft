@@ -19,6 +19,7 @@
 #include <thread>
 
 #include "detail/handles.hpp"
+#include "detail/memory_resource.hpp"
 #include "gpu.hpp"
 #include "raftrkt/c_api.h"
 
@@ -42,7 +43,7 @@ rr_resources* create_or_null() {
 // Each case runs in a fresh process: which resources come first on a device
 // is process-wide state.
 int first_use_installs_the_async_pool() {
-  if (current_kind() != RR_MEMORY_RESOURCE_CUDA) {
+  if (current_kind() != rr::memory_resource_cuda) {
     return 1;
   }
   rr_resources* r = create_or_null();
@@ -51,7 +52,7 @@ int first_use_installs_the_async_pool() {
   }
   const int32_t kind = current_kind();
   rr_resources_free(r);
-  return kind == RR_MEMORY_RESOURCE_CUDA_ASYNC ? 0 : 3;
+  return kind == rr::memory_resource_cuda_async ? 0 : 3;
 }
 
 int a_resource_set_beforehand_is_kept() {
@@ -63,12 +64,12 @@ int a_resource_set_beforehand_is_kept() {
   }
   const int32_t kind = current_kind();
   rr_resources_free(r);
-  return kind == RR_MEMORY_RESOURCE_OTHER ? 0 : 2;
+  return kind == rr::memory_resource_other ? 0 : 2;
 }
 
 int only_the_first_use_installs() {
   rr_resources* first = create_or_null();
-  if (first == nullptr || current_kind() != RR_MEMORY_RESOURCE_CUDA_ASYNC) {
+  if (first == nullptr || current_kind() != rr::memory_resource_cuda_async) {
     return 1;
   }
   rmm::mr::reset_per_device_resource(rmm::cuda_device_id{0});
@@ -76,7 +77,7 @@ int only_the_first_use_installs() {
   const int32_t kind = current_kind();
   rr_resources_free(second);
   rr_resources_free(first);
-  return kind == RR_MEMORY_RESOURCE_CUDA ? 0 : 2;
+  return kind == rr::memory_resource_cuda ? 0 : 2;
 }
 
 [[noreturn]] void exit_with(int code) {

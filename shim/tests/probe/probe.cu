@@ -14,9 +14,6 @@
 #include "detail/handles.hpp"
 #include "raftrkt/core.h"
 
-// A second library linking RMM on its own, as a cuML binding would: it sees
-// RMM's registry only through its own copies of the header-inline functions.
-
 namespace {
 
 struct gate {

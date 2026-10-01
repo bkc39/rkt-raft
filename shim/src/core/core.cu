@@ -6,7 +6,6 @@
 #include <raft/core/resource/resource_types.hpp>
 #include <raft/version_config.hpp>
 #include <rmm/version_config.hpp>
-#include <string>
 
 #include "detail/error.hpp"
 #include "detail/handles.hpp"
@@ -40,20 +39,6 @@ struct version_string {
 };
 
 }  // namespace
-
-namespace rr {
-
-void require_device(const char* who, int32_t device) {
-  int count = 0;
-  cuda_check(cudaGetDeviceCount(&count), "cudaGetDeviceCount");
-  if (device < 0 || device >= count) {
-    throw logic_error(std::string(who) + ": no device " +
-                      std::to_string(device) + " among " +
-                      std::to_string(count));
-  }
-}
-
-}  // namespace rr
 
 extern "C" {
 

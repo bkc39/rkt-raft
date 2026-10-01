@@ -1,13 +1,14 @@
 #lang racket/base
 
-(require (only-in rackunit check-equal? check-exn check-true)
-         (only-in "../main.rkt" current-device-resources device-count exn:fail:raft? resources-sync!)
+(require (only-in rackunit check-equal? check-true)
+         (only-in "../main.rkt" current-device-resources device-count resources-sync!)
          (only-in "../private/foreign/memory.rkt" rr-buffer-free)
          (only-in "../private/resource.rkt" with-release)
          (only-in "../private/resources.rkt" memory-resource-kind resources-handle)
          (only-in "private/gpu.rkt" test-gpu)
          (only-in "private/native.rkt" new-buffer)
-         (only-in "private/probe.rkt" probe-current-is-async? probe-pool-used test-probe))
+         (only-in "private/probe.rkt" probe-current-is-async? probe-pool-used test-probe)
+         (only-in "private/raft-error.rkt" check-raft-error))
 
 (define mebibyte (expt 2 20))
 
@@ -17,11 +18,9 @@
   (check-equal? (memory-resource-kind) 'cuda-async))
 
 (test-gpu "asking about a missing device is a logic error"
-  (check-exn (lambda (e)
-               (and (exn:fail:raft? e)
-                    (regexp-match? #rx"^memory-resource-kind: rr_memory_resource_kind: no device"
-                                   (exn-message e))))
-             (lambda () (memory-resource-kind (device-count)))))
+  (check-raft-error 'logic
+                    #rx"^memory-resource-kind: rr_memory_resource_kind: no device"
+                    (lambda () (memory-resource-kind (device-count)))))
 
 (test-probe "a second library sees the pool raft installed"
   (current-device-resources)

@@ -29,7 +29,8 @@ add_library(raftrkt SHARED
   src/array/buffer.cu
   src/core/core.cu
   src/core/memory.cu
-  src/core/memory_resource.cu
+  src/core/memory_resource.cpp
+  src/detail/device.cpp
   src/detail/error.cpp
 )
 add_library(raftrkt::raftrkt ALIAS raftrkt)

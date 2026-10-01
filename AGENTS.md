@@ -180,14 +180,19 @@ plans/scoping-plan.html       the approved plan, byte for byte
   (`cudaStreamQuery`); Racket's `resources-sync!` polls it.
   `rr_resources_sync` blocks and stays for C callers and the gtests.
 - **The default memory resource.** `rr_resources_create` calls
-  `rr::install_default_memory_resource` (`src/core/memory_resource.cu`)
+  `rr::install_default_memory_resource` (`src/core/memory_resource.cpp`)
   before it builds the handle, so RAFT's workspace factories see the pool.
   Once per device and process it replaces RMM's initial
   `cuda_memory_resource` with a default-constructed
   `rmm::mr::cuda_async_memory_resource`; a resource of any other type is
-  left alone, and nothing is installed again after that first visit.
+  left alone, and nothing is installed again after that first visit. If
+  another library sets a resource between the check and the swap, the
+  previous resource `set_per_device_resource` returns is put back.
   `rr_memory_resource_kind` reads the registry back (`cuda`, `cuda-async`,
-  `other`) for the tests.
+  `other`) for the tests; it is declared in `src/detail/memory_resource.hpp`,
+  not in the public headers, and bound in `private/foreign/internal.rkt`.
+- `src/detail/device.{hpp,cpp}`: `device_guard` and `require_device`, host
+  code that needs no RAFT header.
 - `rr_buffer` holds that same `shared_ptr`, its device and an
   `rmm::device_buffer` allocated on the handle's stream from the current
   device resource. The `shared_ptr` is declared first, so the buffer is freed
@@ -224,15 +229,18 @@ plans/scoping-plan.html       the approved plan, byte for byte
 - `main.rkt` re-exports `core.rkt`, which defines `device-count`,
   `raft-version` and `raft-abi` and re-exports `private/resources.rkt` and
   `exn:fail:raft`.
-- `private/resources.rkt`: the `device-resources` struct (built with
-  `#:name`/`#:constructor-name`, so the constructor procedure can carry the
-  type's name), `resources-sync!`, the thread-cell defaults and
-  `with-device-resources` (over `with-release`). It also provides two
-  internal names: `resources-handle`, which every binding that takes
-  resources goes through (`(resources-handle who r)` answers the native
-  handle or raises `exn:fail:raft` naming `who` if the resources were
-  released), and `memory-resource-kind`, the tests' view of the default
-  memory resource.
+- `private/exn.rkt` also defines `raise-raft` (`who kind format arg ...`),
+  the one place an `exn:fail:raft` is built.
+- `private/resources.rkt`: the `device-resources` struct (with
+  `#:omit-define-syntaxes`, so the constructor procedure can carry the
+  type's name; the raw constructor is `handle->device-resources`),
+  `resources-sync!` over the `in-backoff` sequence, the thread-cell
+  defaults and `with-device-resources` (over `with-release`). It also
+  provides internal names: `resources-handle`, which every binding that
+  takes resources goes through (`(resources-handle who r)` answers the
+  native handle or raises `exn:fail:raft` naming `who` if the resources
+  were released; `resources-sync!` calls it on every poll), and
+  `memory-resource-kind`, the tests' view of the default memory resource.
 - `private/foreign/library.rkt`: the runtime path to `native-libs/`, `ffi-lib`
   (default local binding: only one copy of each RAPIDS library can load per
   process), `define-raft`, and the cpointer types `_rr-resources`,
@@ -247,7 +255,9 @@ plans/scoping-plan.html       the approved plan, byte for byte
   `lib/` holds `libraftrkt.so`).
 - Tests: `tests/private/gpu.rkt` (`gpu-available?`, `test-gpu`),
   `tests/private/probe.rkt` (the probe library, from `RAFT_SHIM_PROBE`, and
-  `test-probe`), `tests/private/collect.rkt` (`collect-until`),
+  `test-probe`), `tests/private/collect.rkt` (`collect-until`,
+  `drain-finalizers!`, run before reading a drop counter),
+  `tests/private/raft-error.rkt` (`check-raft-error kind message thunk`),
   `tests/private/python-env.rkt` (the twin runner: `PYTHONSAFEPATH` probes,
   a temp directory, JSON in and out, `check-close`, `test-twin`),
   `tests/private/bindings.rkt` (the binding reader shared by the audit and
@@ -417,13 +427,15 @@ compiled but not rendered, the binding census), `racket-version` (at least
   the same behaviour. "Already replaced" means the registry holds anything
   but a `cuda_memory_resource` (`cuda::mr::resource_cast`); a plain
   `cuda_memory_resource` set on purpose before that point cannot be told
-  from RMM's initial one and is replaced too.
+  from RMM's initial one and is replaced too (the manual says so).
 - **The pool takes RMM's defaults**, as `rmm.mr.CudaAsyncMemoryResource()`
   does: no initial size, and a release threshold of `UINT64_MAX`, so freed
   memory stays in the pool. Sizes and trimming are leg 2 and leg 5.
 - **`resources-sync!` polls.** It queries the stream, yields for 16 polls,
-  then sleeps from 10 µs, doubling to 1 ms. A `cudaErrorNotReady` from the
-  query is cleared from the runtime's last error, as PyTorch does.
+  then sleeps from 10 µs, doubling to 1 ms (`in-backoff`). Each poll looks
+  the handle up again, so resources released by another thread mid-wait end
+  the wait with `exn:fail:raft`. A `cudaErrorNotReady` from the query is
+  cleared from the runtime's last error, as PyTorch does.
 - **Per-thread defaults** live in a thread cell (not preserved) holding an
   immutable `hasheqv` from device to resources. A released default is
   replaced on the next request.
@@ -434,6 +446,8 @@ compiled but not rendered, the binding census), `racket-version` (at least
 - **`with-device-resources` binds like `let*`:** each expression sees the
   names bound before it, never its own, and duplicate names are a syntax
   error.
+- **`device-count` never answers 0,** as CuPy's `getDeviceCount` does not:
+  with no device, CUDA reports `cudaErrorNoDevice`, which raises.
 - **`abi-version` stays 1.** L1a only adds entry points; the tag's version
   changes when a change would break a library built against the previous
   one, and L1d freezes the downstream interface.

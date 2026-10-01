@@ -8,9 +8,8 @@
 Every RAFT operation runs with a @tech{resources} object: the device it runs
 on, the CUDA @tech{stream} it is queued on, and the library handles it needs.
 This chapter builds the skeleton of a batch program around them, one piece at
-a time. The program picks its GPU from configuration, gives each batch
-resources of its own, fans batches out to worker threads, times them, and
-reports what failed.
+a time. The program checks its GPU, gives each batch resources of its own,
+fans batches out to worker threads, times them, and reports what failed.
 
 The operations themselves, on device arrays, arrive in the next chapter
 @status{L1b}, so here the batches only check their rows. Everything around
@@ -21,46 +20,27 @@ resources with @racket[#:resources].
 
 @racket[device-count] asks the driver how many CUDA devices this process can
 see. They are numbered from 0, after @tt{CUDA_VISIBLE_DEVICES} has hidden
-any:
+any. Resources can be made on any of them, and on no other:
 
 @examples[#:eval ev #:label #f
 (device-count)
-]
-
-A program that takes its GPU from a setting should check it before it builds
-anything on it:
-
-@examples[#:eval ev #:label #f
-(define (check-device wanted)
-  (unless (< wanted (device-count))
-    (error 'check-device "GPU ~a requested, but only ~a visible"
-           wanted (device-count)))
-  wanted)
-(check-device 0)
-(eval:error (check-device 4))
+(eval:error (device-resources #:device 4))
 ]
 
 @python|{
 import cupy as cp
 
-cp.cuda.runtime.getDeviceCount()          # 1
-
-def check_device(wanted):
-    count = cp.cuda.runtime.getDeviceCount()
-    if wanted >= count:
-        raise ValueError(f"GPU {wanted} requested, but only {count} visible")
-    return wanted
-
-check_device(0)                           # 0
-cp.cuda.Device(4).use()                   # CUDARuntimeError: cudaErrorInvalidDevice:
-                                          #   invalid device ordinal
+cp.cuda.runtime.getDeviceCount()   # 1
+cp.cuda.Device(4).use()            # CUDARuntimeError: cudaErrorInvalidDevice:
+                                   #   invalid device ordinal
 }|
 
-The count is the same number on both sides. The difference is where a missing
-device is caught: CuPy finds out when it asks CUDA to switch to the device,
-while this library checks the number against @racket[device-count] before it
-asks CUDA for anything, and raises @racket[exn:fail:raft] naming the Racket
-procedure you called (see @secref["res-errors"]).
+Both sides count the same devices and refuse the same missing one; they
+differ in what they report. CuPy passes on CUDA's own error from switching to
+the device. This library compares the number with the driver's count before
+it makes anything there, and raises @racket[exn:fail:raft] of kind
+@racket['logic], named after the Racket procedure you called (see
+@secref["res-errors"]).
 
 @section[#:tag "res-default"]{The default resources}
 
@@ -85,15 +65,20 @@ handle.sync()
 # DeviceResources of its own and syncs it before returning
 }|
 
-The two sides differ in three ways. pylibraft has no default: a function
-called without @tt{handle=} makes a new @tt{DeviceResources} for that one
-call and waits for it before returning, so every such call stops the program
-until the GPU has finished. Racket keeps one resources object per thread and
-never waits on your behalf. A @tt{DeviceResources()} made without a stream
-queues its work on @tt{cudaStreamPerThread}, CUDA's per-thread default
-stream, shared with any other code on that OS thread that uses it, while each
-Racket resources object owns a stream of its own. And a Racket default is created once per thread and device, so its
-cost, a stream and the handles it creates on first use, is paid once.
+The two sides differ in three ways:
+
+@itemlist[
+ @item{@bold{A default.} pylibraft has none: a function called without
+       @tt{handle=} makes a @tt{DeviceResources} for that one call. Racket
+       keeps one per thread and device, so a stream and the library handles
+       are created once.}
+ @item{@bold{Waiting.} That one-call @tt{DeviceResources} is synced before
+       the function returns, so every such call waits for the GPU. Racket
+       never waits on your behalf.}
+ @item{@bold{The stream.} @tt{DeviceResources()} without a stream queues on
+       @tt{cudaStreamPerThread}, CUDA's per-thread default stream, which any
+       other code on that OS thread may also use. Each Racket resources
+       object owns a stream of its own.}]
 
 @section[#:tag "res-batch"]{Resources for a batch job}
 
@@ -119,24 +104,21 @@ from pylibraft.common import DeviceResources
 
 def process_batch(rows):
     handle = DeviceResources()
-    try:
-        for row in rows:
-            if len(row) != 2:
-                raise ValueError(f"row {row} has {len(row)} columns")
-        handle.sync()
-        return len(rows)
-    finally:
-        del handle
+    for row in rows:
+        if len(row) != 2:
+            raise ValueError(f"row {row} has {len(row)} columns")
+    handle.sync()
+    return len(rows)
 
 process_batch([[1.0, 2.0], [3.0, 4.0]])   # 2
 process_batch([[1.0, 2.0], [3.0]])        # ValueError: row [3.0] has 1 columns
 }|
 
-@tt{DeviceResources} has no @tt{with} form. CPython frees it when the last
-reference goes, so the @tt{del} in @tt{finally} releases it at once unless
-something else still holds it. In Racket, resources that are not scoped are
-released by the garbage collector once they are unreachable, at a time of its
-choosing; @racket[with-device-resources] is how you choose the time yourself.
+Python needs no form for this: CPython frees the handle by reference counting
+as soon as the function lets go of it. Racket frees resources that are not
+scoped when the garbage collector finds them unreachable, at a time of its
+choosing; @racket[with-device-resources] is how you choose the time
+yourself.
 
 @section[#:tag "res-threads"]{One resources object per worker thread}
 
@@ -159,7 +141,8 @@ parent's, so two threads never queue on one stream by accident.
   r)
 (define used (run-workers 3 worker))
 used
-(length (remove-duplicates (cons (current-device-resources) used) eq?))
+(define everyone (cons (current-device-resources) used))
+(length (remove-duplicates everyone eq?))
 ]
 
 The three workers and the main thread hold four different resources objects.
@@ -194,9 +177,11 @@ len({id(h) for h in used + [thread_resources()]})   # 4
 }|
 
 Python has no per-thread default, so the thread-local cache is yours to
-write. Racket threads all run on one OS thread, taking turns; the parallelism
-is on the GPU, where work queued on the four streams can overlap. When a
-thread waits in @racket[resources-sync!], the others keep running.
+write. Racket threads made the usual way take turns on one OS thread, and a
+thread made with @racket[#:pool 'own] runs on an OS thread of its own; either
+kind gets its own default, and the work the threads queue on their four
+streams can overlap on the GPU. When a thread waits in
+@racket[resources-sync!], the others keep running.
 
 @section[#:tag "res-sync"]{Waiting for the GPU}
 
@@ -213,7 +198,8 @@ took to queue the work:
   (resources-sync! r)
   (values result (- (current-inexact-milliseconds) start)))
 (define-values (answer ms) (timed (current-device-resources) (lambda () 42)))
-(list answer (< ms 1000.0))
+answer
+ms
 ]
 
 @python|{
@@ -225,8 +211,7 @@ def timed(handle, f):
     handle.sync()
     return result, (time.perf_counter() - start) * 1000
 
-result, ms = timed(handle, lambda: 42)
-result, ms < 1000                          # (42, True)
+timed(handle, lambda: 42)                  # (42, 0.0061)
 }|
 
 The two waits behave differently while they wait. @tt{handle.sync()} blocks
@@ -264,8 +249,12 @@ rmm.mr.get_current_device_resource()      # CudaAsyncMemoryResource
 Python leaves RMM's default in place until you change it. This library
 changes it on first use, but only if nothing has changed it before: a pool
 that another library installed first, or that you install afterwards, is left
-alone. Because the resource belongs to the process, a cuML binding loaded
-into the same program allocates from the same pool.
+alone. A plain @tt{CudaMemoryResource} set on purpose beforehand, for example
+to find out-of-bounds accesses with @tt{compute-sanitizer}, which a pool
+hides, looks the same as RMM's default and is replaced; set it after the
+first resources are made instead. Because the resource belongs to the
+process, a cuML binding loaded into the same program allocates from the same
+pool.
 
 @section[#:tag "res-errors"]{When something goes wrong}
 
@@ -297,7 +286,8 @@ import cupy as cp
 from pylibraft.common import DeviceResources
 
 with cp.cuda.Device(12):
-    DeviceResources()   # CUDARuntimeError: cudaErrorInvalidDevice: invalid device ordinal
+    DeviceResources()   # CUDARuntimeError: cudaErrorInvalidDevice:
+                        #   invalid device ordinal
 }|
 
 Python reports each layer's failure in that layer's own exception type: CuPy's

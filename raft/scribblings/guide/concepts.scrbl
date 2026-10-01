@@ -244,12 +244,12 @@ arrives.
              @tt{DeviceResources.sync()}
              "here")
        (list "the default memory resource"
-             @tt{rmm::mr::cuda_async_memory_resource}
-             @tt{rmm.mr.CudaAsyncMemoryResource}
+             @tt{rmm::mr::set_per_device_resource}
+             @tt{rmm.mr.set_current_device_resource}
              "here, installed on first use")
        (list @racket[cuda-async-memory-resource]
-             @tt{rmm::mr::set_current_device_resource}
-             @tt{rmm.mr.set_current_device_resource}
+             @tt{rmm::mr::cuda_async_memory_resource}
+             @tt{rmm.mr.CudaAsyncMemoryResource()}
              @status{L2})
        (list @racket[exn:fail:raft]
              @elem{@tt{raft::exception}, @tt{rmm::bad_alloc}}

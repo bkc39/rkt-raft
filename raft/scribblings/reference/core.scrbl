@@ -55,15 +55,12 @@ queued on one never waits for the other:
 (map resources-device (list loader trainer))
 ]
 
-Asking for a device that is not there is an error, so check
-@racket[device-count] first when the device comes from configuration:
+Devices are numbered from 0, so @racket[(device-count)] is the first
+number that is not a device:
 
 @examples[#:eval ev #:label #f
 (device-count)
 (eval:error (device-resources #:device (device-count)))
-(define (resources-for wanted)
-  (device-resources #:device (if (< wanted (device-count)) wanted 0)))
-(resources-device (resources-for 3))
 ]}
 
 @defproc[(device-resources? [v any/c]) boolean?]{
@@ -77,23 +74,23 @@ and @racket[#f] otherwise. Released resources are still resources objects.
 (device-resources? 0)
 ]
 
-A helper that accepts either a resources object or nothing at all falls back
-to the thread's default:
+A procedure can take either a device number or resources, the way CuPy takes
+a device or its number, and turn either into resources:
 
 @examples[#:eval ev #:label #f
-(define (resources-or-default maybe-resources)
-  (if (device-resources? maybe-resources)
-      maybe-resources
-      (current-device-resources)))
-(eq? (resources-or-default #f) (current-device-resources))
-(eq? (resources-or-default loader) loader)
+(define (as-resources where)
+  (if (device-resources? where)
+      where
+      (current-device-resources where)))
+(eq? (as-resources 0) (current-device-resources))
+(eq? (as-resources loader) loader)
 ]
 
-Picking the resources out of a mixed list of settings:
+Released resources are still resources objects; using them is what fails:
 
 @examples[#:eval ev #:label #f
-(define settings (list 'batch-size 256 loader 'verbose trainer))
-(length (filter device-resources? settings))
+(define finished (with-device-resources ([r (device-resources)]) r))
+(device-resources? finished)
 ]}
 
 @defproc[(resources-device [resources device-resources?])
@@ -107,21 +104,20 @@ available after the resources have been released.
 (resources-device (current-device-resources))
 ]
 
-Labelling results with the device that produced them:
+Naming the device in a log line, as CUDA tools do:
 
 @examples[#:eval ev #:label #f
-(define (tag-with-device r result)
-  (cons (format "cuda:~a" (resources-device r)) result))
-(tag-with-device trainer 'loss-0.42)
+(printf "training on cuda:~a\n" (resources-device trainer))
 ]
 
-Grouping resources by device, one group per GPU:
+An operation that combines arrays needs them on one device, so code that
+mixes resources checks before it queues anything:
 
 @examples[#:eval ev #:label #f
-(define pool (list loader trainer (current-device-resources)))
-(for/fold ([by-device (hasheqv)])
-          ([r (in-list pool)])
-  (hash-update by-device (resources-device r) add1 0))
+(define (same-device? a b)
+  (= (resources-device a) (resources-device b)))
+(same-device? loader trainer)
+(resources-device finished)
 ]}
 
 @defproc[(resources-sync! [resources device-resources?]) void?]{
@@ -154,21 +150,21 @@ measured is only the time it took to queue the work:
   (thunk)
   (resources-sync! r)
   (- (current-inexact-milliseconds) start))
-(< (milliseconds-on trainer void) 1000.0)
+(milliseconds-on trainer void)
 ]
 
-A worker can wait for its stream while the rest of the program carries on:
+The wait can happen in a thread of its own, joined when the result is needed:
 
 @examples[#:eval ev #:label #f
-(define waiter (thread (lambda () (resources-sync! trainer))))
-(thread-wait waiter)
-(thread-dead? waiter)
+(thread-wait
+ (thread (lambda ()
+           (resources-sync! trainer)
+           (displayln "the trainer's stream has drained"))))
 ]
 
 Released resources cannot be synced:
 
 @examples[#:eval ev #:label #f
-(define finished (with-device-resources ([r (device-resources)]) r))
 (eval:error (resources-sync! finished))
 ]}
 
@@ -265,27 +261,28 @@ afterwards:
 
 @section[#:tag "ref-core-devices"]{Devices}
 
-@defproc[(device-count) exact-nonnegative-integer?]{
+@defproc[(device-count) exact-positive-integer?]{
 
 Returns the number of CUDA devices the driver makes visible to this process,
 after @tt{CUDA_VISIBLE_DEVICES}. Devices are numbered from 0. It is CuPy's
-@tt{cp.cuda.runtime.getDeviceCount()}. Without a working driver it raises
-@racket[exn:fail:raft] with kind @racket['cuda].
+@tt{cp.cuda.runtime.getDeviceCount()}, and like it, it never answers 0: with
+no device, or no working driver, it raises @racket[exn:fail:raft] with kind
+@racket['cuda].
 
 @examples[#:eval ev
 (device-count)
 ]
 
-Pick a device from a setting, falling back to the first one:
+Spreading workers over every GPU, round robin:
 
 @examples[#:eval ev #:label #f
-(define (pick-device wanted)
-  (if (< wanted (device-count)) wanted 0))
-(pick-device 0)
-(pick-device 7)
+(define (device-for-worker i)
+  (modulo i (device-count)))
+(map device-for-worker '(0 1 2 3))
 ]
 
-One resources object per device, for spreading work over every GPU:
+Resources for every device, made once at start-up, for those workers to
+use:
 
 @examples[#:eval ev #:label #f
 (define per-device
@@ -309,8 +306,10 @@ allocations and frees are ordered on a stream and do not stop the device, and
 which can be trimmed after an out-of-memory error. It is what
 @tt{rmm.mr.set_current_device_resource(rmm.mr.CudaAsyncMemoryResource())}
 does in Python. A resource that something else installed before that point is
-left alone, as is any change made after it. Choosing a resource from Racket
-arrives with the rest of the core module @status{L2}.
+left alone, as is any change made after it. The exception is a plain
+@tt{cuda_memory_resource} set on purpose beforehand: it cannot be told from
+RMM's default, so it is replaced. Choosing a resource from Racket arrives
+with the rest of the core module @status{L2}.
 
 @section[#:tag "ref-core-errors"]{Errors}
 
@@ -330,9 +329,9 @@ native library's words. The @racket[kind] says what failed:
        example a device that does not exist or resources already released;}
  @item{@racket['generic]: anything else.}]
 
-There are no contracts yet, so a wrong argument of the wrong Racket type can
-still raise @racket[exn:fail:contract] from the foreign-function layer; only
-the native side's own checks raise this type.
+An argument of the wrong Racket type, such as a string where a device number
+goes, raises @racket[exn:fail:contract] from the foreign-function layer
+instead.
 
 @examples[#:eval ev
 (define missing
@@ -364,7 +363,8 @@ came from:
 @examples[#:eval ev #:label #f
 (with-handlers ([exn:fail:raft?
                  (lambda (e)
-                   (match-define (list who _ ...) (string-split (exn-message e) ": "))
+                   (match-define (list who _ ...)
+                     (string-split (exn-message e) ": "))
                    who)])
   (resources-sync! finished))
 ]}

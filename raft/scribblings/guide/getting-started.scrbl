@@ -121,9 +121,9 @@ cp.cuda.runtime.getDeviceProperties(0)["name"]           # b'NVIDIA GeForce RTX 
 
 If this raises @racket[exn:fail:raft] instead, saying that the driver is
 missing or too old or that there is no device, nothing else in this manual
-will run. Racket cannot name the GPU
-yet; @racket[device-properties] @status{L2} arrives with the rest of the core
-module. Until then, ask the driver:
+will run. Racket cannot name the GPU yet; @racket[device-properties]
+@status{L2} arrives with the rest of the core module. Until then, ask the
+driver:
 
 @commandline{nvidia-smi --query-gpu=name,driver_version,compute_cap --format=csv}
 
