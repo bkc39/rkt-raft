@@ -4,6 +4,7 @@ set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
 : "${RAFT_SHIM_TESTS:?run inside nix develop}"
+: "${RAFT_SHIM_SANITIZED_TESTS:?run inside nix develop}"
 
 log=$(mktemp)
 racket_log=$(mktemp)
@@ -13,9 +14,21 @@ echo "== shim gtests"
 "$RAFT_SHIM_TESTS/raftrkt_tests" --gtest_brief=1 | tee -a "$log"
 "$RAFT_SHIM_TESTS/raftrkt_error_tests" --gtest_brief=1 | tee -a "$log"
 
+echo "== shim gtests under ASAN and UBSAN"
+for t in raftrkt_tests raftrkt_error_tests; do
+  ASAN_OPTIONS=$RAFT_ASAN_OPTIONS UBSAN_OPTIONS=$RAFT_UBSAN_OPTIONS \
+    "$RAFT_SHIM_SANITIZED_TESTS/$t" --gtest_brief=1 | tee -a "$log"
+done
+
 echo "== shim gtests under compute-sanitizer memcheck (death tests ran above)"
-compute-sanitizer --tool memcheck --error-exitcode 1 --report-api-errors no \
-  "$RAFT_SHIM_TESTS/raftrkt_tests" --gtest_brief=1 --gtest_filter='-*DeathTest.*' | tee -a "$log"
+deliberate='Buffers.AnImpossibleAllocationIsOutOfMemory:Release.AnUnreachableDeviceLeaksAndIsCounted'
+memcheck=(compute-sanitizer --tool memcheck --leak-check full --error-exitcode 1)
+"${memcheck[@]}" --report-api-errors explicit \
+  "$RAFT_SHIM_TESTS/raftrkt_tests" --gtest_brief=1 --gtest_filter="-$deliberate:*DeathTest.*" | tee -a "$log"
+"${memcheck[@]}" --report-api-errors no \
+  "$RAFT_SHIM_TESTS/raftrkt_tests" --gtest_brief=1 --gtest_filter="$deliberate" | tee -a "$log"
+"${memcheck[@]}" --report-api-errors explicit \
+  "$RAFT_SHIM_TESTS/raftrkt_error_tests" --gtest_brief=1 | tee -a "$log"
 
 echo "== LD_BIND_NOW load of the staged shim"
 case ":$LD_LIBRARY_PATH:" in

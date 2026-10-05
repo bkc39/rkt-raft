@@ -65,7 +65,7 @@
   (rr-resources-free resources)
   (define after-resources (raised (lambda () (new-buffer resources 8))))
   (check-pred exn:fail:raft? after-resources)
-  (check-equal? (exn-message after-resources) "rr-resources: used after its release"))
+  (check-equal? (exn-message after-resources) "device-resources: used after its release"))
 
 (test-gpu "releasing a handle as the wrong type raises and keeps it alive"
   (with-release ([resources (new-resources) rr-resources-free])
@@ -73,7 +73,8 @@
     (check-exn #rx"rr-buffer" (lambda () (rr-buffer-free resources)))
     (check-equal? (resources-drop-count) before)
     (with-release ([buffer (new-buffer resources 8) rr-buffer-free])
-      (check-true (copy-in! buffer (flvector 1.0))))))
+      (copy-in! buffer (flvector 1.0))
+      (check-equal? (for/list ([x (in-flvector (copy-out buffer 1))]) x) '(1.0)))))
 
 (test-gpu "with-release after an explicit release frees once"
   (with-release ([resources (new-resources) rr-resources-free])

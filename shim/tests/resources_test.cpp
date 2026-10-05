@@ -121,8 +121,18 @@ TEST_F(MemoryResourceDeathTest, AResourceSetBeforehandIsKept) {
               ::testing::ExitedWithCode(0), "");
 }
 
-TEST_F(MemoryResourceDeathTest, OnlyTheFirstUseOfADeviceInstalls) {
-  RR_REQUIRE_POOLS();
+class PoolDeathTest : public MemoryResourceDeathTest {
+ protected:
+  void SetUp() override {
+    MemoryResourceDeathTest::SetUp();
+    if (IsSkipped()) {
+      return;
+    }
+    RR_REQUIRE_POOLS();
+  }
+};
+
+TEST_F(PoolDeathTest, OnlyTheFirstUseOfADeviceInstalls) {
   EXPECT_EXIT(exit_with(only_the_first_use_installs()),
               ::testing::ExitedWithCode(0), "");
 }
@@ -221,23 +231,44 @@ TEST(Ready, AnIdleStreamIsReady) {
   rr_resources_free(r);
 }
 
-TEST(Ready, AHeldStreamIsPendingUntilItDrains) {
-  RR_REQUIRE_GPU();
-  rr_resources* r = nullptr;
-  ASSERT_EQ(rr_resources_create(0, &r), RR_OK) << rr_last_error();
-  std::atomic<bool> open{false};
-  ASSERT_EQ(cudaLaunchHostFunc(raft::resource::get_cuda_stream(*r->handle),
-                               wait_until_open, &open),
-            cudaSuccess);
-  int32_t ready = -1;
-  EXPECT_EQ(rr_resources_ready(r, &ready), RR_OK) << rr_last_error();
-  EXPECT_EQ(ready, 0);
+class HeldStream : public ::testing::Test {
+ protected:
+  void SetUp() override {
+    RR_REQUIRE_GPU();
+    ASSERT_EQ(rr_resources_create(0, &resources_), RR_OK) << rr_last_error();
+    ASSERT_EQ(
+        cudaLaunchHostFunc(raft::resource::get_cuda_stream(*resources_->handle),
+                           wait_until_open, &open_),
+        cudaSuccess);
+  }
+  void TearDown() override {
+    open_.store(true);
+    if (resources_ != nullptr) {
+      rr_resources_sync(resources_);
+      rr_resources_free(resources_);
+    }
+  }
+
+  int32_t ready() {
+    int32_t answer = -1;
+    EXPECT_EQ(rr_resources_ready(resources_, &answer), RR_OK)
+        << rr_last_error();
+    return answer;
+  }
+
+  rr_resources* resources_ = nullptr;
+  std::atomic<bool> open_{false};
+};
+
+TEST_F(HeldStream, IsPendingWithoutRecordingAnError) {
+  EXPECT_EQ(ready(), 0);
   EXPECT_STREQ(rr_last_error(), "");
-  open.store(true);
-  ASSERT_EQ(rr_resources_sync(r), RR_OK) << rr_last_error();
-  EXPECT_EQ(rr_resources_ready(r, &ready), RR_OK) << rr_last_error();
-  EXPECT_EQ(ready, 1);
-  rr_resources_free(r);
+}
+
+TEST_F(HeldStream, IsReadyOnceItDrains) {
+  open_.store(true);
+  ASSERT_EQ(rr_resources_sync(resources_), RR_OK) << rr_last_error();
+  EXPECT_EQ(ready(), 1);
 }
 
 TEST(Ready, NullArgumentsAreLogicErrors) {

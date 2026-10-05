@@ -26,14 +26,20 @@ error_kind cuda_kind(cudaError_t code) noexcept {
   return code == cudaErrorMemoryAllocation ? error_kind::oom : error_kind::cuda;
 }
 
+constexpr unsigned char utf8_four_byte_lead = 0xF0U;
+constexpr unsigned char utf8_three_byte_lead = 0xE0U;
+constexpr unsigned char utf8_two_byte_lead = 0xC0U;
+constexpr unsigned char utf8_continuation_mask = 0xC0U;
+constexpr unsigned char utf8_continuation_bits = 0x80U;
+
 std::size_t utf8_sequence_length(unsigned char lead) noexcept {
-  if (lead >= 0xF0U) {
+  if (lead >= utf8_four_byte_lead) {
     return 4;
   }
-  if (lead >= 0xE0U) {
+  if (lead >= utf8_three_byte_lead) {
     return 3;
   }
-  if (lead >= 0xC0U) {
+  if (lead >= utf8_two_byte_lead) {
     return 2;
   }
   return 1;
@@ -42,8 +48,8 @@ std::size_t utf8_sequence_length(unsigned char lead) noexcept {
 // Truncation can cut the last character of a UTF-8 message; drop its head.
 void drop_cut_character(char* text, std::size_t length) noexcept {
   std::size_t start = length;
-  while (start > 0 &&
-         (static_cast<unsigned char>(text[start - 1]) & 0xC0U) == 0x80U) {
+  while (start > 0 && (static_cast<unsigned char>(text[start - 1]) &
+                       utf8_continuation_mask) == utf8_continuation_bits) {
     --start;
   }
   if (start == 0) {

@@ -29,10 +29,11 @@ include(cmake/RaftrktTools.cmake)
 
 if(RAFTRKT_SANITIZE)
   add_compile_options(
-    "$<$<COMPILE_LANGUAGE:C,CXX>:-fsanitize=address,undefined>"
-    "$<$<COMPILE_LANGUAGE:C,CXX>:-fno-sanitize-recover=undefined>"
-    "$<$<COMPILE_LANGUAGE:C,CXX>:-fno-omit-frame-pointer>")
-  add_link_options(-fsanitize=address,undefined)
+    "$<$<COMPILE_LANGUAGE:C,CXX>:-fsanitize=address,undefined;-fno-sanitize-recover=undefined;-fno-omit-frame-pointer>"
+    "$<$<COMPILE_LANGUAGE:CUDA>:-Xcompiler=-fsanitize=address,-fsanitize=undefined,-fno-sanitize-recover=undefined,-fno-omit-frame-pointer>")
+  add_link_options(
+    "$<$<LINK_LANGUAGE:C,CXX>:-fsanitize=address,undefined>"
+    "$<$<LINK_LANGUAGE:CUDA>:-Xcompiler=-fsanitize=address,-fsanitize=undefined>")
 endif()
 
 find_package(raft CONFIG REQUIRED)
@@ -88,6 +89,7 @@ if(BUILD_TESTING)
     tests/array_ops_test.cpp
     tests/array_test.cpp
     tests/core_test.cpp
+    tests/cuda_language_test.cu
     tests/memory_test.cpp
     tests/resources_test.cpp
     $<TARGET_OBJECTS:raftrkt_c_api_compile_test>

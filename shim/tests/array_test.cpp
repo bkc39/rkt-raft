@@ -49,13 +49,14 @@ TEST_F(Buffers, ABufferOutlivesItsResources) {
 }
 
 TEST_F(Buffers, FreeCountsEveryRelease) {
+  constexpr int releases = 5;
   const uint64_t before = rr_buffer_drop_count();
-  for (int i = 0; i < 5; ++i) {
+  for (int i = 0; i < releases; ++i) {
     rr_buffer* b = nullptr;
     ASSERT_EQ(rr_buffer_alloc(resources_, 64, &b), RR_OK) << rr_last_error();
     rr_buffer_free(b);
   }
-  EXPECT_EQ(rr_buffer_drop_count(), before + 5);
+  EXPECT_EQ(rr_buffer_drop_count(), before + releases);
 }
 
 TEST_F(Buffers, ZeroBytesIsAValidBufferAndCopy) {

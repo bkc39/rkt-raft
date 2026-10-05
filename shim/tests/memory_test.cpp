@@ -10,7 +10,8 @@ namespace {
 TEST(Release, AnUnreachableDeviceLeaksAndIsCounted) {
   const uint64_t failures = rr_release_failure_count();
   const uint64_t drops = rr_resources_drop_count();
-  auto* unreachable = new rr_resources{4096, nullptr};
+  constexpr int32_t no_such_device = 4096;
+  auto* unreachable = new rr_resources{no_such_device, nullptr};
   rr_resources_free(unreachable);
   EXPECT_EQ(rr_release_failure_count(), failures + 1);
   EXPECT_EQ(rr_resources_drop_count(), drops);
