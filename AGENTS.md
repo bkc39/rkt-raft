@@ -294,8 +294,9 @@ plans/scoping-plan.md         the approved plan (revision 5), as Markdown
   pre-install hook, honouring `RAFT_NATIVE_LIB_PATH` (a directory whose
   `lib/` holds `libraftrkt.so`).
 - Tests: `tests/private/gpu.rkt` (`gpu-available?`, `test-gpu`),
-  `tests/private/probe.rkt` (the probe library, from `RAFT_SHIM_PROBE`, and
-  `test-probe`), `tests/private/collect.rkt` (`collect-until`,
+  `tests/private/probe.rkt` (the probe library, from `RAFT_SHIM_PROBE`,
+  `test-probe`, and `test-pools`, which also skips a device without memory
+  pools), `tests/private/collect.rkt` (`collect-until`,
   `drain-finalizers!`, run before reading a drop counter),
   `tests/private/raft-error.rkt` (`check-raft-error kind message thunk`),
   `tests/private/python-env.rkt` (the twin runner: `PYTHONSAFEPATH` probes,
@@ -425,8 +426,9 @@ the binding census), `racket-review`, `racket-version` (at least 9.3),
   fmt` after `resyntax fix`: Resyntax's rewrites are not laid out by these
   rules, and once formatted the tree is a fixed point of both tools.
 - **raco review** reads every `.rkt` (`scripts/review.sh`). The `raft-lint`
-  extension (`lint/review.rkt`) gives `test-gpu`, `test-probe`, `test-twin`,
-  `test-without-gpu` and `test-unless-skipped` a scope of their own, as
+  extension (`lint/review.rkt`) gives `test-gpu`, `test-pools`, `test-probe`,
+  `test-twin`, `test-without-gpu` and `test-unless-skipped` a scope of their
+  own, as
   rackunit's `test-case` has, so a name defined in one test body does not
   clash with another's. It also treats `define-syntax-parse-rule` as review
   treats `define-syntax-rule`, recording the name and skipping the template;
