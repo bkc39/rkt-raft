@@ -1,18 +1,10 @@
 Checks: >
   -*,
   bugprone-*,
-  -bugprone-easily-swappable-parameters,
   performance-*,
   readability-*,
-  -readability-braces-around-statements,
-  -readability-implicit-bool-conversion,
   -readability-identifier-length,
-  -readability-magic-numbers,
-  -readability-uppercase-literal-suffix,
   modernize-use-nullptr,
   modernize-use-override
 WarningsAsErrors: '*'
 HeaderFilterRegex: '.*shim/(include|src)/.*'
-CheckOptions:
-  - key: readability-function-cognitive-complexity.Threshold
-    value: '40'

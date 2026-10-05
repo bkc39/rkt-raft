@@ -95,7 +95,9 @@ plans/scoping-plan.md         the approved plan (revision 5), as Markdown
    exit from the body releases (a return, a raise, an escape, a generator's
    `yield`), and control that jumps back in afterwards (a generator resume,
    a re-entered continuation) raises `exn:fail:raft` (kind `'logic`) instead
-   of acquiring again. No raw `malloc`/`free` outside that module:
+   of acquiring again. A public form passes its own name as `#:who`
+   (`with-device-resources`), which prefixes that message; without it the
+   message names nothing internal. No raw `malloc`/`free` outside that module:
    `scripts/no-raw-malloc.sh` gates it.
 8. **Imports and size.** `(only-in …)` with alphabetised names, collection
    requires before relative ones (raco review enforces the order). Exempt,
@@ -259,7 +261,9 @@ plans/scoping-plan.md         the approved plan (revision 5), as Markdown
   `--threads=1`, `-Werror=all-warnings` and `-Xcompiler=-Wall,-Wextra,-Werror`;
   probed on the RAFT baseline, `gemm<float, row_major>`,
   `reduce<float, row_major>` and `reduce<double, col_major>`, all compile
-  clean.
+  clean. `tests/cuda_language_test.cu` is the one `.cu` in L0: a trivial
+  kernel that keeps the CUDA path (nvcc flags, `-Xcompiler` sanitizer flags,
+  the CUDA link) built and run in every check until L1b brings real ones.
 - C++20 module scanning is off (`CMAKE_CXX_SCAN_FOR_MODULES`): the shim uses
   no modules, and the scanner's gcc flags (`-fmodules-ts`,
   `-fmodule-mapper=…`) break clang-tidy.
@@ -289,7 +293,9 @@ plans/scoping-plan.md         the approved plan (revision 5), as Markdown
 - `private/exn.rkt`: `exn:fail:raft`, with no dependencies, so the loader can
   raise it. `private/error.rkt`: `call/raft`, re-exporting the exception. A
   released handle's cpointer type refuses it with `exn:fail:raft` (kind
-  `'logic`, message `rr-buffer: used after its release`) before the call.
+  `'logic`) before the call, named by the public noun:
+  `device-resources: used after its release`, and, provisionally until L1b
+  settles its names (#16), `buffer: used after its release`.
   `private/resource.rkt`: `with-release`. `private/install-native.rkt`: the
   pre-install hook, honouring `RAFT_NATIVE_LIB_PATH` (a directory whose
   `lib/` holds `libraftrkt.so`).
@@ -401,10 +407,10 @@ the binding census), `racket-review`, `racket-version` (at least 9.3),
 | `raco setup --check-pkg-deps --unused-pkg-deps` | `raft/info.rkt`'s dependencies, missing and unused | flake check `racket` | edit `deps` and `build-deps` |
 | grep gates | `define-syntax-rule`/`syntax-rules`; raw `malloc`/`free` outside `resource.rkt` | flake checks; CI "Format and lint"; pre-push | rules 6 and 7 |
 | compiler warnings | g++: `-Wall -Wextra -Wpedantic -Werror`; nvcc: `-Werror=all-warnings -Xcompiler=-Wall,-Wextra,-Werror` | every shim build | by hand |
-| clang-tidy (`shim/.clang-tidy`) | every `.cpp` under `shim/src` and `shim/tests`, warnings as errors | flake check `clang-tidy` | by hand |
+| clang-tidy (`shim/.clang-tidy`) | every `.cpp` under `shim/src` and `shim/tests`, warnings as errors: `bugprone-*`, `performance-*`, `readability-*` except `identifier-length` (below), `modernize-use-nullptr`, `modernize-use-override` | flake check `clang-tidy` | by hand |
 | `c-headers`, `line-count` | the umbrella header as C11; 500 lines per C/C++/CUDA file | flake checks | by hand |
-| ASAN and UBSAN (`-DRAFTRKT_SANITIZE=ON`) | host memory errors, leaks and undefined behaviour in both gtest binaries; GPU cases SKIP in the sandbox | flake check `shim-sanitizers`; gate `sanitizers` | by hand |
-| compute-sanitizer memcheck | device memory errors in the C-API gtests | the GPU suite (gate `gpu`, `gpu.yml`) | by hand |
+| ASAN and UBSAN (`-DRAFTRKT_SANITIZE=ON`) | host memory errors, leaks and undefined behaviour in both gtest binaries | flake check `shim-sanitizers` (GPU cases SKIP); the GPU suite (GPU cases run); gate `sanitizers` | by hand |
+| compute-sanitizer memcheck | device memory errors, device leaks (`--leak-check full`) and failing CUDA calls (`--report-api-errors explicit`) in both gtest binaries | the GPU suite (gate `gpu`, `gpu.yml`) | by hand |
 
 - **raco fmt** formats `.rkt` files only. It crashes on Scribble's
   at-expressions (`regexp-match: contract violation … given: 'text` in
@@ -419,8 +425,9 @@ the binding census), `racket-review`, `racket-version` (at least 9.3),
   `test-unless-skipped`'s reason) on the first line and a body that holds a
   list below, as `let` does, while a body of atoms (a macro's `body ...`)
   stays on one line. The `_fun`, hash and body formatters use fmt's internal
-  document model, which fmt calls unstable: check them when
-  `nix/racket-tools.nix` moves to a new fmt. Any form whose head is a
+  document model, which fmt calls unstable, so `nix/racket-tools.nix` pins
+  fmt, review and pretty-expressive by commit (the catalog's own source for
+  each) and a bump is a deliberate change: check `.fmt.rkt` with the new fmt. Any form whose head is a
   configured name gets that layout, even inside a quote, so keep such lists
   out of quoted data (as `lint/review.rkt` does with a `seteq`). Run `nix
   fmt` after `resyntax fix`: Resyntax's rewrites are not laid out by these
@@ -449,16 +456,33 @@ the binding census), `racket-review`, `racket-version` (at least 9.3),
   plugin's `resyntax/bkc-style` package linked into the dev shell's
   `PLTUSERHOME`:
   `resyntax analyze --local-git-repository . origin/master --refactoring-suite bkc-style bkc-style`.
+- **clang-tidy** runs every `bugprone-*`, `performance-*` and
+  `readability-*` check at its default settings (cognitive complexity 25,
+  which no function comes near) except `readability-identifier-length`. That
+  check rejects the one-letter names of a catch parameter (`e`), a loop
+  index (`i`) and a handle bound for two lines (`r`, `b`, `n`): 24 findings
+  in L0, none of them an unclear name. Re-enabling it means renaming those,
+  not suppressing them.
 - **Sanitizers.** ASAN needs `protect_shadow_gap=0` beside the CUDA runtime;
-  the check also sets `detect_leaks=1:abort_on_error=1`,
-  `UBSAN_OPTIONS=print_stacktrace=1:halt_on_error=1` and turns
-  `_FORTIFY_SOURCE` off. In the sandbox the GPU cases SKIP; on the GPU host
-  (2026-10-01) the sanitized binaries passed 16 and 11 cases with the one
-  no-driver SKIP and no reports. compute-sanitizer runs with
-  `--report-api-errors no`: the error-path tests provoke failing CUDA calls on
-  purpose (an out-of-range device, an impossible allocation). It skips the
-  gtest death tests, which run unsanitized just before: under the sanitizer
-  their re-executed child blocks on a futex (13.2.76, ten minutes at 0% CPU)
+  the builds also set `detect_leaks=1:abort_on_error=1`,
+  `UBSAN_OPTIONS=print_stacktrace=1:halt_on_error=1` (the flake's
+  `sanitizerOptions`, exported to the GPU suite as `RAFT_ASAN_OPTIONS` and
+  `RAFT_UBSAN_OPTIONS`) and turn `_FORTIFY_SOURCE` off. The flags reach C
+  and C++ directly and CUDA through `-Xcompiler=`. `shim-sanitizers`
+  installs its gtests (`RAFT_SHIM_SANITIZED_TESTS`), so the GPU suite runs
+  the alloc, copy, free and destructor-order paths sanitized on the device.
+- **compute-sanitizer** checks device memory, device leaks and failing CUDA
+  calls. Until L1b the only kernel to check is the fixture in
+  `tests/cuda_language_test.cu`, but the step still catches a bad copy, a
+  leaked allocation or a failing call. `--report-api-errors explicit` (the
+  default) reports every failing call the shim makes; `all` is unusable,
+  because the CUDA runtime's own lazy context creation probes
+  `cuCtxGetDevice` and fails by design. The two gtests that provoke failing
+  calls on purpose (`Buffers.AnImpossibleAllocationIsOutOfMemory`,
+  `Release.AnUnreachableDeviceLeaksAndIsCounted`) run in a second pass with
+  API-error reporting off and leak checking on. It skips the gtest death
+  tests, which run unsanitized just before: under compute-sanitizer their
+  re-executed child blocks on a futex (13.2.76, ten minutes at 0% CPU)
   instead of running.
 
 ## CI

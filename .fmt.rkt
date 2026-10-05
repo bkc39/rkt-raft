@@ -79,6 +79,15 @@
       (format-#%app d)
       ((format-uniform-body/helper n) d)))
 
+(define (keyword-atom? x)
+  (match x
+    [(atom _ _ 'hash-colon-keyword) #t]
+    [_ #f]))
+
+(define (format-with-release d)
+  (define xs (filter-not newl? (node-content d)))
+  ((format-body-form (if (and (pair? (cdr xs)) (keyword-atom? (cadr xs))) 3 1)) d))
+
 (define (the-formatter-map name)
   (case name
     [("_fun") format-fun]
@@ -90,8 +99,8 @@
                  "test-probe"
                  "test-twin"
                  "test-without-gpu"
-                 "with-device-resources"
-                 "with-release")
+                 "with-device-resources")
      (format-body-form 1)]
+    [("with-release") format-with-release]
     [("test-unless-skipped") (format-body-form 2)]
     [else #f]))

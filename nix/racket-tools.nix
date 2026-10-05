@@ -1,48 +1,43 @@
-# raco fmt and raco review from the package catalog, captured as unpacked
-# source trees by a fixed-output derivation so sandboxed checks install them
-# offline. Bump outputHash when the catalog's fmt or review moves.
+# raco fmt and raco review, and fmt's pretty-expressive, each pinned by git
+# commit (the catalog's own source for the package). `.fmt.rkt` uses fmt's
+# internals, so a bump of fmt or pretty-expressive is a deliberate change:
+# move the rev, update the hash, and re-check `.fmt.rkt` against the new fmt.
 {
-  lib,
   stdenv,
-  stdenvNoCC,
+  runCommand,
+  fetchFromGitHub,
   racket,
-  cacert,
-  unzip,
   makeWrapper,
 }:
 
 let
-  sources = stdenvNoCC.mkDerivation {
-    name = "rkt-raft-racket-tool-sources";
-    dontUnpack = true;
-    nativeBuildInputs = [
-      racket
-      cacert
-      unzip
-    ];
-    buildPhase = ''
-      runHook preBuild
-      export HOME=$TMPDIR/home
-      export PLTUSERHOME=$TMPDIR/plt
-      export SSL_CERT_FILE=${cacert}/etc/ssl/certs/ca-bundle.crt
-      mkdir -p "$PLTUSERHOME"
-      raco pkg install --batch --auto --no-setup --scope user fmt review
-      mapfile -t pkgs < <(racket -e \
-        '(require pkg/lib)(for ([p (installed-pkg-names #:scope (quote user))]) (displayln p))')
-      raco pkg archive "$TMPDIR/archive" "''${pkgs[@]}"
-      mkdir -p "$out"
-      for z in "$TMPDIR"/archive/pkgs/*.zip; do
-        name="$(basename "$z" .zip)"
-        mkdir -p "$out/$name"
-        unzip -q "$z" -d "$out/$name"
-      done
-      runHook postBuild
-    '';
-    dontInstall = true;
-    outputHashMode = "recursive";
-    outputHashAlgo = "sha256";
-    outputHash = "sha256-611UctjpkOqFS6ZESuzPg3RkYe/YD7UKs/ArQSFnkGI=";
+  fmt = fetchFromGitHub {
+    owner = "sorawee";
+    repo = "fmt";
+    rev = "4e1ed68e596e656960b44a8244bb33eb4e65ec64";
+    hash = "sha256-zwcjNvK2qcKfsXb2mlQQNOHI2niMMPI9wx9YeEz+XTo=";
   };
+  review = fetchFromGitHub {
+    owner = "Bogdanp";
+    repo = "racket-review";
+    rev = "ecb1968f12b485b5387f66bbd9220f191d136d84";
+    hash = "sha256-odbHFCxRHvLDrt+j/3qqIbeyK3lscxqSfcSt6xh0Vl4=";
+  };
+  prettyExpressive = fetchFromGitHub {
+    owner = "sorawee";
+    repo = "pretty-expressive";
+    rev = "27e7be8016b38252a19f3620bc37539100b02503";
+    hash = "sha256-BdwzCrufLrYrYQm3OCIOUWMgpUQGYmmsHf7CWNYLarY=";
+  };
+
+  sources = runCommand "rkt-raft-racket-tool-sources" { } ''
+    mkdir -p $out
+    cp -r ${fmt} $out/fmt
+    cp -r ${review} $out/review
+    cp -r ${prettyExpressive}/pretty-expressive $out/pretty-expressive
+    cp -r ${prettyExpressive}/pretty-expressive-lib $out/pretty-expressive-lib
+    chmod -R u+w $out
+  '';
 in
 stdenv.mkDerivation {
   name = "rkt-raft-racket-tools";

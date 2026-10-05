@@ -58,12 +58,12 @@
   (define after-buffer (raised (lambda () (copy-in! buffer (f64vector 1.0)))))
   (check-pred exn:fail:raft? after-buffer)
   (check-equal? (exn:fail:raft-kind after-buffer) 'logic)
-  (check-equal? (exn-message after-buffer) "rr-buffer: used after its release")
+  (check-equal? (exn-message after-buffer) "buffer: used after its release")
   (rr-resources-free resources)
   (rr-resources-free resources)
   (define after-resources (raised (lambda () (new-buffer resources 8))))
   (check-pred exn:fail:raft? after-resources)
-  (check-equal? (exn-message after-resources) "rr-resources: used after its release"))
+  (check-equal? (exn-message after-resources) "device-resources: used after its release"))
 
 (test-gpu "releasing a handle as the wrong type raises and keeps it alive"
   (with-release ([resources (new-resources) rr-resources-free])
