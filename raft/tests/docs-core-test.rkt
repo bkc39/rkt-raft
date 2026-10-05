@@ -153,15 +153,15 @@
   (define (one-job worker)
     (run-workers worker (list (list 0 '()))))
   (check-equal? (with-handlers ([symbol? values])
-                  (one-job (lambda (device batches) (raise 'not-an-exception))))
+                  (one-job (lambda (_device _batches) (raise 'not-an-exception))))
                 'not-an-exception)
   (check-equal? (with-handlers ([exn:break? (lambda (_) 'broken)])
-                  (one-job (lambda (device batches)
+                  (one-job (lambda (_device _batches)
                              (break-thread (current-thread))
                              (sleep 1))))
                 'broken)
   (check-exn #rx"^run-workers: the worker on cuda:0 ended without an answer$"
-             (lambda () (one-job (lambda (device batches) (kill-thread (current-thread)))))))
+             (lambda () (one-job (lambda (_device _batches) (kill-thread (current-thread)))))))
 
 (test-gpu "resources guide: fanning out"
   (define jobs
