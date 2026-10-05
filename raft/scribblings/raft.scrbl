@@ -18,10 +18,11 @@ GPU and the Nix toolchain described in @secref["getting-started"]; there is no
 CPU fallback.
 
 The library is young. Today it provides the native library and its build,
-device resources and the devices they run on, the exception type, and the
-version and ABI tag; arrays and conversions come next, and
-@secref["concepts"] explains their design. A name that does not exist yet is
-marked with the leg that adds it, such as @status{L1b}, and is described in
+device resources and the devices they run on, the exception type, the
+version and ABI tag, and device matrices and vectors with their conversions
+from lists and flvectors; more conversions come next, and
+@secref["concepts"] explains the design. A name that does not exist yet is
+marked with the leg that adds it, such as @status{L1c}, and is described in
 prose, not called.
 
 The manual has two parts: the @secref["guide"] works through the library by

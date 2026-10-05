@@ -128,7 +128,8 @@ then returns. It is @tt{DeviceResources.sync()}.
 Operations return as soon as they are queued, so call this before stopping a
 clock, before handing results to code outside the library, or before releasing
 memory another stream is still reading. Converting an array back to Racket
-data @status{L1b} will synchronize by itself.
+data, with @racket[device-matrix->list*] for example, waits for its own
+stream by itself.
 
 The wait is a poll, not a blocking call: the stream is queried, and between
 queries the thread sleeps for a few microseconds to a millisecond, so other
@@ -172,9 +173,9 @@ Released resources cannot be synced:
          device-resources?]{
 
 Returns the calling thread's default resources for @racket[device], creating
-them on first use. The operations on arrays @status{L1b} will use this when
-they are given no @racket[#:resources], the way pylibraft's functions take
-@tt{handle=}.
+them on first use. The array constructors and conversions of
+@racketmodname[raft/array] use this when they are given no
+@racket[#:resources], the way pylibraft's functions take @tt{handle=}.
 
 The default is kept per Racket thread, in a thread cell rather than a
 parameter, so a new thread starts without one and makes its own on first use:
@@ -227,9 +228,10 @@ Control that jumps back in afterwards, such as a generator resumed after that
 @racket[yield], raises @racket[exn:fail:raft] of kind @racket['logic]
 instead of acquiring the resources again.
 
-Release drops this object's hold on its @tt{raft::handle_t}. An array
-allocated with these resources @status{L1b} holds the handle too, stream and
-library handles included, so they are freed when the last such array is.
+Release drops this object's hold on its @tt{raft::handle_t}. A
+@tech{device array} allocated with these resources holds the handle too,
+stream and library handles included, so they are freed when the last such
+array is.
 
 @examples[#:eval ev
 (with-device-resources ([r (device-resources)])

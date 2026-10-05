@@ -10,3 +10,4 @@ built.
 
 @include-section["reference/raft.scrbl"]
 @include-section["reference/core.scrbl"]
+@include-section["reference/array.scrbl"]

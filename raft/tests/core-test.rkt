@@ -18,6 +18,24 @@
                              struct:exn:fail:raft
                              with-device-resources))
 
+(define array-names
+  '(contiguous device-array?
+               device-matrix
+               device-matrix->list*
+               device-matrix?
+               device-vector
+               device-vector->flvector
+               device-vector->list
+               device-vector?
+               dtype
+               flvector->device-vector
+               layout
+               list*->device-matrix
+               list->device-vector
+               numel
+               shape
+               strides))
+
 (define (phase-0-exports mod)
   (module-declared? mod #t)
   (define-values (variables syntax) (module->exports mod))
@@ -29,9 +47,10 @@
           name)
         symbol<?))
 
-(test-case "raft/core and raft export exactly the documented names"
+(test-case "raft/core, raft/array and raft export exactly the documented names"
   (check-equal? (phase-0-exports 'raft/core) public-names)
-  (check-equal? (phase-0-exports 'raft) public-names))
+  (check-equal? (phase-0-exports 'raft/array) array-names)
+  (check-equal? (phase-0-exports 'raft) (sort (append public-names array-names) symbol<?)))
 
 (test-case "raft-version names the pinned RAFT release"
   (check-equal? (raft-version) "26.08.00"))

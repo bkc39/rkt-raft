@@ -7,8 +7,8 @@
 
 This chapter explains the model the library is built on: where data lives,
 what a @emph{resources} object is, what an array is, how memory comes back,
-and what an error looks like. Most of the names it mentions do not exist yet;
-each is marked with the leg that adds it (@status{L1b} to @status{L3}) and is
+and what an error looks like. Some of the names it mentions do not exist yet;
+each is marked with the leg that adds it (@status{L1c} to @status{L3}) and is
 described here, not called, so the chapter can be read as the design before
 the code.
 
@@ -25,8 +25,8 @@ The workflow is always the same three steps: build or load data in Racket,
 copy it to the device once, run as many GPU operations as you like on it there,
 and copy back only the results you want to look at. The copies are the
 expensive part, so the API makes them visible: a conversion such as
-@racket[list->device-vector] or @racket[device-vector->list] @status{L1b} is
-always a copy, and nothing else is.
+@racket[list->device-vector] or @racket[device-vector->list] is always a
+copy, and nothing else is.
 
 In Python the round trip is one line:
 
@@ -37,8 +37,8 @@ from pylibraft.common import device_ndarray
 device_ndarray(np.array([1.5, -2.25, 0.0])).copy_to_host()   # array([ 1.5 , -2.25,  0.  ])
 }|
 
-Racket will spell it @racket[(device-vector->list (list->device-vector xs))]
-@status{L1b}. Both sides pack the values into a contiguous host buffer before
+Racket spells it @racket[(device-vector->list (list->device-vector xs))].
+Both sides pack the values into a contiguous host buffer before
 the copy. In Python that buffer is the NumPy array you build, and its element
 type is chosen there; in Racket the conversion packs the list itself and takes
 @racket[#:dtype].
@@ -63,9 +63,9 @@ made without an explicit handle; Racket does not copy that, because waiting
 after every call leaves the GPU idle between operations.
 
 You will rarely make one by hand. @racket[current-device-resources] keeps one
-per Racket thread and device, created on first use, and every operation on
-arrays @status{L1b} will take @racket[#:resources] to override it, the way
-pylibraft takes @tt{handle=}.
+per Racket thread and device, created on first use. The array constructors
+and conversions take @racket[#:resources] to override it, as every operation
+on arrays will, the way pylibraft takes @tt{handle=}.
 @secref["resources"] shows them in client code.
 
 @python|{
@@ -99,8 +99,8 @@ strides, offset and element type. Slicing or transposing an array
 @status{L3} builds a new Racket value over the same buffer; it never calls into
 the native library and never copies.
 
-The first arrays are @racket[device-matrix] and @racket[device-vector]
-@status{L1b}, named after their type the way @racket[vector] and
+The first arrays are @racket[device-matrix] and @racket[device-vector],
+named after their type the way @racket[vector] and
 @racket[string] are: @racket[(device-matrix 1000 128)] is a new, uninitialised
 1000-by-128 matrix, ready to be an operation's output.
 
@@ -147,10 +147,10 @@ Layout matters because RAFT's kernels are compiled for a layout, and cuML's
 entry points expect a particular one: k-means and DBSCAN read row-major data,
 while cuML's least-squares solvers force column-major. The binding never
 converts silently. An operation given a layout it was not compiled for raises
-an error naming the operation, and @racket[contiguous] @status{L1b} makes the
-copy explicit: @racket[(contiguous X #:layout 'col-major)]. Converting host
-data with @racket[#:layout 'col-major] @status{L1c} packs it in column order
-on the host, so no transpose runs on the GPU at all.
+an error naming the operation, and @racket[contiguous] makes the copy
+explicit: @racket[(contiguous X #:layout 'col-major)]. Converting host data
+with @racket[#:layout 'col-major] packs it in column order on the host, so no
+copy runs on the GPU at all. @secref["arrays"] does both.
 
 @section[#:tag "concepts-reclaiming"]{How memory is reclaimed}
 
@@ -163,7 +163,7 @@ stream alive, so it can outlive the resources it was made with.
 The collector cannot see device memory: to it, a buffer is a small Racket
 object, so it would happily let gigabytes of dead buffers pile up on the GPU
 before collecting. Each buffer therefore reports its size to the collector as
-@deftech{phantom bytes} @status{L1b}, the way Racket's own foreign allocations
+@deftech{phantom bytes}, the way Racket's own foreign allocations
 can, so that holding a lot of device memory triggers collections just as
 holding a lot of host memory does.
 
@@ -260,28 +260,40 @@ arrives.
        (list @racket[device-matrix]
              @tt{raft::make_device_matrix}
              @tt{device_ndarray.empty((r, c))}
-             @status{L1b})
+             "here")
        (list @racket[device-vector]
              @tt{raft::make_device_vector}
              @tt{device_ndarray.empty((n,))}
-             @status{L1b})
+             "here")
        (list @elem{@racket[shape], @racket[dtype], @racket[layout]}
              @elem{@tt{extents()}, @tt{value_type}, the layout policy}
-             @elem{@tt{.shape}, @tt{.dtype}, @tt{order=}}
-             @status{L1b})
+             @elem{@tt{.shape}, @tt{.dtype}, @tt{.c_contiguous}}
+             "here")
+       (list @elem{@racket[strides], @racket[numel]}
+             @elem{@tt{stride(i)}, @tt{size()}}
+             @elem{@tt{.strides} (in bytes, or @tt{None}), NumPy's @tt{.size}}
+             "here")
        (list @racket[contiguous]
-             @tt{raft::linalg::transpose}
-             @elem{@tt{cp.ascontiguousarray}, @tt{np.asfortranarray}}
-             @status{L1b})
+             @elem{@tt{raft::copy} between layouts}
+             @elem{@tt{cp.ascontiguousarray}, @tt{cp.asfortranarray}}
+             "here")
        (list @elem{@racket[list->device-vector], @racket[device-vector->list]}
-             @elem{@tt{raft::copy} from and to the host}
+             @elem{a host buffer and @tt{cudaMemcpyAsync}}
              @elem{@tt{device_ndarray(np.array(xs))}, @tt{.copy_to_host().tolist()}}
-             @status{L1b})
-       (list @racket[device-array->list*]
-             @elem{@tt{raft::copy} to the host}
+             "here")
+       (list @elem{@racket[list*->device-matrix], @racket[device-matrix->list*]}
+             @elem{a host buffer and @tt{cudaMemcpyAsync}}
+             @elem{@tt{device_ndarray(np.array(rows))}, @tt{.copy_to_host().tolist()}}
+             "here")
+       (list @elem{@racket[flvector->device-vector], @racket[device-vector->flvector]}
+             @tt{cudaMemcpyAsync}
+             @elem{@tt{device_ndarray(np.asarray(xs))}, @tt{.copy_to_host()}}
+             "here")
+       (list @tt{device-array->list*}
+             @elem{a copy to the host}
              @tt{.copy_to_host().tolist()}
-             @status{L1b})
-       (list @racket[matrix->device-matrix]
+             @status{L1c})
+       (list @tt{matrix->device-matrix}
              @elem{a host copy, then @tt{raft::copy}}
              @tt{device_ndarray(np.array(A))}
              @status{L1c}))]

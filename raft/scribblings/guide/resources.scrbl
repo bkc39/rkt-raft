@@ -12,8 +12,9 @@ The program spreads its workers over the GPUs it finds; each worker processes
 its batches on resources of its own and times every batch; and the program
 reports the workers that failed.
 
-The operations on device arrays arrive in the next chapter @status{L1b}, so
-here a batch only checks its rows. Everything around that check stays the
+Device arrays are the next chapter, @secref["arrays"], and the operations
+that compute with them arrive in later legs, so here a batch only checks its
+rows. Everything around that check stays the
 same once real work goes in: each operation will be given the worker's
 resources.
 
@@ -69,7 +70,7 @@ r
 
 They are not the thread's default resources. @racket[current-device-resources]
 keeps one set per thread and device, created the first time it is asked for,
-and the operations on arrays @status{L1b} will fall back to it when they are
+and the array constructors and conversions fall back to it when they are
 given no @racket[#:resources]. A worker owns its resources instead of
 borrowing that default, so that it can release them when it is done without
 taking the default away from other code on its thread.
@@ -94,7 +95,7 @@ The two sides differ in three ways:
        the function returns, so every such call waits for the GPU. Racket
        does not wait after a call: only when you call
        @racket[resources-sync!], or when a result comes back to Racket data
-       @status{L1b}.}
+       through a conversion such as @racket[device-matrix->list*].}
  @item{@bold{The stream.} @tt{DeviceResources()} without a stream queues on
        @tt{cudaStreamPerThread}, CUDA's per-thread default stream, which any
        other code on that OS thread may also use. Each Racket resources
@@ -104,7 +105,7 @@ The two sides differ in three ways:
 
 Operations return as soon as they are queued, not when the GPU has finished
 them. A program waits only when it has to: when a result comes back to Racket
-data @status{L1b}, which will wait by itself, or when it calls
+data, which waits by itself, or when it calls
 @racket[resources-sync!]. So timing a batch means syncing before reading the
 clock; otherwise the time measured is only the time it took to queue the
 work:
