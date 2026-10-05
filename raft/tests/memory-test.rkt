@@ -46,7 +46,9 @@
   (with-release ([buffer (new-buffer resources 16) rr-buffer-free])
     (copy-in! buffer (flvector 2.0 4.0))
     (rr-resources-free resources)
-    (check-equal? (for/list ([x (in-flvector (copy-out buffer 2))]) x) '(2.0 4.0))))
+    (check-equal? (for/list ([x (in-flvector (copy-out buffer 2))])
+                    x)
+                  '(2.0 4.0))))
 
 (test-gpu "a second release does nothing and a released handle cannot be used"
   (define resources (new-resources))

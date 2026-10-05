@@ -81,16 +81,15 @@ void dispatch_layout(layout l, Fn&& fn) {
 
 }  // namespace rr
 
-#define RR_DISPATCH_DTYPE(op, code, T, ...)                     \
-  ::rr::dispatch_dtype<::rr::ops::op.dtypes>(                   \
-      (code), [&](auto rr_dtype_tag_) {                         \
-        using T = typename decltype(rr_dtype_tag_)::type;       \
-        __VA_ARGS__;                                            \
-      })
+#define RR_DISPATCH_DTYPE(op, code, T, ...)                                    \
+  ::rr::dispatch_dtype<::rr::ops::op.dtypes>((code), [&](auto rr_dtype_tag_) { \
+    using T = typename decltype(rr_dtype_tag_)::type;                          \
+    __VA_ARGS__;                                                               \
+  })
 
-#define RR_DISPATCH_LAYOUT(op, which, L, ...)                   \
-  ::rr::dispatch_layout<::rr::ops::op.layouts>(                 \
-      (which), [&](auto rr_layout_tag_) {                       \
-        using L = typename decltype(rr_layout_tag_)::type;      \
-        __VA_ARGS__;                                            \
+#define RR_DISPATCH_LAYOUT(op, which, L, ...)              \
+  ::rr::dispatch_layout<::rr::ops::op.layouts>(            \
+      (which), [&](auto rr_layout_tag_) {                  \
+        using L = typename decltype(rr_layout_tag_)::type; \
+        __VA_ARGS__;                                       \
       })

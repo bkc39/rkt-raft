@@ -169,8 +169,8 @@ rr_view bind(const rr_buffer& buffer, uint64_t offset, const rr_view& desc) {
   }
   require_range(offset, byte_span(desc), buffer.data.size());
   rr_view view = desc;
-  view.data = static_cast<char*>(const_cast<void*>(buffer.data.data())) +
-              offset;
+  view.data =
+      static_cast<char*>(const_cast<void*>(buffer.data.data())) + offset;
   view.device = buffer.device;
   view.memory = RR_MEMORY_DEVICE;
   return view;

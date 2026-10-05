@@ -53,9 +53,6 @@
   (for/hasheq ([row (in-list (rr-op-table))])
     (match-define (list module name dtype-mask layout-mask) row)
     (values name
-            (hasheq 'module
-                    module
-                    'dtypes
-                    (members dtype-mask dtype-bits)
-                    'layouts
-                    (members layout-mask layout-bits)))))
+            (hasheq 'module module
+                    'dtypes (members dtype-mask dtype-bits)
+                    'layouts (members layout-mask layout-bits)))))

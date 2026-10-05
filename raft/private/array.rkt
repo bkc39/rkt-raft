@@ -69,14 +69,14 @@
     [(not ordered) #f]
     [(memv 0 shape) (map (lambda (_) 0) shape)]
     [else
-       (let loop ([extents ordered]
-                  [step 1]
-                  [strides '()])
-         (if (null? extents)
-             (if (eq? layout 'row-major)
-                 strides
-                 (reverse strides))
-             (loop (cdr extents) (* step (car extents)) (cons step strides))))]))
+     (let loop ([extents ordered]
+                [step 1]
+                [strides '()])
+       (if (null? extents)
+           (if (eq? layout 'row-major)
+               strides
+               (reverse strides))
+           (loop (cdr extents) (* step (car extents)) (cons step strides))))]))
 
 (define (has-layout? a layout)
   (equal? (device-array-strides a) (canonical-strides layout (device-array-shape a))))
@@ -101,7 +101,9 @@
 (define (allocate-array who resources dtype layout shape)
   (define view (blank-view))
   (define handle
-    (call/raft who (lambda () (rr-array-create (resources-handle who resources) dtype layout shape view))))
+    (call/raft who
+               (lambda ()
+                 (rr-array-create (resources-handle who resources) dtype layout shape view))))
   (view->array handle view))
 
 (define (contiguous-array who a layout)
@@ -112,13 +114,10 @@
                     (device-array-strides a)))
   (define view (blank-view))
   (define handle
-    (call/raft who
-               (lambda ()
-                 (rr-array-contiguous (array-buffer-handle a)
-                                      (device-array-offset a)
-                                      source
-                                      layout
-                                      view))))
+    (call/raft
+     who
+     (lambda ()
+       (rr-array-contiguous (array-buffer-handle a) (device-array-offset a) source layout view))))
   (view->array handle view))
 
 (define (await who a)
@@ -164,14 +163,10 @@
                              '())
                          (list (format "cuda:~a" (array-device a))))
                  " "))
-  (define kind
-    (if (= (length shape) 2)
-        "device-matrix"
-        "device-vector"))
+  (define kind (if (= (length shape) 2) "device-matrix" "device-vector"))
   (if (regexp-match? #rx"\n" values-text)
       (format "#<~a ~a\n ~a>" kind header (regexp-replace* #rx"\n" values-text "\n "))
       (format "#<~a ~a ~a>" kind header values-text)))
 
 (define (shape-text shape)
   (string-append "[" (string-join (map number->string shape) "×") "]"))
-

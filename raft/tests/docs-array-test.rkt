@@ -39,12 +39,11 @@
     x))
 
 (define iris
-  '((5.1 3.5 1.4 0.2)
-    (4.9 3.0 1.4 0.2)
-    (7.0 3.2 4.7 1.4)
-    (6.4 3.2 4.5 1.5)
-    (6.3 3.3 6.0 2.5)
-    (5.8 2.7 5.1 1.9)))
+  '((5.1 3.5 1.4 0.2) (4.9 3.0 1.4 0.2)
+                      (7.0 3.2 4.7 1.4)
+                      (6.4 3.2 4.5 1.5)
+                      (6.3 3.3 6.0 2.5)
+                      (5.8 2.7 5.1 1.9)))
 
 (define (first-three rows)
   (map (lambda (row) (take row 3)) rows))
@@ -72,7 +71,8 @@
   (define labels (device-vector n #:dtype 'int32))
   (define centroids (device-matrix k d))
   (check-equal? (list (shape labels) (dtype labels)) '((6) int32))
-  (check-equal? (list (shape centroids) (dtype centroids) (layout centroids)) '((3 4) float32 row-major)))
+  (check-equal? (list (shape centroids) (dtype centroids) (layout centroids))
+                '((3 4) float32 row-major)))
 
 (test-gpu "arrays guide: column-major for the solver"
   (define X (list*->device-matrix iris #:dtype 'float32))
@@ -94,13 +94,12 @@
   (check-equal? (strides F*) '(1 6)))
 
 (test-gpu "arrays guide: bringing values back"
-  (define widths
-    (for/flvector ([row (in-list iris)])
-      (last row)))
+  (define widths (for/flvector ([row (in-list iris)]) (last row)))
   (define y (flvector->device-vector widths #:dtype 'float32))
   (check-equal? (printed y) "#<device-vector float32[6] cuda:0 [0.2 0.2 1.4 1.5 2.5 1.9]>")
-  (check-equal? (flvector->list (device-vector->flvector y))
-                '(0.20000000298023224 0.20000000298023224 1.399999976158142 1.5 2.5 1.899999976158142))
+  (check-equal?
+   (flvector->list (device-vector->flvector y))
+   '(0.20000000298023224 0.20000000298023224 1.399999976158142 1.5 2.5 1.899999976158142))
   (define F
     (contiguous (list*->device-matrix (first-three iris) #:dtype 'float32) #:layout 'col-major))
   (check-equal? (first (device-matrix->list* F)) '(5.099999904632568 3.5 1.399999976158142))
@@ -134,12 +133,14 @@
   (define distances (distance-matrix X 3))
   (check-equal? (list (shape distances) (dtype distances)) '((4 3) float32))
   (check-equal? (with-device-resources ([r (device-resources)])
-                  (define coefficients (device-matrix 3 1 #:dtype 'float64 #:layout 'col-major #:resources r))
+                  (define coefficients
+                    (device-matrix 3 1 #:dtype 'float64 #:layout 'col-major #:resources r))
                   (list (layout coefficients) (strides coefficients)))
                 '(col-major (1 3)))
-  (check-raft-error 'logic
-                    "device-matrix: unsupported dtype float16; expected float32, float64, int32 or int64"
-                    (lambda () (device-matrix 2 2 #:dtype 'float16))))
+  (check-raft-error
+   'logic
+   "device-matrix: unsupported dtype float16; expected float32, float64, int32 or int64"
+   (lambda () (device-matrix 2 2 #:dtype 'float16))))
 
 (test-gpu "reference: device-vector"
   (define X (sample-matrix))
@@ -203,7 +204,8 @@
   (check-false (same-shape? X centroids)))
 
 (test-gpu "reference: dtype"
-  (check-equal? (list (dtype (sample-matrix)) (dtype (device-vector 4 #:dtype 'int32))) '(float32 int32))
+  (check-equal? (list (dtype (sample-matrix)) (dtype (device-vector 4 #:dtype 'int32)))
+                '(float32 int32))
   (define (scratch-like a)
     (match-define (list rows cols) (shape a))
     (device-matrix rows cols #:dtype (dtype a)))
@@ -217,7 +219,8 @@
 (test-gpu "reference: layout"
   (define X (sample-matrix))
   (check-equal? (list (layout X) (layout (contiguous X #:layout 'col-major))) '(row-major col-major))
-  (check-equal? (map layout (list (device-vector 4 #:dtype 'int32) (device-matrix 1 1 #:layout 'col-major)))
+  (check-equal? (map layout
+                     (list (device-vector 4 #:dtype 'int32) (device-matrix 1 1 #:layout 'col-major)))
                 '(row-major row-major))
   (define (require-fortran-order m)
     (unless (eq? (layout m) 'col-major)
@@ -232,10 +235,10 @@
   (check-equal? (list (strides X) (strides (contiguous X #:layout 'col-major))) '((4 1) (1 4)))
   (define (element-index a i j)
     (+ (* i (first (strides a))) (* j (second (strides a)))))
-  (check-equal? (list (element-index X 2 1) (element-index (contiguous X #:layout 'col-major) 2 1)) '(9 6))
+  (check-equal? (list (element-index X 2 1) (element-index (contiguous X #:layout 'col-major) 2 1))
+                '(9 6))
   (define (byte-strides a)
-    (define size
-      (if (memq (dtype a) '(float32 int32)) 4 8))
+    (define size (if (memq (dtype a) '(float32 int32)) 4 8))
     (map (lambda (s) (* s size)) (strides a)))
   (check-equal? (byte-strides X) '(16 4))
   (check-equal? (strides (device-matrix 0 4)) '(0 0)))
@@ -243,8 +246,7 @@
 (test-gpu "reference: numel"
   (check-equal? (list (numel (sample-matrix)) (numel (device-vector 4 #:dtype 'int32))) '(16 4))
   (define (megabytes a)
-    (define size
-      (if (memq (dtype a) '(float32 int32)) 4 8))
+    (define size (if (memq (dtype a) '(float32 int32)) 4 8))
     (/ (* (numel a) size) (* 1024 1024.0)))
   (check-equal? (megabytes (device-matrix 1000 128)) 0.48828125)
   (define (mean-of v)
@@ -268,7 +270,8 @@
                 "#<device-matrix int32[2×3] col-major cuda:0\n [[1 2 3]\n  [4 5 6]]>"))
 
 (test-gpu "reference: list->device-vector"
-  (check-equal? (printed (list->device-vector '(3 1 4 1 5))) "#<device-vector int64[5] cuda:0 [3 1 4 1 5]>")
+  (check-equal? (printed (list->device-vector '(3 1 4 1 5)))
+                "#<device-vector int64[5] cuda:0 [3 1 4 1 5]>")
   (check-equal? (printed (list->device-vector '(0.25 0.5) #:dtype 'float32))
                 "#<device-vector float32[2] cuda:0 [0.25  0.5]>")
   (check-equal? (device-vector->list (list->device-vector '(1/2 1/4 3))) '(0.5 0.25 3.0))
@@ -311,26 +314,33 @@
   (check-equal? (device-matrix->list* (list*->device-matrix '((1 2) (3 4)) #:layout 'col-major))
                 '((1 2) (3 4)))
   (define found (list*->device-matrix '((5.0 3.4) (6.6 3.0)) #:dtype 'float64))
-  (check-equal? (with-output-to-string (lambda ()
-                                         (for ([row (in-list (device-matrix->list* found))]
-                                               [c (in-naturals)])
-                                           (printf "cluster ~a: ~a\n" c (string-join (map ~a row) " ")))))
-                "cluster 0: 5.0 3.4\ncluster 1: 6.6 3.0\n"))
+  (check-equal?
+   (with-output-to-string (lambda ()
+                            (for ([row (in-list (device-matrix->list* found))]
+                                  [c (in-naturals)])
+                              (printf "cluster ~a: ~a\n" c (string-join (map ~a row) " ")))))
+   "cluster 0: 5.0 3.4\ncluster 1: 6.6 3.0\n"))
 
 (test-gpu "reference: flvector->device-vector"
   (check-equal? (printed (flvector->device-vector (flvector 0.5 1.5 2.5)))
                 "#<device-vector float64[3] cuda:0 [0.5 1.5 2.5]>")
-  (define roots
-    (for/flvector ([i (in-range 5)])
-      (flsqrt (->fl i))))
-  (check-equal? (printed (flvector->device-vector roots #:dtype 'float32))
-                "#<device-vector float32[5] cuda:0 [      0.0       1.0 1.4142135 1.7320508       2.0]>")
-  (check-equal? (device-vector->list (flvector->device-vector (flvector 0.7 2.2 -1.5) #:dtype 'int64)) '(0 2 -1)))
+  (define roots (for/flvector ([i (in-range 5)]) (flsqrt (->fl i))))
+  (check-equal?
+   (printed (flvector->device-vector roots #:dtype 'float32))
+   "#<device-vector float32[5] cuda:0 [      0.0       1.0 1.4142135 1.7320508       2.0]>")
+  (check-equal? (device-vector->list (flvector->device-vector (flvector 0.7 2.2 -1.5) #:dtype 'int64))
+                '(0 2 -1)))
 
 (test-gpu "reference: device-vector->flvector"
-  (check-equal? (flvector->list (device-vector->flvector (flvector->device-vector (flvector 1.0 2.0)))) '(1.0 2.0))
-  (check-equal? (flvector->list (device-vector->flvector (list->device-vector '(0.1) #:dtype 'float32)))
+  (check-equal? (flvector->list (device-vector->flvector (flvector->device-vector (flvector 1.0
+                                                                                            2.0))))
+                '(1.0 2.0))
+  (check-equal? (flvector->list (device-vector->flvector (list->device-vector '(0.1)
+                                                                              #:dtype 'float32)))
                 '(0.10000000149011612))
-  (check-equal? (flvector->list (device-vector->flvector (list->device-vector '(1 2 3)))) '(1.0 2.0 3.0))
+  (check-equal? (flvector->list (device-vector->flvector (list->device-vector '(1 2 3))))
+                '(1.0 2.0 3.0))
   (define v (device-vector->flvector (list->device-vector '(3.0 4.0))))
-  (check-equal? (flsqrt (for/fold ([sum 0.0]) ([x (in-flvector v)]) (fl+ sum (fl* x x)))) 5.0))
+  (check-equal? (flsqrt (for/fold ([sum 0.0]) ([x (in-flvector v)])
+                          (fl+ sum (fl* x x))))
+                5.0))

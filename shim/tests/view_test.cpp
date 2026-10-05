@@ -1,3 +1,5 @@
+#include "detail/view.hpp"
+
 #include <gtest/gtest.h>
 
 #include <cstddef>
@@ -11,7 +13,6 @@
 #include "detail/dtype.hpp"
 #include "detail/error.hpp"
 #include "detail/internal_api.h"
-#include "detail/view.hpp"
 #include "raftrkt/array.h"
 
 namespace {
@@ -76,8 +77,9 @@ TEST(Dispatch, EachCodeReachesItsType) {
     RR_DISPATCH_DTYPE(contiguous, info.code, T, size = sizeof(T));
     EXPECT_EQ(size, static_cast<std::size_t>(info.itemsize)) << info.name;
   }
-  EXPECT_EQ(refusal([] { RR_DISPATCH_DTYPE(contiguous, 9, T, (void)sizeof(T)); }),
-            "unsupported dtype code 9");
+  EXPECT_EQ(
+      refusal([] { RR_DISPATCH_DTYPE(contiguous, 9, T, (void)sizeof(T)); }),
+      "unsupported dtype code 9");
 }
 
 TEST(Dispatch, AnOpRefusesADtypeItsMaskLeavesOut) {
@@ -124,8 +126,9 @@ TEST(Describe, StridesFollowNumPyInElements) {
   EXPECT_EQ(strides_of(matrix(rr::layout::col_major, 1, 5)),
             (std::vector<int64_t>{1, 1}));
   const int64_t n[] = {5};
-  EXPECT_EQ(strides_of(rr::describe(RR_DTYPE_INT64, rr::layout::col_major, 1, n)),
-            (std::vector<int64_t>{1}));
+  EXPECT_EQ(
+      strides_of(rr::describe(RR_DTYPE_INT64, rr::layout::col_major, 1, n)),
+      (std::vector<int64_t>{1}));
   EXPECT_EQ(rr::byte_size(matrix(rr::layout::row_major, 2, 3)), 24U);
 }
 
@@ -147,8 +150,7 @@ TEST(Describe, RefusesWhatCannotBeAllocated) {
             }),
             "the array's size overflows");
   EXPECT_EQ(refusal([] {
-              rr::describe(RR_DTYPE_FLOAT32, rr::layout::row_major, 2,
-                           nullptr);
+              rr::describe(RR_DTYPE_FLOAT32, rr::layout::row_major, 2, nullptr);
             }),
             "shape is NULL");
 }

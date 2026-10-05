@@ -63,7 +63,10 @@
          [l (in-list both-layouts)])
     (define m (device-matrix 2 3 #:dtype d #:layout l))
     (check-equal? (list (shape m) (dtype m) (layout m) (numel m)) (list '(2 3) d l 6))
-    (check-equal? (strides m) (if (eq? l 'row-major) '(3 1) '(1 2)))
+    (check-equal? (strides m)
+                  (if (eq? l 'row-major)
+                      '(3 1)
+                      '(1 2)))
     (check-true (and (device-array? m) (device-matrix? m)))
     (check-false (device-vector? m))))
 
@@ -136,10 +139,12 @@
   (check-equal? (dtype (list*->device-matrix '((1 2) (3 4.0)))) 'float64))
 
 (test-gpu "values come back as flonums from float arrays and exact integers from integer arrays"
-  (check-pred (lambda (xs) (andmap flonum? xs)) (device-vector->list (list->device-vector '(1 2) #:dtype 'float32)))
+  (check-pred (lambda (xs) (andmap flonum? xs))
+              (device-vector->list (list->device-vector '(1 2) #:dtype 'float32)))
   (check-pred (lambda (xs) (andmap exact-integer? xs))
               (device-vector->list (list->device-vector '(1.0 2.0) #:dtype 'int32)))
-  (check-equal? (device-vector->list (list->device-vector '(0.1) #:dtype 'float32)) '(0.10000000149011612)))
+  (check-equal? (device-vector->list (list->device-vector '(0.1) #:dtype 'float32))
+                '(0.10000000149011612)))
 
 (test-gpu "integer dtypes truncate toward zero, as NumPy's casts do"
   (check-equal? (device-vector->list (list->device-vector '(1.7 -1.7 5/2) #:dtype 'int64)) '(1 -1 2)))
@@ -172,29 +177,34 @@
 (test-gpu "special values survive the float64 round trip bit for bit"
   (define specials (list -0.0 +inf.0 -inf.0 +nan.0 4.9406564584124654e-324))
   (check-equal? (device-vector->list (list->device-vector specials)) specials)
-  (check-equal? (flvector->list (device-vector->flvector (flvector->device-vector (apply flvector specials))))
+  (check-equal? (flvector->list (device-vector->flvector (flvector->device-vector (apply flvector
+                                                                                         specials))))
                 specials))
 
 (test-gpu "the shim refuses an unknown dtype or layout and a negative extent, naming the caller"
-  (check-raft-error 'logic
-                    "device-matrix: unsupported dtype float16; expected float32, float64, int32 or int64"
-                    (lambda () (device-matrix 2 2 #:dtype 'float16)))
-  (check-raft-error 'logic
-                    "device-vector: unsupported dtype complex64; expected float32, float64, int32 or int64"
-                    (lambda () (device-vector 2 #:dtype 'complex64)))
+  (check-raft-error
+   'logic
+   "device-matrix: unsupported dtype float16; expected float32, float64, int32 or int64"
+   (lambda () (device-matrix 2 2 #:dtype 'float16)))
+  (check-raft-error
+   'logic
+   "device-vector: unsupported dtype complex64; expected float32, float64, int32 or int64"
+   (lambda () (device-vector 2 #:dtype 'complex64)))
   (check-raft-error 'logic
                     "device-matrix: unsupported layout diagonal; expected row-major or col-major"
                     (lambda () (device-matrix 2 2 #:layout 'diagonal)))
   (check-raft-error 'logic "device-matrix: negative extent -2" (lambda () (device-matrix -2 2)))
-  (check-raft-error 'logic
-                    "list*->device-matrix: unsupported layout fortran; expected row-major or col-major"
-                    (lambda () (list*->device-matrix sample #:layout 'fortran)))
+  (check-raft-error
+   'logic
+   "list*->device-matrix: unsupported layout fortran; expected row-major or col-major"
+   (lambda () (list*->device-matrix sample #:layout 'fortran)))
   (check-raft-error 'logic
                     "contiguous: unsupported layout fortran; expected row-major or col-major"
                     (lambda () (contiguous (device-matrix 2 2) #:layout 'fortran)))
-  (check-raft-error 'logic
-                    "flvector->device-vector: unsupported dtype float16; expected float32, float64, int32 or int64"
-                    (lambda () (flvector->device-vector (flvector 1.0) #:dtype 'float16))))
+  (check-raft-error
+   'logic
+   "flvector->device-vector: unsupported dtype float16; expected float32, float64, int32 or int64"
+   (lambda () (flvector->device-vector (flvector 1.0) #:dtype 'float16))))
 
 (test-gpu "arrays print their header and their values"
   (check-equal? (format "~a" (list*->device-matrix sample #:dtype 'float32))
@@ -203,16 +213,18 @@
                                "  [4.0 5.0 6.0]]>"))
   (check-equal? (format "~a" (list->device-vector '(0.1 0.25) #:dtype 'float32))
                 "#<device-vector float32[2] cuda:0 [ 0.1 0.25]>")
-  (check-equal? (format "~a" (contiguous (list*->device-matrix '((1 -20)) #:dtype 'int32) #:layout 'col-major))
-                "#<device-matrix int32[1×2] col-major cuda:0 [[  1 -20]]>")
+  (check-equal?
+   (format "~a" (contiguous (list*->device-matrix '((1 -20)) #:dtype 'int32) #:layout 'col-major))
+   "#<device-matrix int32[1×2] col-major cuda:0 [[  1 -20]]>")
   (check-equal? (format "~a" (device-matrix 0 3 #:dtype 'int64))
                 "#<device-matrix int64[0×3] row-major cuda:0 []>"))
 
 (test-gpu "large arrays print their edges"
-  (define m (list*->device-matrix (for/list ([i (in-range 40)])
-                                    (for/list ([j (in-range 30)])
-                                      (+ (* 100 i) j)))
-                                  #:layout 'col-major))
+  (define m
+    (list*->device-matrix (for/list ([i (in-range 40)])
+                            (for/list ([j (in-range 30)])
+                              (+ (* 100 i) j)))
+                          #:layout 'col-major))
   (check-equal? (format "~a" m)
                 (string-append "#<device-matrix int64[40×30] col-major cuda:0\n"
                                " [[   0    1    2 ...   27   28   29]\n"
@@ -235,7 +247,8 @@
   (check-equal? (numel m) (* 4096 4096))
   (set! m #f)
   (drain-finalizers!)
-  (check-true (< (- (current-memory-use) before) (* 1024 1024)) "the phantom bytes left with the array"))
+  (check-true (< (- (current-memory-use) before) (* 1024 1024))
+              "the phantom bytes left with the array"))
 
 (test-gpu "an unreachable array's buffer is freed by its finalizer"
   (drain-finalizers!)
@@ -266,7 +279,9 @@
 (test-gpu "a released buffer is refused with the public noun"
   (define v (list->device-vector '(1 2 3)))
   (rr-buffer-free (array-buffer-handle v))
-  (check-raft-error 'logic "device-array: used after its release" (lambda () (device-vector->list v))))
+  (check-raft-error 'logic
+                    "device-array: used after its release"
+                    (lambda () (device-vector->list v))))
 
 (test-gpu "an empty vector prints its header"
   (check-equal? (format "~a" (device-vector 0 #:dtype 'int32)) "#<device-vector int32[0] cuda:0 []>"))
@@ -279,7 +294,9 @@
 
 (test-gpu "the shim refuses forged views instead of reading past the buffer"
   (define m (device-matrix 2 3))
-  (check-raft-error 'logic "contiguous: unsupported dtype code 7" (lambda () (forged-contiguous m 7 '(2 3) '(3 1))))
+  (check-raft-error 'logic
+                    "contiguous: unsupported dtype code 7"
+                    (lambda () (forged-contiguous m 7 '(2 3) '(3 1))))
   (check-raft-error 'logic
                     "contiguous: 36 bytes at byte offset 0 do not fit a buffer of 24 bytes"
                     (lambda () (forged-contiguous m 0 '(3 3) '(3 1))))
@@ -292,4 +309,6 @@
   (check-raft-error 'logic
                     "contiguous: byte offset 2 is not a multiple of the element size 4"
                     (lambda () (forged-contiguous m 0 '(1 1) '(1 1) 2)))
-  (check-raft-error 'logic "contiguous: negative stride -1" (lambda () (forged-contiguous m 0 '(2 3) '(-1 1)))))
+  (check-raft-error 'logic
+                    "contiguous: negative stride -1"
+                    (lambda () (forged-contiguous m 0 '(2 3) '(-1 1)))))

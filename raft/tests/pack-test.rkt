@@ -16,13 +16,16 @@
   (check-equal? (infer-dtype 'f '(1 2.0)) 'float64)
   (check-equal? (infer-dtype 'f '(1/3)) 'float64)
   (check-equal? (infer-dtype 'f '()) 'float64)
-  (check-raft-error 'logic "f: cannot infer a dtype: \"x\" is not a real number" (lambda () (infer-dtype 'f '(1 "x")))))
+  (check-raft-error 'logic
+                    "f: cannot infer a dtype: \"x\" is not a real number"
+                    (lambda () (infer-dtype 'f '(1 "x")))))
 
 (test-case "a matrix's shape comes from its rows, and a ragged row is named"
   (check-equal? (matrix-shape 'f '((1 2 3) (4 5 6))) '(2 3))
   (check-equal? (matrix-shape 'f '()) '(0 0))
   (check-equal? (matrix-shape 'f '(() ())) '(2 0))
-  (check-raft-error 'logic "f: row 1 has 3 elements, but row 0 has 2: '(3 4 5)"
+  (check-raft-error 'logic
+                    "f: row 1 has 3 elements, but row 0 has 2: '(3 4 5)"
                     (lambda () (matrix-shape 'f '((1 2) (3 4 5))))))
 
 (test-case "elements convert as NumPy casts them"

@@ -68,8 +68,7 @@ class Arrays : public ::testing::Test {
 
     rr_view again{};
     rr_buffer* ab = nullptr;
-    ASSERT_EQ(rr_array_contiguous(cb, 0, &cv, "row-major", &again, &ab),
-              RR_OK)
+    ASSERT_EQ(rr_array_contiguous(cb, 0, &cv, "row-major", &again, &ab), RR_OK)
         << rr_last_error();
     ASSERT_EQ(rr_buffer_read(ab, 0, back.data(), bytes), RR_OK);
     EXPECT_EQ(back, row_major) << dtype;
@@ -230,8 +229,7 @@ TEST(ArrayArguments, NullArgumentsAreLogicErrors) {
   EXPECT_EQ(std::string(rr_last_error()), "buffer is NULL");
   rr_view v{};
   rr_buffer* o = nullptr;
-  EXPECT_EQ(rr_array_contiguous(nullptr, 0, &v, "row-major", &v, &o),
-            RR_ERROR);
+  EXPECT_EQ(rr_array_contiguous(nullptr, 0, &v, "row-major", &v, &o), RR_ERROR);
   EXPECT_EQ(std::string(rr_last_error()), "src is NULL");
   EXPECT_EQ(rr_buffer_read(nullptr, 0, &ready, 4), RR_ERROR);
   EXPECT_EQ(rr_buffer_write(nullptr, 0, &ready, 4), RR_ERROR);

@@ -20,7 +20,8 @@
   (with-release ([resources (new-resources) rr-resources-free]
                  [buffer (new-buffer resources (* 8 n)) rr-buffer-free])
     (copy-in! buffer (apply flvector xs))
-    (for/list ([x (in-flvector (copy-out buffer n))]) x)))
+    (for/list ([x (in-flvector (copy-out buffer n))])
+      x)))
 
 (define values-in '(1.5 -2.25 0.0 3.0 1e300 -1e-300 0.1 123456789.0))
 

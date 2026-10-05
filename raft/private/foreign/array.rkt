@@ -30,14 +30,14 @@
 (define max-rank 8)
 
 (define-cstruct _rr-view
-                ([data _pointer]
-                 [dtype _int32]
-                 [memory _int32]
-                 [device _int32]
-                 [rank _int32]
-                 [shape (_array/vector _int64 max-rank)]
-                 [strides (_array/vector _int64 max-rank)])
-                #:malloc-mode 'atomic-interior)
+  ([data _pointer]
+   [dtype _int32]
+   [memory _int32]
+   [device _int32]
+   [rank _int32]
+   [shape (_array/vector _int64 max-rank)]
+   [strides (_array/vector _int64 max-rank)])
+  #:malloc-mode 'atomic-interior)
 
 (define rr-view-size (ctype-sizeof _rr-view))
 
@@ -81,11 +81,7 @@
   #:wrap buffer-allocator)
 
 (define-raft rr-copy-h2d
-  (_fun _rr-buffer (host : _host) (_size = (host-bytes host))
-        -> (status : _int)
-        -> (zero? status)))
+  (_fun _rr-buffer (host : _host) (_size = (host-bytes host)) -> (status : _int) -> (zero? status)))
 
 (define-raft rr-copy-d2h
-  (_fun (host : _host) _rr-buffer (_size = (host-bytes host))
-        -> (status : _int)
-        -> (zero? status)))
+  (_fun (host : _host) _rr-buffer (_size = (host-bytes host)) -> (status : _int) -> (zero? status)))

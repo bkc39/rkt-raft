@@ -21,13 +21,9 @@
 
 (test-case "the op table lists contiguous for every dtype and both layouts"
   (check-equal? op-table
-                (hasheq 'contiguous
-                        (hasheq 'module
-                                'array
-                                'dtypes
-                                '(float32 float64 int32 int64)
-                                'layouts
-                                '(row-major col-major)))))
+                (hasheq 'contiguous (hasheq 'module 'array
+                                            'dtypes '(float32 float64 int32 int64)
+                                            'layouts '(row-major col-major)))))
 
 (test-case "the rr_view mirror has the C struct's size"
   (check-equal? rr-view-size 152))

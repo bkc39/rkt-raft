@@ -98,12 +98,10 @@
   (define who 'list*->device-matrix)
   (define extents (matrix-shape who rows))
   (define m (allocate-array who resources (or dtype (infer-dtype who (append* rows))) layout extents))
-  (write-array! who
-                m
-                (pack-matrix (device-array-dtype m)
-                             (device-array-shape m)
-                             (device-array-strides m)
-                             rows)))
+  (write-array!
+   who
+   m
+   (pack-matrix (device-array-dtype m) (device-array-shape m) (device-array-strides m) rows)))
 
 (define (device-matrix->list* m)
   (unpack-matrix (device-array-dtype m)
@@ -128,5 +126,6 @@
   (match-define (list n) (device-array-shape v))
   (if (eq? (device-array-dtype v) 'float64)
       (read-array who v (make-flvector n))
-      (for/flvector #:length n ([x (in-list (unpack-vector (device-array-dtype v) n (read-all who v)))])
-        (real->double-flonum x))))
+      (for/flvector #:length n
+                    ([x (in-list (unpack-vector (device-array-dtype v) n (read-all who v)))])
+                    (real->double-flonum x))))

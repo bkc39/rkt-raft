@@ -1,7 +1,6 @@
 #lang racket/base
 
-(require
-         (only-in racket/math exact-truncate)
+(require (only-in racket/math exact-truncate)
          (only-in "dtype.rkt" dtype-itemsize)
          (only-in "exn.rkt" raise-raft)
          (only-in "foreign/host.rkt" host-getter host-memory host-setter))
@@ -38,11 +37,7 @@
   (list (length rows) cols))
 
 (define (elements n)
-  (format "~a element~a"
-          n
-          (if (= n 1)
-              ""
-              "s")))
+  (format "~a element~a" n (if (= n 1) "" "s")))
 
 (define (element-converter dtype)
   (case dtype

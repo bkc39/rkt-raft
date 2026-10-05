@@ -16,8 +16,9 @@ namespace rr {
 
 namespace {
 
-std::unique_ptr<rr_buffer> allocate(const std::shared_ptr<raft::handle_t>& owner,
-                                    int32_t device, const rr_view& desc) {
+std::unique_ptr<rr_buffer> allocate(
+    const std::shared_ptr<raft::handle_t>& owner, int32_t device,
+    const rr_view& desc) {
   const device_guard guard{device};
   auto stream = raft::resource::get_cuda_stream(*owner);
   return std::make_unique<rr_buffer>(
@@ -54,8 +55,8 @@ int rr_array_create(rr_resources* resources, const char* dtype,
     filled = rr_view{};
     auto& r = *rr::require(resources, "resources");
     const int32_t code = rr::dtype_named(dtype).code;
-    const rr_view desc = rr::describe(code, rr::parse_layout(layout), rank,
-                                      shape);
+    const rr_view desc =
+        rr::describe(code, rr::parse_layout(layout), rank, shape);
     auto owned = rr::allocate(r.handle, r.device, desc);
     filled = rr::bind(*owned, 0, desc);
     result = owned.release();
@@ -82,11 +83,10 @@ int rr_array_contiguous(const rr_buffer* src, uint64_t offset,
       const rr::device_guard guard{s.device};
       RR_DISPATCH_DTYPE(
           contiguous, in.dtype, T,
-          RR_DISPATCH_LAYOUT(
-              contiguous, from, S,
-              RR_DISPATCH_LAYOUT(contiguous, target, D,
-                                 rr::copy_matrix<T, S, D>(*s.owner, out_view,
-                                                          in))));
+          RR_DISPATCH_LAYOUT(contiguous, from, S,
+                             RR_DISPATCH_LAYOUT(contiguous, target, D,
+                                                rr::copy_matrix<T, S, D>(
+                                                    *s.owner, out_view, in))));
     }
     filled = out_view;
     result = owned.release();

@@ -1,9 +1,8 @@
-#include "array/copy.hpp"
-
 #include <cstdint>
 #include <raft/core/copy.cuh>
 #include <raft/core/device_mdspan.hpp>
 
+#include "array/copy.hpp"
 #include "detail/dispatch.hpp"
 
 namespace rr {
@@ -28,9 +27,10 @@ struct raft_layout<col_major_t> {
 template <typename T, typename SrcLayout, typename DstLayout>
 void copy_matrix(const raft::handle_t& handle, const rr_view& dst,
                  const rr_view& src) {
-  auto in = raft::make_device_matrix_view<const T, int64_t,
-                                          typename raft_layout<SrcLayout>::type>(
-      static_cast<const T*>(src.data), src.shape[0], src.shape[1]);
+  auto in =
+      raft::make_device_matrix_view<const T, int64_t,
+                                    typename raft_layout<SrcLayout>::type>(
+          static_cast<const T*>(src.data), src.shape[0], src.shape[1]);
   auto out =
       raft::make_device_matrix_view<T, int64_t,
                                     typename raft_layout<DstLayout>::type>(
@@ -45,7 +45,7 @@ static_assert(ops::contiguous.dtypes == RR_ALL_DTYPES &&
 #define RR_COPY_MATRIX(T, S, D)                                             \
   template void copy_matrix<T, S, D>(const raft::handle_t&, const rr_view&, \
                                      const rr_view&);
-#define RR_DTYPE(name, type, code)                \
+#define RR_DTYPE(name, type, code)               \
   RR_COPY_MATRIX(type, row_major_t, row_major_t) \
   RR_COPY_MATRIX(type, row_major_t, col_major_t) \
   RR_COPY_MATRIX(type, col_major_t, row_major_t) \
