@@ -49,6 +49,15 @@ RR_API int32_t rr_probe_current_is_async(int32_t device) {
   return current_async(ref) != nullptr ? 1 : 0;
 }
 
+RR_API int32_t rr_probe_pools_supported(int32_t device) {
+  int supported = 0;
+  return cudaDeviceGetAttribute(&supported, cudaDevAttrMemoryPoolsSupported,
+                                device) == cudaSuccess &&
+                 supported != 0
+             ? 1
+             : 0;
+}
+
 RR_API int64_t rr_probe_pool_used_bytes(int32_t device) {
   auto ref = rmm::mr::get_per_device_resource_ref(rmm::cuda_device_id{device});
   const auto* async = current_async(ref);

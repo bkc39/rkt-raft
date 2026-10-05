@@ -11,6 +11,7 @@
          probe-hold!
          probe-pool-used
          probe-release!
+         test-pools
          test-probe)
 
 (define probe-path (getenv "RAFT_SHIM_PROBE"))
@@ -26,6 +27,13 @@
               (_fun _int32 -> (answer : _int32) -> (= answer 1))
               #:c-id rr_probe_current_is_async)
 
+(define-probe probe-pools-supported?
+              (_fun _int32 -> (answer : _int32) -> (= answer 1))
+              #:c-id rr_probe_pools_supported)
+
+(define (pools-skip) ;; noqa
+  (and (not (probe-pools-supported? 0)) "no memory-pool support on device 0"))
+
 (define-probe probe-pool-used (_fun _int32 -> _int64) #:c-id rr_probe_pool_used_bytes)
 
 (define-probe probe-hold!
@@ -36,3 +44,6 @@
 
 (define-syntax-parse-rule (test-probe name:expr body:expr ...+)
   (test-unless-skipped (or gpu-skip probe-skip) name body ...))
+
+(define-syntax-parse-rule (test-pools name:expr body:expr ...+)
+  (test-unless-skipped (or gpu-skip probe-skip (pools-skip)) name body ...))

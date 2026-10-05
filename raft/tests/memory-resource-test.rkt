@@ -7,12 +7,12 @@
          (only-in "../private/resources.rkt" memory-resource-kind resources-handle)
          (only-in "private/gpu.rkt" test-gpu)
          (only-in "private/native.rkt" new-buffer)
-         (only-in "private/probe.rkt" probe-current-is-async? probe-pool-used test-probe)
+         (only-in "private/probe.rkt" probe-current-is-async? probe-pool-used test-pools)
          (only-in "private/raft-error.rkt" check-raft-error))
 
 (define mebibyte (expt 2 20))
 
-(test-gpu "the default memory resource is RMM's CUDA async pool"
+(test-pools "the default memory resource is RMM's CUDA async pool"
   (current-device-resources)
   (check-equal? (memory-resource-kind 0) 'cuda-async)
   (check-equal? (memory-resource-kind) 'cuda-async))
@@ -22,11 +22,11 @@
                     #rx"^memory-resource-kind: no device"
                     (lambda () (memory-resource-kind (device-count)))))
 
-(test-probe "a second library sees the pool raft installed"
+(test-pools "a second library sees the pool raft installed"
   (current-device-resources)
   (check-true (probe-current-is-async? 0)))
 
-(test-probe "buffers raft allocates come from the pool the second library sees"
+(test-pools "buffers raft allocates come from the pool the second library sees"
   (define r (current-device-resources))
   (resources-sync! r)
   (define before (probe-pool-used 0))
