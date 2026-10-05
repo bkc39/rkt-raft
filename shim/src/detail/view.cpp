@@ -52,11 +52,13 @@ void check_extents(const rr_view& view) {
 
 bool canonical_strides(layout l, int32_t rank, const int64_t* shape,
                        int64_t* strides) noexcept {
+  const bool empty = std::any_of(shape, shape + rank,
+                                 [](int64_t extent) { return extent == 0; });
   int64_t step = 1;
   for (int32_t k = 0; k < rank; ++k) {
     const int32_t i = l == layout::row_major ? rank - 1 - k : k;
-    strides[i] = step;
-    if (shape[i] > 0 && __builtin_mul_overflow(step, shape[i], &step)) {
+    strides[i] = empty ? 0 : step;
+    if (!empty && __builtin_mul_overflow(step, shape[i], &step)) {
       return false;
     }
   }

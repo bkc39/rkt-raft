@@ -1,13 +1,78 @@
 #lang racket/base
 
-(require (only-in ffi/unsafe _fun _int _ptr _size)
-         (only-in ffi/vector _f64vector f64vector-length)
+(require (only-in ffi/unsafe
+                  _array/vector
+                  _fun
+                  _int
+                  _int32
+                  _int64
+                  _pointer
+                  _ptr
+                  _size
+                  ctype-sizeof
+                  define-cstruct)
+         (only-in "host.rkt" _host host-bytes)
          (only-in "library.rkt" _rr-buffer _rr-buffer/null _rr-resources define-raft)
          (only-in "memory.rkt" buffer-allocator))
 
-(provide rr-buffer-alloc
+(provide blank-view
+         describe-view!
+         rr-buffer-alloc
          rr-copy-d2h
-         rr-copy-h2d)
+         rr-copy-h2d
+         rr-view-size
+         view-device
+         view-dtype-code
+         view-shape
+         view-strides
+         _rr-view-pointer)
+
+(define max-rank 8)
+
+(define-cstruct _rr-view
+                ([data _pointer]
+                 [dtype _int32]
+                 [memory _int32]
+                 [device _int32]
+                 [rank _int32]
+                 [shape (_array/vector _int64 max-rank)]
+                 [strides (_array/vector _int64 max-rank)])
+                #:malloc-mode 'atomic-interior)
+
+(define rr-view-size (ctype-sizeof _rr-view))
+
+(define (padded xs)
+  (build-vector max-rank
+                (lambda (i)
+                  (if (< i (length xs))
+                      (list-ref xs i)
+                      0))))
+
+(define (blank-view)
+  (make-rr-view #f -1 -1 -1 0 (padded '()) (padded '())))
+
+(define (describe-view! view dtype-code shape strides)
+  (set-rr-view-dtype! view dtype-code)
+  (set-rr-view-rank! view (length shape))
+  (set-rr-view-shape! view (padded shape))
+  (set-rr-view-strides! view (padded strides))
+  view)
+
+(define (view-dtype-code view)
+  (rr-view-dtype view))
+
+(define (view-device view)
+  (rr-view-device view))
+
+(define (view-list v view)
+  (for/list ([x (in-vector v 0 (rr-view-rank view))])
+    x))
+
+(define (view-shape view)
+  (view-list (rr-view-shape view) view))
+
+(define (view-strides view)
+  (view-list (rr-view-strides view) view))
 
 (define-raft rr-buffer-alloc
   (_fun _rr-resources _size (out : (_ptr o _rr-buffer/null))
@@ -15,15 +80,12 @@
         -> (and (zero? status) out))
   #:wrap buffer-allocator)
 
-;; The byte count comes from the host vector, so a copy cannot run past it; the
-;; shim checks the device side. These calls stay non-blocking: the vector lives
-;; in the GC heap, and a blocking call would let the collector move it.
 (define-raft rr-copy-h2d
-  (_fun _rr-buffer (host : _f64vector) (_size = (* 8 (f64vector-length host)))
+  (_fun _rr-buffer (host : _host) (_size = (host-bytes host))
         -> (status : _int)
         -> (zero? status)))
 
 (define-raft rr-copy-d2h
-  (_fun (host : _f64vector) _rr-buffer (_size = (* 8 (f64vector-length host)))
+  (_fun (host : _host) _rr-buffer (_size = (host-bytes host))
         -> (status : _int)
         -> (zero? status)))

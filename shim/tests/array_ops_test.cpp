@@ -135,7 +135,8 @@ TEST_F(Arrays, ContiguousOfAnEmptyMatrixIsEmpty) {
   ASSERT_EQ(rr_array_contiguous(b, 0, &v, "col-major", &out, &o), RR_OK)
       << rr_last_error();
   EXPECT_EQ(out.shape[0], 0);
-  EXPECT_EQ(out.strides[1], 1);
+  EXPECT_EQ(out.strides[0], 0);
+  EXPECT_EQ(out.strides[1], 0);
   rr_buffer_free(o);
   rr_buffer_free(b);
 }

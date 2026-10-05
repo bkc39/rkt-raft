@@ -1,6 +1,6 @@
 #lang racket/base
 
-(require (only-in ffi/vector f64vector->list list->f64vector)
+(require (only-in racket/flonum flvector in-flvector)
          ;; whole-module: define-runtime-path needs bindings only-in strips
          racket/runtime-path
          (only-in rackunit check-equal? check-true)
@@ -19,8 +19,8 @@
   (define n (length xs))
   (with-release ([resources (new-resources) rr-resources-free]
                  [buffer (new-buffer resources (* 8 n)) rr-buffer-free])
-    (copy-in! buffer (list->f64vector xs))
-    (f64vector->list (copy-out buffer n))))
+    (copy-in! buffer (apply flvector xs))
+    (for/list ([x (in-flvector (copy-out buffer n))]) x)))
 
 (define values-in '(1.5 -2.25 0.0 3.0 1e300 -1e-300 0.1 123456789.0))
 

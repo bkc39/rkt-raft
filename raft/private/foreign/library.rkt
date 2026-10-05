@@ -46,4 +46,4 @@
   handle)
 
 (define-cpointer-type _rr-resources #f (refuse-released 'rr-resources) #f)
-(define-cpointer-type _rr-buffer #f (refuse-released 'rr-buffer) #f)
+(define-cpointer-type _rr-buffer #f (refuse-released 'device-array) #f)

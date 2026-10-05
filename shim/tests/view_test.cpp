@@ -116,13 +116,13 @@ TEST(Describe, StridesFollowNumPyInElements) {
   EXPECT_EQ(strides_of(matrix(rr::layout::col_major, 2, 3)),
             (std::vector<int64_t>{1, 2}));
   EXPECT_EQ(strides_of(matrix(rr::layout::row_major, 0, 3)),
-            (std::vector<int64_t>{3, 1}));
+            (std::vector<int64_t>{0, 0}));
   EXPECT_EQ(strides_of(matrix(rr::layout::col_major, 0, 3)),
-            (std::vector<int64_t>{1, 1}));
-  EXPECT_EQ(strides_of(matrix(rr::layout::row_major, 3, 0)),
-            (std::vector<int64_t>{1, 1}));
+            (std::vector<int64_t>{0, 0}));
   EXPECT_EQ(strides_of(matrix(rr::layout::col_major, 3, 0)),
-            (std::vector<int64_t>{1, 3}));
+            (std::vector<int64_t>{0, 0}));
+  EXPECT_EQ(strides_of(matrix(rr::layout::col_major, 1, 5)),
+            (std::vector<int64_t>{1, 1}));
   const int64_t n[] = {5};
   EXPECT_EQ(strides_of(rr::describe(RR_DTYPE_INT64, rr::layout::col_major, 1, n)),
             (std::vector<int64_t>{1}));
@@ -159,6 +159,8 @@ TEST(LayoutOf, ReadsTheStridesAndPrefersRowMajorOnATie) {
   EXPECT_EQ(rr::layout_of(matrix(rr::layout::col_major, 2, 3)),
             rr::layout::col_major);
   EXPECT_EQ(rr::layout_of(matrix(rr::layout::col_major, 1, 1)),
+            rr::layout::row_major);
+  EXPECT_EQ(rr::layout_of(matrix(rr::layout::col_major, 0, 3)),
             rr::layout::row_major);
   rr_view strided = matrix(rr::layout::row_major, 2, 3);
   strided.strides[0] = 6;
