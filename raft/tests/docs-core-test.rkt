@@ -11,7 +11,8 @@
                   check-false
                   check-pred
                   check-regexp-match
-                  check-true)
+                  check-true
+                  test-case)
          (only-in "../main.rkt"
                   current-device-resources
                   device-count
@@ -57,25 +58,30 @@
   (values result (- (current-inexact-milliseconds) start)))
 
 (define (run-worker device batches)
-  (with-device-resources ([r (current-device-resources device)])
+  (with-device-resources ([r (device-resources #:device device)])
     (for/list ([rows (in-list batches)])
       (define-values (n ms) (timed r (lambda () (process-batch rows))))
       (list n ms))))
 
 (define (run-workers worker jobs)
-  (define pending
+  (define answers
     (for/list ([job (in-list jobs)])
       (match-define (list device batches) job)
       (define done (make-channel))
       (define (send thunk)
         (channel-put done thunk))
-      (thread (lambda ()
-                (with-handlers ([exn:fail? (lambda (e) (send (lambda () (raise e))))])
-                  (define result (worker device batches))
-                  (send (lambda () result)))))
-      done))
-  (for/list ([done (in-list pending)])
-    ((channel-get done))))
+      (define t
+        (thread (lambda ()
+                  (with-handlers ([(lambda (_) #t) (lambda (v) (send (lambda () (raise v))))])
+                    (define result (worker device batches))
+                    (send (lambda () result))))))
+      (choice-evt done
+                  (handle-evt (thread-dead-evt t) (lambda (_) (lambda () (worker-died device)))))))
+  (for/list ([answer (in-list answers)])
+    ((sync answer))))
+
+(define (worker-died device)
+  (error 'run-workers "the worker on cuda:~a ended without an answer" device))
 
 (define (report results)
   (for ([batches (in-list results)]
@@ -118,10 +124,10 @@
   (check-raft-error 'logic (missing-device-message 4) (lambda () (device-resources #:device 4))))
 
 (test-gpu "resources guide: each worker's resources"
-  (define r (current-device-resources (device-for-worker 0)))
+  (define r (device-resources #:device (device-for-worker 0)))
   (check-equal? (printed r) "#<device-resources device 0>")
   (check-equal? (resources-device r) 0)
-  (check-true (eq? r (current-device-resources 0))))
+  (check-false (eq? r (current-device-resources 0))))
 
 (test-gpu "resources guide: timing a batch"
   (define-values (n ms)
@@ -136,6 +142,26 @@
   (define before (resources-drop-count))
   (check-batch-times (list (run-worker 0 (list '((1.0 2.0) (3.0 4.0)) '((5.0 6.0))))) '((2 1)))
   (check-equal? (resources-drop-count) (add1 before) "the worker released its resources"))
+
+(test-gpu "resources guide: a worker leaves its thread's default alone"
+  (define default (current-device-resources 0))
+  (run-worker 0 (list '((1.0 2.0))))
+  (check-true (eq? default (current-device-resources 0)))
+  (check-equal? (printed default) "#<device-resources device 0>"))
+
+(test-case "resources guide: a worker that raises anything or dies never blocks the program"
+  (define (one-job worker)
+    (run-workers worker (list (list 0 '()))))
+  (check-equal? (with-handlers ([symbol? values])
+                  (one-job (lambda (device batches) (raise 'not-an-exception))))
+                'not-an-exception)
+  (check-equal? (with-handlers ([exn:break? (lambda (_) 'broken)])
+                  (one-job (lambda (device batches)
+                             (break-thread (current-thread))
+                             (sleep 1))))
+                'broken)
+  (check-exn #rx"^run-workers: the worker on cuda:0 ended without an answer$"
+             (lambda () (one-job (lambda (device batches) (kill-thread (current-thread)))))))
 
 (test-gpu "resources guide: fanning out"
   (define jobs
@@ -156,7 +182,7 @@
   (check-batch-times (list worker-0) '((2 1)))
   (check-equal?
    (failures results)
-   (list (list 1 'logic (format "current-device-resources: no device 4 among ~a" (device-count))))))
+   (list (list 1 'logic (format "device-resources: no device 4 among ~a" (device-count))))))
 
 (test-gpu "reference: device-resources"
   (define r (device-resources))

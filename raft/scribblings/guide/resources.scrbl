@@ -53,50 +53,48 @@ it makes anything there, and raises @racket[exn:fail:raft] of kind
 
 @section[#:tag "res-default"]{Each worker's resources}
 
-A worker runs many batches, so it should make its resources once and keep
-them: one stream, on which its batches run in order while other workers'
-streams overlap with it, and one set of library handles. That is what a
-thread's default resources are. @racket[current-device-resources] returns
-the calling thread's resources for a device, creating them the first time it
-is asked, and the operations on arrays @status{L1b} will fall back to them
-when they are given no @racket[#:resources]:
+A worker runs many batches, so it makes its resources once and keeps them
+for all of them: one stream, on which its batches run in order while other
+workers' streams overlap with it, and one set of library handles. Making
+resources for every batch instead would pay for a new stream and new library
+handles each time. @racket[device-resources] makes new resources on a
+device, owned by whoever made them:
 
 @examples[#:eval ev #:label #f
-(define r (current-device-resources (device-for-worker 0)))
+(define r (device-resources #:device (device-for-worker 0)))
 r
 (resources-device r)
 (eq? r (current-device-resources 0))
 ]
 
-Making resources for every batch instead would pay for a new stream and new
-library handles each time.
+They are not the thread's default resources. @racket[current-device-resources]
+keeps one set per thread and device, created the first time it is asked for,
+and the operations on arrays @status{L1b} will fall back to it when they are
+given no @racket[#:resources]. A worker owns its resources instead of
+borrowing that default, so that it can release them when it is done without
+taking the default away from other code on its thread.
 
 @python|{
-import threading
 from pylibraft.common import DeviceResources
 
-local = threading.local()
+def worker_resources(device):
+    with cp.cuda.Device(device):
+        return DeviceResources()
 
-def thread_resources(device):
-    handles = local.__dict__.setdefault("handles", {})
-    if device not in handles:
-        with cp.cuda.Device(device):
-            handles[device] = DeviceResources()
-    return handles[device]
-
-handle = thread_resources(device_for_worker(0))
-handle is thread_resources(0)               # True
+handle = worker_resources(device_for_worker(0))
 }|
 
 The two sides differ in three ways:
 
 @itemlist[
- @item{@bold{A default.} pylibraft has none, so the thread-local cache is
-       yours to write. A pylibraft function called without @tt{handle=}
-       makes a @tt{DeviceResources} for that one call.}
+ @item{@bold{A default.} pylibraft has none: a pylibraft function called
+       without @tt{handle=} makes a @tt{DeviceResources} for that one call.
+       Racket keeps one per thread and device.}
  @item{@bold{Waiting.} That one-call @tt{DeviceResources} is synced before
        the function returns, so every such call waits for the GPU. Racket
-       never waits on your behalf.}
+       does not wait after a call: only when you call
+       @racket[resources-sync!], or when a result comes back to Racket data
+       @status{L1b}.}
  @item{@bold{The stream.} @tt{DeviceResources()} without a stream queues on
        @tt{cudaStreamPerThread}, CUDA's per-thread default stream, which any
        other code on that OS thread may also use. Each Racket resources
@@ -155,15 +153,15 @@ from Ctrl-C or @racket[break-thread], ends the wait with @racket[exn:break].
 
 @section[#:tag "res-batch"]{A worker}
 
-A worker takes its device and its batches, and times each batch on its
-thread's resources. It scopes those resources with
+A worker takes its device and its batches, makes its resources, and times
+each batch on them. It scopes the resources with
 @racket[with-device-resources], so they are released the moment the worker
 is done, whether it returns or fails, rather than whenever the garbage
 collector finds them:
 
 @examples[#:eval ev #:label #f
 (define (run-worker device batches)
-  (with-device-resources ([r (current-device-resources device)])
+  (with-device-resources ([r (device-resources #:device device)])
     (for/list ([rows (in-list batches)])
       (define-values (n ms) (timed r (lambda () (process-batch rows))))
       (list n ms))))
@@ -172,41 +170,47 @@ collector finds them:
 
 @python|{
 def run_worker(device, batches):
-    handle = thread_resources(device)
+    handle = worker_resources(device)
     return [timed(handle, lambda: process_batch(rows)) for rows in batches]
 
 run_worker(0, [[[1.0, 2.0], [3.0, 4.0]], [[5.0, 6.0]]])
 # [(2, 0.0153), (1, 0.0017)]
 }|
 
-Python has no form for scoping a @tt{DeviceResources}: the thread-local
-handle lives as long as its thread, and CPython frees it by reference
-counting when the last reference goes.
+Python has no form for scoping a @tt{DeviceResources}: CPython frees the
+worker's handle by reference counting once @tt{run_worker} returns and
+nothing else refers to it.
 
 @section[#:tag "res-threads"]{Fanning out}
 
-Each worker runs in a thread of its own. A new thread does not inherit its
-parent's default resources, because the default lives in a thread cell rather
-than a parameter, so every worker gets its own stream. An exception in a
-Racket thread ends only that thread, so each worker sends back a thunk that
-either returns its result or raises what it raised, and the program calls
-it:
+Each worker runs in a thread of its own, on the resources it made, so each
+queues on a stream of its own. Something raised in a Racket thread ends only
+that thread, so each worker sends back a thunk that either returns its result
+or raises again whatever was raised, and the program calls it. A worker can
+also end without raising, when it is killed, so the program waits for each
+worker's thread to die as well as for its answer, and never blocks on a
+worker that is gone:
 
 @examples[#:eval ev #:label #f
 (define (run-workers worker jobs)
-  (define pending
+  (define answers
     (for/list ([job (in-list jobs)])
       (match-define (list device batches) job)
       (define done (make-channel))
       (define (send thunk) (channel-put done thunk))
-      (thread (lambda ()
-                (with-handlers ([exn:fail?
-                                 (lambda (e) (send (lambda () (raise e))))])
-                  (define result (worker device batches))
-                  (send (lambda () result)))))
-      done))
-  (for/list ([done (in-list pending)])
-    ((channel-get done))))
+      (define t
+        (thread (lambda ()
+                  (with-handlers ([(lambda (_) #t)
+                                   (lambda (v) (send (lambda () (raise v))))])
+                    (define result (worker device batches))
+                    (send (lambda () result))))))
+      (choice-evt done
+                  (handle-evt (thread-dead-evt t)
+                              (lambda (_) (lambda () (worker-died device)))))))
+  (for/list ([answer (in-list answers)])
+    ((sync answer))))
+(define (worker-died device)
+  (error 'run-workers "the worker on cuda:~a ended without an answer" device))
 (define (report results)
   (for ([batches (in-list results)]
         [i (in-naturals)])
@@ -257,9 +261,8 @@ Python's @tt{f.result()} raises a worker's exception again in the caller;
 Racket has no such handle on a thread's result, so the channel carries it.
 Racket threads made the usual way take turns on one OS thread, and a thread
 made with @racket[#:pool 'own] runs on an OS thread of its own; either way,
-each gets its own default resources, and the work queued on the workers'
-streams can overlap on the GPU. When a worker waits in
-@racket[resources-sync!], the others keep running.
+the work queued on the workers' streams can overlap on the GPU. When a worker
+waits in @racket[resources-sync!], the others keep running.
 
 @section[#:tag "res-memory"]{Where device memory comes from}
 
