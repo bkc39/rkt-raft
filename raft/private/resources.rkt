@@ -95,7 +95,4 @@
 
 (define-syntax-parse-rule (with-device-resources (b:resources-binding ...) body:expr ...+)
   #:fail-when (check-duplicate-identifier (syntax->list #'(b.name ...))) "duplicate binding name"
-  (with-release #:who
-    'with-device-resources
-    ([b.name b.init release-resources!] ...)
-    body ...))
+  (with-release #:who 'with-device-resources ([b.name b.init release-resources!] ...) body ...))
