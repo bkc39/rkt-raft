@@ -68,9 +68,10 @@
     [(not ordered) #f]
     [(memv 0 shape) (map (lambda (_) 0) shape)]
     [else
-     (define-values (strides _)
+     (define strides
        (for/fold ([strides '()]
-                  [step 1])
+                  [step 1]
+                  #:result strides)
                  ([extent (in-list ordered)])
          (values (cons step strides) (* step extent))))
      (if (eq? layout 'row-major)

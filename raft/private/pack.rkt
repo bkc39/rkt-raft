@@ -45,11 +45,10 @@
 (define (refuse who x problem)
   (raise-raft who 'logic "~e ~a" x problem))
 
-(define (float-converter who)
-  (lambda (x)
-    (if (real? x)
-        (real->double-flonum x)
-        (refuse who x "is not a real number"))))
+(define ((float-converter who) x)
+  (if (real? x)
+      (real->double-flonum x)
+      (refuse who x "is not a real number")))
 
 (define (integer-converter who dtype)
   (define half (expt 2 (sub1 (hash-ref integer-bits dtype))))
