@@ -135,7 +135,7 @@
   (check-equal? (list (shape distances) (dtype distances)) '((4 3) float32))
   (check-equal? (with-device-resources ([r (device-resources)])
                   (define coefficients
-                    (device-matrix 3 1 #:dtype 'float64 #:layout 'col-major #:resources r))
+                    (device-matrix 3 2 #:dtype 'float64 #:layout 'col-major #:resources r))
                   (list (layout coefficients) (strides coefficients)))
                 '(col-major (1 3)))
   (check-raft-error

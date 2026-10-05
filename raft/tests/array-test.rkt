@@ -294,12 +294,11 @@
 
 (test-gpu "a released buffer is refused with the public noun, and its phantom bytes are dropped"
   (define bytes (* 1024 1024 8))
-  (drain-finalizers!)
-  (define before (current-memory-use))
   (define v (device-vector (* 1024 1024) #:dtype 'int64))
-  (check-true (>= (- (current-memory-use) before) bytes))
+  (drain-finalizers!)
+  (define held (current-memory-use))
   (release-array! v)
-  (check-true (< (- (current-memory-use) before) (* 1024 1024)))
+  (check-true (>= (- held (current-memory-use)) (- bytes (* 64 1024))))
   (check-raft-error 'logic
                     "device-array: used after its release"
                     (lambda () (device-vector->list v))))

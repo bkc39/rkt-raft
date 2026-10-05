@@ -84,11 +84,12 @@ of three centroids:
 ]
 
 A column-major output for a Fortran-order consumer, allocated through
-resources of its own:
+resources of its own: least-squares coefficients for three features and two
+targets.
 
 @examples[#:eval ev #:label #f
 (with-device-resources ([r (device-resources)])
-  (define coefficients (device-matrix 3 1 #:dtype 'float64 #:layout 'col-major
+  (define coefficients (device-matrix 3 2 #:dtype 'float64 #:layout 'col-major
                                       #:resources r))
   (list (layout coefficients) (strides coefficients)))
 ]
