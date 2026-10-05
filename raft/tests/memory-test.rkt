@@ -71,7 +71,8 @@
     (check-exn #rx"rr-buffer" (lambda () (rr-buffer-free resources)))
     (check-equal? (resources-drop-count) before)
     (with-release ([buffer (new-buffer resources 8) rr-buffer-free])
-      (copy-in! buffer (f64vector 1.0)))))
+      (copy-in! buffer (f64vector 1.0))
+      (check-equal? (f64vector->list (copy-out buffer 1)) '(1.0)))))
 
 (test-gpu "with-release after an explicit release frees once"
   (with-release ([resources (new-resources) rr-resources-free])
