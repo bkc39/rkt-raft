@@ -91,7 +91,8 @@
   (check-true (eq? (contiguous F #:layout 'col-major) F))
   (check-true (eq? (contiguous X) X))
   (define F* (list*->device-matrix (first-three iris) #:dtype 'float32 #:layout 'col-major))
-  (check-equal? (strides F*) '(1 6)))
+  (check-equal? (strides F*) '(1 6))
+  (check-true (equal? (device-matrix->list* F*) (device-matrix->list* F))))
 
 (test-gpu "arrays guide: bringing values back"
   (define widths (for/flvector ([row (in-list iris)]) (last row)))
@@ -162,7 +163,7 @@
         (list*->device-matrix data #:dtype 'float32)))
   (check-true (eq? (on-device X) X))
   (check-equal? (shape (on-device '((1.0 2.0)))) '(1 2))
-  (check-equal? (length (filter device-array? (list X labels samples 'done))) 2))
+  (check-equal? (count device-array? (list X labels samples)) 2))
 
 (test-gpu "reference: device-matrix?"
   (define X (sample-matrix))
@@ -219,9 +220,9 @@
 (test-gpu "reference: layout"
   (define X (sample-matrix))
   (check-equal? (list (layout X) (layout (contiguous X #:layout 'col-major))) '(row-major col-major))
-  (check-equal? (map layout
-                     (list (device-vector 4 #:dtype 'int32) (device-matrix 1 1 #:layout 'col-major)))
-                '(row-major row-major))
+  (define column (device-matrix 5 1 #:layout 'col-major))
+  (check-equal? (list (strides column) (layout column) (layout (device-vector 4 #:dtype 'int32)))
+                '((1 5) row-major row-major))
   (define (require-fortran-order m)
     (unless (eq? (layout m) 'col-major)
       (error 'least-squares "expected a col-major matrix, given ~a" (layout m)))
@@ -279,10 +280,13 @@
   (check-equal? (list (dtype assigned) (shape assigned)) '(int32 (4)))
   (check-raft-error 'logic
                     "list->device-vector: cannot infer a dtype: 2+3i is not a real number"
-                    (lambda () (list->device-vector '(1 2+3i)))))
+                    (lambda () (list->device-vector '(1 2+3i))))
+  (check-raft-error 'logic
+                    "list->device-vector: 3000000000 does not fit int32"
+                    (lambda () (list->device-vector '(3000000000) #:dtype 'int32))))
 
 (test-gpu "reference: device-vector->list"
-  (check-equal? (device-vector->list (list->device-vector '(1 2 3))) '(1 2 3))
+  (check-equal? (device-vector->list (list->device-vector '(0 2 1 2) #:dtype 'int32)) '(0 2 1 2))
   (define (cluster-sizes labels k)
     (define all (device-vector->list labels))
     (for/list ([c (in-range k)])

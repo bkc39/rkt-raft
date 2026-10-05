@@ -12,9 +12,8 @@ extern "C" {
 #endif
 
 RR_API int rr_array_create(rr_resources* resources, const char* dtype,
-                           const char* layout, int32_t rank,
-                           const int64_t* shape, rr_view* view,
-                           rr_buffer** out);
+                           int32_t rank, const int64_t* shape,
+                           const char* layout, rr_view* view, rr_buffer** out);
 RR_API int rr_array_contiguous(const rr_buffer* src, uint64_t offset,
                                const rr_view* src_view, const char* layout,
                                rr_view* view, rr_buffer** out);

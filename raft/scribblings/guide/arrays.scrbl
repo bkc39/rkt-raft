@@ -145,9 +145,8 @@ columns of a device matrix arrives later @status{L3}, so the program takes
 them from @racket[samples]:
 
 @examples[#:eval ev #:label #f
-(define features
-  (list*->device-matrix (map (lambda (row) (take row 3)) samples)
-                        #:dtype 'float32))
+(define feature-rows (map (lambda (row) (take row 3)) samples))
+(define features (list*->device-matrix feature-rows #:dtype 'float32))
 (define F (contiguous features #:layout 'col-major))
 F
 (layout F)
@@ -175,22 +174,21 @@ When the data starts out in Racket, it can be packed column by column on the
 host instead, and no copy runs on the GPU at all:
 
 @examples[#:eval ev #:label #f
-(define F* (list*->device-matrix (map (lambda (row) (take row 3)) samples)
-                                 #:dtype 'float32
-                                 #:layout 'col-major))
+(define F* (list*->device-matrix feature-rows #:dtype 'float32 #:layout 'col-major))
 (strides F*)
+(equal? (device-matrix->list* F*) (device-matrix->list* F))
 ]
 
 @python|{
 import cupy as cp
 
-features = device_ndarray(np.array([row[:3] for row in samples], dtype=np.float32))
+feature_rows = [row[:3] for row in samples]
+features = device_ndarray(np.array(feature_rows, dtype=np.float32))
 F = cp.asfortranarray(cp.asarray(features))
 F.flags.f_contiguous, F.strides         # (True, (4, 24))
 cp.asfortranarray(F) is F               # True
 
-F_ = device_ndarray(np.asfortranarray(np.array([row[:3] for row in samples],
-                                               dtype=np.float32)))
+F_ = device_ndarray(np.asfortranarray(np.array(feature_rows, dtype=np.float32)))
 F_.f_contiguous, F_.strides             # (True, (4, 24))
 }|
 
@@ -219,9 +217,11 @@ y
 Values come back as flonums from @racket['float32] and @racket['float64]
 arrays and as exact integers from @racket['int32] and @racket['int64] ones.
 A @racket['float32] cannot hold 0.2 or 1.9 exactly, so the flonums that come
-back are the nearest @racket['float32] values, widened; the printed matrix
-shows the shortest decimal for each, as NumPy does. When the exact values
-matter on the way back, keep them in @racket['float64]:
+back are the nearest @racket['float32] values, widened; the printed vector
+shows the shortest decimal for each, as NumPy does. The features in
+@racket[F] widen the same way. When the exact values matter on the way back,
+keep them in @racket['float64], the type the conversion infers for
+@racket[samples]:
 
 @examples[#:eval ev #:label #f
 (first (device-matrix->list* F))

@@ -64,17 +64,15 @@
      (define row-indices (axis-indices rows summarise?))
      (define col-indices (axis-indices cols summarise?))
      (define grid
-       (for/list ([i (in-list row-indices)]
-                  #:unless (eq? i '...))
-         (for/list ([j (in-list col-indices)])
-           (cell i j))))
-     (define width (widest grid))
+       (for/list ([i (in-list row-indices)])
+         (if (eq? i '...)
+             '...
+             (for/list ([j (in-list col-indices)])
+               (cell i j)))))
+     (define width (widest (filter list? grid)))
      (define lines
-       (let loop ([indices row-indices]
-                  [grid grid])
-         (match indices
-           ['() '()]
-           [(cons '... more) (cons "..." (loop more grid))]
-           [(cons _ more)
-            (cons (string-append "[" (cells-text (car grid) width) "]") (loop more (cdr grid)))])))
+       (for/list ([row (in-list grid)])
+         (if (eq? row '...)
+             "..."
+             (string-append "[" (cells-text row width) "]"))))
      (string-join lines "\n " #:before-first "[" #:after-last "]")]))

@@ -36,20 +36,41 @@ rr_view matrix(rr::layout l, int64_t rows, int64_t cols) {
   return rr::describe(RR_DTYPE_FLOAT32, l, 2, shape);
 }
 
-TEST(DtypeTable, MatchesThePublicCodes) {
+struct expected_dtype {
+  std::string name;
+  int32_t code;
+  int32_t itemsize;
+};
+
+std::vector<expected_dtype> table_rows() {
   int32_t count = 0;
   const rr_dtype_info* table = rr_dtype_table(&count);
-  ASSERT_EQ(count, 4);
-  const std::vector<std::string> names{"float32", "float64", "int32", "int64"};
-  const std::vector<int32_t> codes{RR_DTYPE_FLOAT32, RR_DTYPE_FLOAT64,
-                                   RR_DTYPE_INT32, RR_DTYPE_INT64};
-  const std::vector<int32_t> sizes{4, 8, 4, 8};
+  std::vector<expected_dtype> rows;
+  rows.reserve(static_cast<std::size_t>(count));
   for (int32_t i = 0; i < count; ++i) {
-    EXPECT_EQ(table[i].name, names.at(i));
-    EXPECT_EQ(table[i].code, codes.at(i));
-    EXPECT_EQ(table[i].code, i);
-    EXPECT_EQ(table[i].itemsize, sizes.at(i));
-    EXPECT_EQ(rr::dtype_named(table[i].name).code, table[i].code);
+    rows.push_back({table[i].name, table[i].code, table[i].itemsize});
+  }
+  return rows;
+}
+
+bool operator==(const expected_dtype& a, const expected_dtype& b) {
+  return a.name == b.name && a.code == b.code && a.itemsize == b.itemsize;
+}
+
+TEST(DtypeTable, MatchesThePublicCodes) {
+  const std::vector<expected_dtype> expected{
+      {"float32", RR_DTYPE_FLOAT32, sizeof(float)},
+      {"float64", RR_DTYPE_FLOAT64, sizeof(double)},
+      {"int32", RR_DTYPE_INT32, sizeof(int32_t)},
+      {"int64", RR_DTYPE_INT64, sizeof(int64_t)}};
+  EXPECT_EQ(table_rows(), expected);
+}
+
+TEST(DtypeTable, CodesAreTheTablesOrderAndNamesRoundTrip) {
+  int32_t index = 0;
+  for (const auto& row : table_rows()) {
+    EXPECT_EQ(row.code, index++);
+    EXPECT_EQ(rr::dtype_named(row.name.c_str()).code, row.code);
   }
 }
 
@@ -164,17 +185,23 @@ TEST(LayoutOf, ReadsTheStridesAndPrefersRowMajorOnATie) {
             rr::layout::row_major);
   EXPECT_EQ(rr::layout_of(matrix(rr::layout::col_major, 0, 3)),
             rr::layout::row_major);
+  EXPECT_EQ(rr::layout_of(matrix(rr::layout::col_major, 3, 1)),
+            rr::layout::row_major);
+  EXPECT_EQ(rr::layout_of(matrix(rr::layout::row_major, 1, 3)),
+            rr::layout::row_major);
   rr_view strided = matrix(rr::layout::row_major, 2, 3);
-  strided.strides[0] = 6;
+  strided.strides[0] = int64_t{2} * 3;
   EXPECT_FALSE(rr::layout_of(strided).has_value());
   EXPECT_EQ(refusal([&] { rr::require_layout(strided); }),
             "unsupported strides: neither row-major nor col-major");
 }
 
 TEST(Span, CoversTheLastElementTheStridesReach) {
+  constexpr int64_t row_step = 6;
   rr_view strided = matrix(rr::layout::row_major, 2, 3);
-  strided.strides[0] = 6;
-  EXPECT_EQ(rr::byte_span(strided), (6U + 2U + 1U) * 4U);
+  strided.strides[0] = row_step;
+  const std::size_t last = row_step + 2;
+  EXPECT_EQ(rr::byte_span(strided), (last + 1) * sizeof(float));
   EXPECT_EQ(rr::byte_span(matrix(rr::layout::row_major, 0, 3)), 0U);
   EXPECT_EQ(refusal([] {
               rr::require_range(std::numeric_limits<uint64_t>::max(), 2, 8);

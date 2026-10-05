@@ -79,14 +79,19 @@
   (check-false (device-matrix? v))
   (check-false (device-array? '(1 2))))
 
-(test-gpu "a vector, and a matrix of at most one row and column, is in both layouts"
+(test-gpu "a vector, and a matrix of one row or one column, is in both layouts, as in NumPy"
   (define v (device-vector 3 #:dtype 'int32))
   (check-eq? (layout v) 'row-major)
   (check-eq? (contiguous v #:layout 'col-major) v)
   (define one (device-matrix 1 1 #:layout 'col-major))
   (check-eq? (layout one) 'row-major)
   (check-eq? (contiguous one #:layout 'row-major) one)
-  (check-eq? (contiguous one #:layout 'col-major) one))
+  (check-eq? (contiguous one #:layout 'col-major) one)
+  (define column (device-matrix 5 1 #:layout 'col-major))
+  (check-equal? (list (strides column) (layout column)) '((1 5) row-major))
+  (check-eq? (contiguous column) column)
+  (define row (device-matrix 1 5))
+  (check-eq? (contiguous row #:layout 'col-major) row))
 
 (test-gpu "contiguous returns its argument when the layout already matches"
   (define m (device-matrix 3 2 #:layout 'col-major))
@@ -154,6 +159,17 @@
                     "list*->device-matrix: row 2 has 1 element, but row 0 has 2: '(5)"
                     (lambda () (list*->device-matrix '((1 2) (3 4) (5))))))
 
+(test-gpu "a value the dtype cannot hold raises, naming the caller"
+  (check-raft-error 'logic
+                    "list->device-vector: 3000000000 does not fit int32"
+                    (lambda () (list->device-vector '(3000000000) #:dtype 'int32)))
+  (check-raft-error 'logic
+                    "flvector->device-vector: +inf.0 is not a finite number"
+                    (lambda () (flvector->device-vector (flvector +inf.0) #:dtype 'int32)))
+  (check-raft-error 'logic
+                    "list*->device-matrix: 1+2i is not a real number"
+                    (lambda () (list*->device-matrix '((1 1+2i)) #:dtype 'float64))))
+
 (test-gpu "a complex number has no dtype"
   (check-raft-error 'logic
                     "list->device-vector: cannot infer a dtype: 1+2i is not a real number"
@@ -215,7 +231,7 @@
                 "#<device-vector float32[2] cuda:0 [ 0.1 0.25]>")
   (check-equal?
    (format "~a" (contiguous (list*->device-matrix '((1 -20)) #:dtype 'int32) #:layout 'col-major))
-   "#<device-matrix int32[1×2] col-major cuda:0 [[  1 -20]]>")
+   "#<device-matrix int32[1×2] row-major cuda:0 [[  1 -20]]>")
   (check-equal? (format "~a" (device-matrix 0 3 #:dtype 'int64))
                 "#<device-matrix int64[0×3] row-major cuda:0 []>"))
 

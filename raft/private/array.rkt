@@ -1,6 +1,6 @@
 #lang racket/base
 
-(require (only-in racket/string string-join)
+(require (only-in racket/string string-contains? string-join string-replace)
          (only-in "dtype.rkt" code->dtype dtype->code dtype-itemsize)
          (only-in "error.rkt" call/raft)
          (only-in "foreign/array-api.rkt"
@@ -68,22 +68,30 @@
     [(not ordered) #f]
     [(memv 0 shape) (map (lambda (_) 0) shape)]
     [else
-     (let loop ([extents ordered]
-                [step 1]
-                [strides '()])
-       (if (null? extents)
-           (if (eq? layout 'row-major)
-               strides
-               (reverse strides))
-           (loop (cdr extents) (* step (car extents)) (cons step strides))))]))
+     (define-values (strides _)
+       (for/fold ([strides '()]
+                  [step 1])
+                 ([extent (in-list ordered)])
+         (values (cons step strides) (* step extent))))
+     (if (eq? layout 'row-major)
+         strides
+         (reverse strides))]))
+
+(define (strides-in? layout shape strides)
+  (define canonical (canonical-strides layout shape))
+  (and canonical
+       (for/and ([extent (in-list shape)]
+                 [stride (in-list strides)]
+                 [expected (in-list canonical)])
+         (or (<= extent 1) (= stride expected)))))
 
 (define (has-layout? a layout)
-  (equal? (device-array-strides a) (canonical-strides layout (device-array-shape a))))
+  (strides-in? layout (device-array-shape a) (device-array-strides a)))
 
 (define (strides->layout shape strides)
   (cond
-    [(equal? strides (canonical-strides 'row-major shape)) 'row-major]
-    [(equal? strides (canonical-strides 'col-major shape)) 'col-major]
+    [(strides-in? 'row-major shape strides) 'row-major]
+    [(strides-in? 'col-major shape strides) 'col-major]
     [else 'strided]))
 
 (define (view->array handle view)
@@ -102,7 +110,7 @@
   (define handle
     (call/raft who
                (lambda ()
-                 (rr-array-create (resources-handle who resources) dtype layout shape view))))
+                 (rr-array-create (resources-handle who resources) dtype shape layout view))))
   (view->array handle view))
 
 (define (contiguous-array who a layout)
@@ -167,18 +175,18 @@
     (array-text (device-array-dtype a)
                 shape
                 (lambda indices (read-element (apply + (map * indices strides))))))
+  (define matrix? (= (length shape) 2))
   (define header
-    (string-join (append (list (format "~a~a" (device-array-dtype a) (shape-text shape)))
-                         (if (= (length shape) 2)
-                             (list (symbol->string (strides->layout shape strides)))
-                             '())
-                         (list (format "~a:~a"
-                                       (hash-ref memory-prefixes (device-array-memory a))
-                                       (array-device a))))
-                 " "))
-  (define kind (if (= (length shape) 2) "device-matrix" "device-vector"))
-  (if (regexp-match? #rx"\n" values-text)
-      (format "#<~a ~a\n ~a>" kind header (regexp-replace* #rx"\n" values-text "\n "))
+    (string-join
+     `(,(format "~a~a" (device-array-dtype a) (shape-text shape))
+       ,@(if matrix?
+             (list (symbol->string (strides->layout shape strides)))
+             '())
+       ,(format "~a:~a" (hash-ref memory-prefixes (device-array-memory a)) (array-device a)))
+     " "))
+  (define kind (if matrix? "device-matrix" "device-vector"))
+  (if (string-contains? values-text "\n")
+      (format "#<~a ~a\n ~a>" kind header (string-replace values-text "\n" "\n "))
       (format "#<~a ~a ~a>" kind header values-text)))
 
 (define (shape-text shape)

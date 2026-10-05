@@ -244,8 +244,10 @@ plans/scoping-plan.md         the approved plan (revision 5), as Markdown
   (`dtype`, `layout`) cross as strings and the shim refuses unknown ones,
   so an unsupported dtype or layout is refused there, not in Racket.
   Strides are NumPy's, in elements: all zero for an array with no
-  elements; a shape that fits both layouts (a vector, at most one row and
-  one column, no elements) is reported row-major.
+  elements. As in NumPy, an axis of extent 1 does not constrain the layout,
+  so a vector, a matrix with one row or one column, and an empty matrix are
+  in both layouts and reported row-major (pylibraft's `c_contiguous`); the
+  twin pins it.
 - **contiguous** is `raft::copy` (`raft/core/copy.cuh`) between a row-major
   and a col-major `device_matrix_view`: cuBLAS `geam` for float32 and
   float64 (the path `raft::linalg::transpose` takes) and RAFT's
@@ -686,12 +688,22 @@ the binding census), `racket-review`, `racket-version` (at least 9.3),
   `np.asfortranarray`. Conversions infer as NumPy (an empty list gives
   float64) and integer dtypes truncate toward zero, as NumPy's casts do.
 - **No Racket argument checks** (rule 3): an unknown dtype or layout name
-  or a negative extent is refused by the shim; a ragged row is refused by
-  the packer, because packing it would write past host memory; a complex
-  number has no inferred dtype. Wrong-kind arguments may surface Racket's
-  own errors until the contracts leg.
+  or a negative extent is refused by the shim. What the conversions refuse
+  is data they cannot convert, not argument kinds: a ragged row (the leg
+  brief requires the row to be named; the packer is bounded by the shape,
+  so a ragged row could not overrun memory, but it would silently drop or
+  leave uninitialised elements), a value the element type cannot hold (a
+  complex number, an infinity or NaN for an integer type, an integer out of
+  range), and data with no inferable dtype. Each raises `exn:fail:raft`
+  naming the public procedure. Wrong-kind arguments (a matrix where a
+  vector goes, a string for a list) may surface Racket's own errors until
+  the contracts leg.
 - **Reads and writes poll** the buffer's stream before copying, so the GC
-  and other threads are not held up by queued GPU work, as in L1a.
+  and other threads are not held up by queued GPU work, as in L1a. The copy
+  itself is a second, non-blocking call that ends in
+  `cudaStreamSynchronize`: work another Racket thread queues on the same
+  stream between the poll and the copy is waited for inside it, holding up
+  the place. Safe, and rare; L3's stream rule revisits it.
 - **Printing** follows NumPy's summarising (threshold 1000 elements, three
   edge items) and prints float32 as its shortest round-tripping decimal;
   it reads only the elements it shows.

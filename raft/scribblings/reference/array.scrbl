@@ -107,8 +107,8 @@ An element type the native library does not support is refused:
 
 Allocates a vector of @racket[n] elements of @racket[dtype], without
 initialising them. It is @tt{raft::make_device_vector} and
-@tt{device_ndarray.empty((n,), dtype)}. A vector has stride 1 and is in both
-layouts.
+@tt{device_ndarray.empty((n,), dtype)}. A vector's stride is 1, or 0 when it
+has no elements, and it is in both layouts.
 
 A label per sample, the way cuML's k-means writes them:
 
@@ -157,10 +157,10 @@ when it is not there already:
 (shape (on-device '((1.0 2.0))))
 ]
 
-Counting what a pipeline holds on the GPU:
+Counting the inputs of a pipeline that are already on the GPU:
 
 @examples[#:eval ev #:label #f
-(length (filter device-array? (list X labels samples 'done)))
+(count device-array? (list X labels samples))
 ]}
 
 @defproc[(device-matrix? [v any/c]) boolean?]{
@@ -282,10 +282,11 @@ The element types the conversions infer from Racket data:
 
 Returns how the elements of @racket[a] are ordered in memory, read from its
 strides: @racket['row-major] if each row is contiguous, as in C and NumPy's
-default; @racket['col-major] if each column is, as in Fortran and BLAS. A
-vector, and a matrix that has at most one row and one column or no elements
-at all, is laid out both ways at once; for these @racket[layout] answers
-@racket['row-major], as pylibraft's @tt{c_contiguous} answers @tt{True}.
+default; @racket['col-major] if each column is, as in Fortran and BLAS. As
+in NumPy, an axis of extent 1 does not constrain the layout, so a vector, a
+matrix with one row or one column, and a matrix with no elements are laid out
+both ways at once; for these @racket[layout] answers @racket['row-major], as
+pylibraft's @tt{c_contiguous} answers @tt{True}.
 
 @examples[#:eval ev
 (layout X)
@@ -295,7 +296,8 @@ at all, is laid out both ways at once; for these @racket[layout] answers
 Arrays that are in both layouts report @racket['row-major]:
 
 @examples[#:eval ev #:label #f
-(map layout (list labels (device-matrix 1 1 #:layout 'col-major)))
+(define column (device-matrix 5 1 #:layout 'col-major))
+(list (strides column) (layout column) (layout labels))
 ]
 
 Refusing a matrix in the wrong order before a call that assumes one:
@@ -320,6 +322,7 @@ A matrix with no elements has all strides 0, as in NumPy.
 @examples[#:eval ev
 (strides X)
 (strides (contiguous X #:layout 'col-major))
+(strides (device-matrix 0 4))
 ]
 
 Where element (i, j) sits in the buffer, counted in elements:
@@ -338,7 +341,6 @@ NumPy's byte strides for the same matrix:
   (define size (if (memq (dtype a) '(float32 int32)) 4 8))
   (map (lambda (s) (* s size)) (strides a)))
 (byte-strides X)
-(strides (device-matrix 0 4))
 ]}
 
 @defproc[(numel [a device-array?]) exact-nonnegative-integer?]{
@@ -420,14 +422,18 @@ These conversions copy between Racket values and the device. Going to the
 device, the element type is inferred as NumPy infers it unless
 @racket[#:dtype] gives one: all exact integers give @racket['int64], any other
 real numbers @racket['float64], and an empty list @racket['float64]. Exact
-rationals become floats; a complex number raises @racket[exn:fail:raft]. An
-integer type truncates other numbers toward zero, as NumPy's casts do. A
+rationals become floats. An integer type truncates other numbers toward zero,
+as NumPy's casts do. A value the element type cannot hold, such as a complex
+number, an infinity or NaN for an integer type, or an integer out of the
+type's range, raises @racket[exn:fail:raft] naming the procedure. A
 matrix's @racket[#:layout] decides the order the values are packed in on the
 host, so no copy runs on the GPU to change it. Coming back, the conversions
 wait for the work queued on the array's stream, as @racket[resources-sync!]
 does, then copy; floating-point elements become flonums and integer elements
 exact integers. A module of further conversions, @tt{raft/compat}
-@status{L1c}, adds vectors, @racketmodname[math/matrix] matrices and more.
+@status{L1c}, adds vectors and nested vectors, @racket[f32vector]s,
+@racket[f64vector]s, byte strings, and @racketmodname[math/matrix] and
+@racketmodname[math/array] values.
 
 @defproc[(list->device-vector [xs (listof real?)]
                               [#:dtype dtype (or/c #f 'float32 'float64 'int32 'int64) #f]
@@ -444,10 +450,12 @@ type when @racket[dtype] is @racket[#f]. It is
 (list->device-vector '(0.25 0.5) #:dtype 'float32)
 ]
 
-Exact rationals become floats:
+Exact rationals become floats; values the type cannot hold are refused:
 
 @examples[#:eval ev #:label #f
 (device-vector->list (list->device-vector '(1/2 1/4 3)))
+(eval:error (list->device-vector '(1 2+3i)))
+(eval:error (list->device-vector '(3000000000) #:dtype 'int32))
 ]
 
 Cluster labels from Racket, in the type cuML writes them:
@@ -455,7 +463,6 @@ Cluster labels from Racket, in the type cuML writes them:
 @examples[#:eval ev #:label #f
 (define assigned (list->device-vector '(0 2 1 2) #:dtype 'int32))
 (list (dtype assigned) (shape assigned))
-(eval:error (list->device-vector '(1 2+3i)))
 ]}
 
 @defproc[(device-vector->list [v device-vector?]) (listof real?)]{
@@ -464,7 +471,7 @@ Returns the elements of @racket[v] as a list, after the work queued on its
 stream has finished. It is @tt{v.copy_to_host().tolist()}.
 
 @examples[#:eval ev
-(device-vector->list (list->device-vector '(1 2 3)))
+(device-vector->list assigned)
 ]
 
 Counting the samples in each cluster from a vector of labels:

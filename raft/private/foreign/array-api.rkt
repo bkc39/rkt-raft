@@ -15,9 +15,9 @@
 (define-raft rr-array-create
   (_fun _rr-resources
         _symbol
-        _symbol
         (rank : _int32 = (length shape))
         (shape : (_list i _int64))
+        _symbol
         _rr-view-pointer
         (out : (_ptr o _rr-buffer/null))
         -> (status : _int)

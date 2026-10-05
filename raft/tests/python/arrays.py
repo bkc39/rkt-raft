@@ -19,7 +19,10 @@ def element_strides(arr):
 def run(case):
     if case.get("empty"):
         arr = np.empty(case["shape"], dtype=case["dtype"], order=case["order"])
-        return {"strides": element_strides(arr)}
+        d = device_ndarray.empty(
+            case["shape"], dtype=case["dtype"], order=case["order"]
+        )
+        return {"strides": element_strides(arr), "c_contiguous": d.c_contiguous}
     data = case["data"]
     arr = np.array(data, dtype=case["dtype"]) if case["dtype"] else np.array(data)
     arr = in_order(arr, case["order"])

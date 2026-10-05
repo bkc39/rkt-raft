@@ -85,7 +85,7 @@
   (define who 'list->device-vector)
   (define n (length xs))
   (define v (allocate-array who resources (or element-type (infer-dtype who xs)) 'row-major (list n)))
-  (write-array! who v (pack-vector (device-array-dtype v) n xs)))
+  (write-array! who v (pack-vector who (device-array-dtype v) n xs)))
 
 (define (device-vector->list v)
   (match-define (list n) (device-array-shape v))
@@ -102,7 +102,7 @@
   (write-array!
    who
    m
-   (pack-matrix (device-array-dtype m) (device-array-shape m) (device-array-strides m) rows)))
+   (pack-matrix who (device-array-dtype m) (device-array-shape m) (device-array-strides m) rows)))
 
 (define (device-matrix->list* m)
   (unpack-matrix (device-array-dtype m)
@@ -120,7 +120,7 @@
                 v
                 (if (eq? (device-array-dtype v) 'float64)
                     xs
-                    (pack-vector (device-array-dtype v) n (in-flvector xs)))))
+                    (pack-vector who (device-array-dtype v) n (in-flvector xs)))))
 
 (define (device-vector->flvector v)
   (define who 'device-vector->flvector)

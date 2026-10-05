@@ -67,8 +67,15 @@ bool canonical_strides(layout l, int32_t rank, const int64_t* shape,
 
 bool has_layout(const rr_view& view, layout l) noexcept {
   int64_t strides[RR_MAX_RANK] = {};
-  return canonical_strides(l, view.rank, view.shape, strides) &&
-         std::equal(strides, strides + view.rank, view.strides);
+  if (!canonical_strides(l, view.rank, view.shape, strides)) {
+    return false;
+  }
+  for (int32_t i = 0; i < view.rank; ++i) {
+    if (view.shape[i] > 1 && view.strides[i] != strides[i]) {
+      return false;
+    }
+  }
+  return true;
 }
 
 }  // namespace

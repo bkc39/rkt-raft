@@ -1,6 +1,7 @@
 #lang racket/base
 
-(require (only-in racket/math exact-truncate)
+(require (only-in racket/match match-define)
+         (only-in racket/math exact-truncate)
          (only-in "dtype.rkt" dtype-itemsize)
          (only-in "exn.rkt" raise-raft)
          (only-in "foreign/host.rkt" host-getter host-memory host-setter))
@@ -39,33 +40,53 @@
 (define (elements n)
   (format "~a element~a" n (if (= n 1) "" "s")))
 
-(define (element-converter dtype)
+(define integer-bits (hasheq 'int32 32 'int64 64))
+
+(define (refuse who x problem)
+  (raise-raft who 'logic "~e ~a" x problem))
+
+(define (float-converter who)
+  (lambda (x)
+    (if (real? x)
+        (real->double-flonum x)
+        (refuse who x "is not a real number"))))
+
+(define (integer-converter who dtype)
+  (define half (expt 2 (sub1 (hash-ref integer-bits dtype))))
+  (lambda (x)
+    (define n
+      (cond
+        [(exact-integer? x) x]
+        [(and (real? x) (rational? x)) (exact-truncate x)]
+        [(real? x) (refuse who x "is not a finite number")]
+        [else (refuse who x "is not a real number")]))
+    (if (<= (- half) n (sub1 half))
+        n
+        (refuse who x (format "does not fit ~a" dtype)))))
+
+(define (element-converter who dtype)
   (case dtype
-    [(float32 float64) real->double-flonum]
-    [else
-     (lambda (x)
-       (if (exact-integer? x)
-           x
-           (exact-truncate x)))]))
+    [(float32 float64) (float-converter who)]
+    [else (integer-converter who dtype)]))
 
 (define (host-for dtype count)
   (host-memory (* count (dtype-itemsize dtype))))
 
-(define (pack-vector dtype n xs)
+(define (pack-vector who dtype n xs)
   (define host (host-for dtype n))
   (define set (host-setter dtype))
-  (define convert (element-converter dtype))
+  (define convert (element-converter who dtype))
   (for ([x xs]
         [i (in-range n)])
     (set host i (convert x)))
   host)
 
-(define (pack-matrix dtype shape strides rows)
+(define (pack-matrix who dtype shape strides rows)
   (define host (host-for dtype (apply * shape)))
   (define set (host-setter dtype))
-  (define convert (element-converter dtype))
-  (define-values (row-count col-count) (apply values shape))
-  (define-values (row-step col-step) (apply values strides))
+  (define convert (element-converter who dtype))
+  (match-define (list row-count col-count) shape)
+  (match-define (list row-step col-step) strides)
   (for* ([(row i) (in-parallel (in-list rows) (in-range row-count))]
          [(x j) (in-parallel (in-list row) (in-range col-count))])
     (set host (+ (* i row-step) (* j col-step)) (convert x)))
@@ -78,8 +99,8 @@
 
 (define (unpack-matrix dtype shape strides host)
   (define get (host-getter dtype))
-  (define-values (rows cols) (apply values shape))
-  (define-values (row-step col-step) (apply values strides))
+  (match-define (list rows cols) shape)
+  (match-define (list row-step col-step) strides)
   (for/list ([i (in-range rows)])
     (for/list ([j (in-range cols)])
       (get host (+ (* i row-step) (* j col-step))))))

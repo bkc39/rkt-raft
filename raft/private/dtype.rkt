@@ -9,50 +9,49 @@
          dtypes
          op-table)
 
-(define dtype-rows (rr-dtype-table))
+(struct dtype-entry (name code itemsize))
 
-(define dtypes (map car dtype-rows))
+(define entries
+  (for/list ([row (in-list (rr-dtype-table))])
+    (match-define (list name code itemsize) row)
+    (dtype-entry name code itemsize)))
 
-(define names-by-code
-  (for/hasheqv ([row (in-list dtype-rows)])
-    (match-define (list name code _) row)
-    (values code name)))
+(define dtypes (map dtype-entry-name entries))
 
-(define itemsizes
-  (for/hasheq ([row (in-list dtype-rows)])
-    (match-define (list name _ itemsize) row)
-    (values name itemsize)))
+(define by-name
+  (for/hasheq ([entry (in-list entries)])
+    (values (dtype-entry-name entry) entry)))
 
-(define codes-by-name
-  (for/hasheq ([row (in-list dtype-rows)])
-    (match-define (list name code _) row)
-    (values name code)))
-
-(define (dtype->code dtype)
-  (hash-ref codes-by-name dtype))
+(define by-code
+  (for/hasheqv ([entry (in-list entries)])
+    (values (dtype-entry-code entry) entry)))
 
 (define (code->dtype code)
-  (hash-ref names-by-code code))
+  (dtype-entry-name (hash-ref by-code code)))
+
+(define (dtype->code dtype)
+  (dtype-entry-code (hash-ref by-name dtype)))
 
 (define (dtype-itemsize dtype)
-  (hash-ref itemsizes dtype))
+  (dtype-entry-itemsize (hash-ref by-name dtype)))
 
-(define dtype-bits
-  (for/list ([row (in-list dtype-rows)])
-    (match-define (list name code _) row)
-    (cons name (arithmetic-shift 1 code))))
+(define layout-bits (hasheq 'row-major 1 'col-major 2))
 
-(define layout-bits '((row-major . 1) (col-major . 2)))
+(define (members mask bit names)
+  (for/list ([name (in-list names)]
+             #:unless (zero? (bitwise-and mask (bit name))))
+    name))
 
-(define (members mask bits)
-  (for/list ([entry (in-list bits)]
-             #:unless (zero? (bitwise-and mask (cdr entry))))
-    (car entry)))
+(define (dtype-bit name)
+  (arithmetic-shift 1 (dtype->code name)))
+
+(define (layout-bit name)
+  (hash-ref layout-bits name))
 
 (define op-table
   (for/hasheq ([row (in-list (rr-op-table))])
     (match-define (list module name dtype-mask layout-mask) row)
     (values name
             (hasheq 'module module
-                    'dtypes (members dtype-mask dtype-bits)
-                    'layouts (members layout-mask layout-bits)))))
+                    'dtypes (members dtype-mask dtype-bit dtypes)
+                    'layouts (members layout-mask layout-bit '(row-major col-major))))))

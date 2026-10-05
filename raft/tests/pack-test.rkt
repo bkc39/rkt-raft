@@ -1,6 +1,6 @@
 #lang racket/base
 
-(require (only-in rackunit check-equal? check-exn test-case)
+(require (only-in rackunit check-equal? test-case)
          (only-in "../private/pack.rkt"
                   element-converter
                   infer-dtype
@@ -29,28 +29,46 @@
                     (lambda () (matrix-shape 'f '((1 2) (3 4 5))))))
 
 (test-case "elements convert as NumPy casts them"
-  (check-equal? ((element-converter 'float32) 1/4) 0.25)
-  (check-equal? ((element-converter 'float64) 3) 3.0)
-  (check-equal? ((element-converter 'int32) -2.9) -2)
-  (check-equal? ((element-converter 'int64) 7) 7))
+  (check-equal? ((element-converter 'f 'float32) 1/4) 0.25)
+  (check-equal? ((element-converter 'f 'float64) 3) 3.0)
+  (check-equal? ((element-converter 'f 'int32) -2.9) -2)
+  (check-equal? ((element-converter 'f 'int64) 7) 7))
 
 (test-case "packing follows the strides, and unpacking reads them back"
   (define rows '((1 2 3) (4 5 6)))
   (for ([dtype (in-list '(float32 float64 int32 int64))])
     (define converted
       (for/list ([row (in-list rows)])
-        (map (element-converter dtype) row)))
-    (define col (pack-matrix dtype '(2 3) '(1 2) rows))
+        (map (element-converter 'f dtype) row)))
+    (define col (pack-matrix 'f dtype '(2 3) '(1 2) rows))
     (check-equal? (unpack-vector dtype 6 col) (apply append (apply map list converted)))
     (check-equal? (unpack-matrix dtype '(2 3) '(1 2) col) converted)
-    (define row (pack-matrix dtype '(2 3) '(3 1) rows))
+    (define row (pack-matrix 'f dtype '(2 3) '(3 1) rows))
     (check-equal? (unpack-matrix dtype '(2 3) '(3 1) row) converted)))
 
 (test-case "the packers never write past the shape they were given"
-  (define host (pack-vector 'int64 2 '(1 2 3 4)))
+  (define host (pack-vector 'f 'int64 2 '(1 2 3 4)))
   (check-equal? (unpack-vector 'int64 2 host) '(1 2))
-  (define m (pack-matrix 'int32 '(1 2) '(2 1) '((1 2 3) (4 5 6))))
+  (define m (pack-matrix 'f 'int32 '(1 2) '(2 1) '((1 2 3) (4 5 6))))
   (check-equal? (unpack-matrix 'int32 '(1 2) '(2 1) m) '((1 2))))
 
-(test-case "a value an integer dtype cannot hold raises instead of being written"
-  (check-exn exn:fail? (lambda () (pack-vector 'int32 1 (list (expt 2 40))))))
+(test-case "a value the dtype cannot hold raises, naming the caller"
+  (check-raft-error 'logic
+                    "f: 1099511627776 does not fit int32"
+                    (lambda () (pack-vector 'f 'int32 1 (list (expt 2 40)))))
+  (check-raft-error 'logic
+                    "f: 2147483648 does not fit int32"
+                    (lambda () ((element-converter 'f 'int32) (expt 2 31))))
+  (check-equal? ((element-converter 'f 'int32) (- (expt 2 31))) (- (expt 2 31)))
+  (check-raft-error 'logic
+                    "f: +nan.0 is not a finite number"
+                    (lambda () ((element-converter 'f 'int64) +nan.0)))
+  (check-raft-error 'logic
+                    "f: -inf.0 is not a finite number"
+                    (lambda () ((element-converter 'f 'int64) -inf.0)))
+  (check-raft-error 'logic
+                    "f: 1+2i is not a real number"
+                    (lambda () ((element-converter 'f 'float64) 1+2i)))
+  (check-raft-error 'logic
+                    "f: \"x\" is not a real number"
+                    (lambda () ((element-converter 'f 'int32) "x"))))

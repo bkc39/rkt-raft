@@ -45,9 +45,9 @@ void require_matrix(const rr_view& view) {
 
 extern "C" {
 
-int rr_array_create(rr_resources* resources, const char* dtype,
-                    const char* layout, int32_t rank, const int64_t* shape,
-                    rr_view* view, rr_buffer** out) {
+int rr_array_create(rr_resources* resources, const char* dtype, int32_t rank,
+                    const int64_t* shape, const char* layout, rr_view* view,
+                    rr_buffer** out) {
   return rr::translate_exceptions([&] {
     auto& result = *rr::require(out, "out");
     result = nullptr;

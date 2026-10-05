@@ -11,6 +11,7 @@
                   _size
                   ctype-sizeof
                   define-cstruct)
+         (only-in racket/list make-list take)
          (only-in "host.rkt" _host host-bytes)
          (only-in "library.rkt" _rr-buffer _rr-buffer/null _rr-resources define-raft)
          (only-in "memory.rkt" buffer-allocator))
@@ -21,8 +22,7 @@
          rr-copy-d2h
          rr-copy-h2d
          rr-view-size
-         view-device
-         view-dtype-code
+         (rename-out [rr-view-device view-device] [rr-view-dtype view-dtype-code]) ;; noqa
          view-shape
          view-strides
          _rr-view-pointer) ;; noqa
@@ -42,11 +42,7 @@
 (define rr-view-size (ctype-sizeof _rr-view))
 
 (define (padded xs)
-  (build-vector max-rank
-                (lambda (i)
-                  (if (< i (length xs))
-                      (list-ref xs i)
-                      0))))
+  (list->vector (append xs (make-list (- max-rank (length xs)) 0))))
 
 (define (blank-view)
   (make-rr-view #f -1 -1 -1 0 (padded '()) (padded '())))
@@ -58,15 +54,8 @@
   (set-rr-view-strides! view (padded strides))
   view)
 
-(define (view-dtype-code view)
-  (rr-view-dtype view))
-
-(define (view-device view)
-  (rr-view-device view))
-
 (define (view-list v view)
-  (for/list ([x (in-vector v 0 (rr-view-rank view))])
-    x))
+  (take (vector->list v) (rr-view-rank view)))
 
 (define (view-shape view)
   (view-list (rr-view-shape view) view))
