@@ -182,4 +182,4 @@
       (format "#<~a ~a ~a>" kind header values-text)))
 
 (define (shape-text shape)
-  (string-append "[" (string-join (map number->string shape) "×") "]"))
+  (string-join (map number->string shape) "×" #:before-first "[" #:after-last "]"))

@@ -179,7 +179,8 @@ row-major matrix:
 (define (kmeans-input? v)
   (and (device-matrix? v)
        (eq? (layout v) 'row-major)
-       (and (memq (dtype v) '(float32 float64)) #t)))
+       (memq (dtype v) '(float32 float64))
+       #t))
 (kmeans-input? X)
 (kmeans-input? (contiguous X #:layout 'col-major))
 ]

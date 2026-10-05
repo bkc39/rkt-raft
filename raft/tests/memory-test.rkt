@@ -74,7 +74,9 @@
     (check-equal? (resources-drop-count) before)
     (with-release ([buffer (new-buffer resources 8) rr-buffer-free])
       (copy-in! buffer (flvector 1.0))
-      (check-equal? (for/list ([x (in-flvector (copy-out buffer 1))]) x) '(1.0)))))
+      (check-equal? (for/list ([x (in-flvector (copy-out buffer 1))])
+                      x)
+                    '(1.0)))))
 
 (test-gpu "with-release after an explicit release frees once"
   (with-release ([resources (new-resources) rr-resources-free])

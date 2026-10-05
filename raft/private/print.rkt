@@ -77,4 +77,4 @@
            [(cons '... more) (cons "..." (loop more grid))]
            [(cons _ more)
             (cons (string-append "[" (cells-text (car grid) width) "]") (loop more (cdr grid)))])))
-     (string-append "[" (string-join lines "\n ") "]")]))
+     (string-join lines "\n " #:before-first "[" #:after-last "]")]))

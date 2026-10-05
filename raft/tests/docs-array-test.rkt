@@ -121,7 +121,7 @@
   (list*->device-matrix samples #:dtype 'float32))
 
 (define (kmeans-input? v)
-  (and (device-matrix? v) (eq? (layout v) 'row-major) (and (memq (dtype v) '(float32 float64)) #t)))
+  (and (device-matrix? v) (eq? (layout v) 'row-major) (memq (dtype v) '(float32 float64)) #t))
 
 (test-gpu "reference: device-matrix"
   (define X (sample-matrix))
