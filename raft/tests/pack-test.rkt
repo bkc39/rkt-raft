@@ -52,6 +52,14 @@
   (define m (pack-matrix 'f 'int32 '(1 2) '(2 1) '((1 2 3) (4 5 6))))
   (check-equal? (unpack-matrix 'int32 '(1 2) '(2 1) m) '((1 2))))
 
+(test-case "a finite value that overflows a float type raises; an infinite one passes"
+  (check-raft-error 'logic
+                    "f: 1e+300 does not fit float32"
+                    (lambda () ((element-converter 'f 'float32) 1e300)))
+  (check-equal? ((element-converter 'f 'float32) +inf.0) +inf.0)
+  (check-equal? ((element-converter 'f 'float64) 1e300) 1e300)
+  (check-equal? ((element-converter 'f 'float32) 0.1) 0.10000000149011612))
+
 (test-case "a value the dtype cannot hold raises, naming the caller"
   (check-raft-error 'logic
                     "f: 1099511627776 does not fit int32"

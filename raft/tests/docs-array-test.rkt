@@ -9,6 +9,7 @@
          (only-in rackunit check-equal? check-exn check-false check-true)
          (only-in "../main.rkt"
                   contiguous
+                  contiguous?
                   device-array?
                   device-matrix
                   device-matrix->list*
@@ -87,6 +88,7 @@
                                "  [6.3 3.3 6.0]\n"
                                "  [5.8 2.7 5.1]]>"))
   (check-equal? (list (layout F) (strides F)) '(col-major (1 6)))
+  (check-true (contiguous? F #:layout 'col-major))
   (check-true (equal? (device-matrix->list* F) (device-matrix->list* features)))
   (check-true (eq? (contiguous F #:layout 'col-major) F))
   (check-true (eq? (contiguous X) X))
@@ -223,11 +225,29 @@
   (define column (device-matrix 5 1 #:layout 'col-major))
   (check-equal? (list (strides column) (layout column) (layout (device-vector 4 #:dtype 'int32)))
                 '((1 5) row-major row-major))
+  (check-true (contiguous? column #:layout 'col-major))
+  (define labels (device-vector 4 #:dtype 'int32))
+  (check-equal? (with-output-to-string (lambda ()
+                                         (for ([a (list X labels)])
+                                           (printf "~a ~a ~a\n" (dtype a) (shape a) (layout a)))))
+                "float32 (4 4) row-major\nint32 (4) row-major\n"))
+
+(test-gpu "reference: contiguous?"
+  (define X (sample-matrix))
+  (check-equal? (list (contiguous? X)
+                      (contiguous? X #:layout 'col-major)
+                      (contiguous? (contiguous X #:layout 'col-major) #:layout 'col-major))
+                '(#t #f #t))
+  (define one-feature (list*->device-matrix '((5.1) (4.9) (7.0)) #:dtype 'float32))
+  (check-equal? (list (contiguous? one-feature) (contiguous? one-feature #:layout 'col-major))
+                '(#t #t))
+  (check-true (eq? (contiguous one-feature #:layout 'col-major) one-feature))
   (define (require-fortran-order m)
-    (unless (eq? (layout m) 'col-major)
+    (unless (contiguous? m #:layout 'col-major)
       (error 'least-squares "expected a col-major matrix, given ~a" (layout m)))
     m)
-  (check-equal? (layout (require-fortran-order (contiguous X #:layout 'col-major))) 'col-major)
+  (check-equal? (shape (require-fortran-order (contiguous X #:layout 'col-major))) '(4 4))
+  (check-equal? (shape (require-fortran-order one-feature)) '(3 1))
   (check-exn #rx"^least-squares: expected a col-major matrix, given row-major$"
              (lambda () (require-fortran-order X))))
 

@@ -26,6 +26,7 @@ void raftrkt_c_api_compile_check(void) {
   uint64_t (*release_failure_count)(void) = rr_release_failure_count;
   int (*buffer_alloc)(rr_resources*, size_t, rr_buffer**) = rr_buffer_alloc;
   int (*copy_h2d)(rr_buffer*, const void*, size_t) = rr_copy_h2d;
+  int (*buffer_view)(const rr_buffer*, uint64_t, rr_view*) = rr_buffer_view;
   int (*copy_d2h)(void*, const rr_buffer*, size_t) = rr_copy_d2h;
   rr_abi_tag tag = {0};
   rr_view view = {0};
@@ -43,6 +44,7 @@ void raftrkt_c_api_compile_check(void) {
   (void)release_failure_count;
   (void)buffer_alloc;
   (void)copy_h2d;
+  (void)buffer_view;
   (void)copy_d2h;
   (void)tag;
   (void)view;

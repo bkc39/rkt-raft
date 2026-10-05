@@ -1,7 +1,8 @@
 #lang racket/base
 
-(require (only-in racket/match match-define)
-         (only-in racket/math exact-truncate)
+(require (only-in racket/flonum flsingle)
+         (only-in racket/match match-define)
+         (only-in racket/math exact-truncate infinite?)
          (only-in "dtype.rkt" dtype-itemsize)
          (only-in "exn.rkt" raise-raft)
          (only-in "foreign/host.rkt" host-getter host-memory host-setter))
@@ -45,10 +46,15 @@
 (define (refuse who x problem)
   (raise-raft who 'logic "~e ~a" x problem))
 
-(define ((float-converter who) x)
-  (if (real? x)
-      (real->double-flonum x)
-      (refuse who x "is not a real number")))
+(define (float-converter who dtype)
+  (define narrow (if (eq? dtype 'float32) flsingle values))
+  (lambda (x)
+    (unless (real? x)
+      (refuse who x "is not a real number"))
+    (define converted (narrow (real->double-flonum x)))
+    (if (and (rational? x) (infinite? converted))
+        (refuse who x (format "does not fit ~a" dtype))
+        converted)))
 
 (define (integer-converter who dtype)
   (define half (expt 2 (sub1 (hash-ref integer-bits dtype))))
@@ -65,7 +71,7 @@
 
 (define (element-converter who dtype)
   (case dtype
-    [(float32 float64) (float-converter who)]
+    [(float32 float64) (float-converter who dtype)]
     [else (integer-converter who dtype)]))
 
 (define (host-for dtype count)

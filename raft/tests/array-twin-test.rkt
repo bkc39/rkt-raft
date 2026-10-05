@@ -6,6 +6,7 @@
          (only-in rackunit check-equal?)
          (only-in "../main.rkt"
                   contiguous
+                  contiguous?
                   device-matrix
                   device-matrix->list*
                   device-vector->list
@@ -63,7 +64,7 @@
                   (hash-ref twin 'relaid)
                   (format "~a" pair))))
 
-(test-twin "strides are NumPy's byte strides over the itemsize, and layout is pylibraft's c_contiguous"
+(test-twin "strides are NumPy's, contiguous? is NumPy's flags, and layout is pylibraft's c_contiguous"
   (define shaped
     (for*/list ([shape (in-list '((2 3) (0 3) (3 0) (1 1) (0 0) (1 5) (5 1)))]
                 [order (in-list '(row-major col-major))])
@@ -77,7 +78,9 @@
     (match-define (list (list rows cols) order) s)
     (define m (device-matrix rows cols #:layout order))
     (check-equal? (strides m) (hash-ref twin 'strides) (format "~a" s))
-    (check-equal? (eq? (layout m) 'row-major) (hash-ref twin 'c_contiguous) (format "layout ~a" s))))
+    (check-equal? (eq? (layout m) 'row-major) (hash-ref twin 'c_contiguous) (format "layout ~a" s))
+    (check-equal? (contiguous? m) (hash-ref twin 'numpy_c) (format "C ~a" s))
+    (check-equal? (contiguous? m #:layout 'col-major) (hash-ref twin 'numpy_f) (format "F ~a" s))))
 
 (test-twin "the inferred dtype is NumPy's, and integer dtypes truncate as NumPy's do"
   (define cases

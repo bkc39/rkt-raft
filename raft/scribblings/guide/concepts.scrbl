@@ -273,6 +273,10 @@ arrives.
              @elem{@tt{stride(i)}, @tt{size()}}
              @elem{@tt{.strides} (in bytes, or @tt{None}), NumPy's @tt{.size}}
              "here")
+       (list @racket[contiguous?]
+             "the layout policy"
+             @elem{NumPy's @tt{flags.c_contiguous}, @tt{flags.f_contiguous}}
+             "here")
        (list @racket[contiguous]
              @elem{@tt{raft::copy} between layouts}
              @elem{@tt{cp.ascontiguousarray}, @tt{cp.asfortranarray}}

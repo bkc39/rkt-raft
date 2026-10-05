@@ -2,7 +2,7 @@
 
 (require (only-in racket/string string-contains? string-join string-replace)
          (only-in "dtype.rkt" code->dtype dtype->code dtype-itemsize)
-         (only-in "error.rkt" call/raft)
+         (only-in "error.rkt" call/raft exn:fail:raft?)
          (only-in "foreign/array-api.rkt"
                   rr-array-contiguous
                   rr-array-create
@@ -12,12 +12,13 @@
          (only-in "foreign/array.rkt"
                   blank-view
                   describe-view!
+                  rr-buffer-view
                   view-device
                   view-dtype-code
                   view-shape
                   view-strides)
          (only-in "foreign/host.rkt" host-getter host-memory)
-         (only-in "foreign/memory.rkt" rr-buffer-free)
+         (only-in "foreign/memory.rkt" released? rr-buffer-free)
          (only-in "print.rkt" array-text summarised?)
          (only-in "resources.rkt" in-backoff resources-handle))
 
@@ -25,6 +26,7 @@
          array-buffer-handle
          array-device
          array-rank
+         bound-view
          canonical-strides
          contiguous-array
          device-array-dtype
@@ -168,14 +170,31 @@
 
 (define memory-prefixes (hasheq 'device "cuda"))
 
+(define (values-text a)
+  (define strides (device-array-strides a))
+  (cond
+    [(released? (array-buffer-handle a)) "<released>"]
+    [else
+     (with-handlers ([exn:fail:raft? (lambda (e)
+                                       (format "<values unavailable: ~a>" (exn-message e)))])
+       (define read-element (element-reader 'device-array a))
+       (array-text (device-array-dtype a)
+                   (device-array-shape a)
+                   (lambda indices (read-element (apply + (map * indices strides))))))]))
+
+(define (bound-view who a)
+  (define view
+    (describe-view! (blank-view)
+                    (dtype->code (device-array-dtype a))
+                    (device-array-shape a)
+                    (device-array-strides a)))
+  (call/raft who (lambda () (rr-buffer-view (array-buffer-handle a) (device-array-offset a) view)))
+  view)
+
 (define (array->string a)
   (define shape (device-array-shape a))
   (define strides (device-array-strides a))
-  (define read-element (element-reader 'device-array a))
-  (define values-text
-    (array-text (device-array-dtype a)
-                shape
-                (lambda indices (read-element (apply + (map * indices strides))))))
+  (define text (values-text a))
   (define matrix? (= (length shape) 2))
   (define header
     (string-join
@@ -186,9 +205,9 @@
        ,(format "~a:~a" (hash-ref memory-prefixes (device-array-memory a)) (array-device a)))
      " "))
   (define kind (if matrix? "device-matrix" "device-vector"))
-  (if (string-contains? values-text "\n")
-      (format "#<~a ~a\n ~a>" kind header (string-replace values-text "\n" "\n "))
-      (format "#<~a ~a ~a>" kind header values-text)))
+  (if (string-contains? text "\n")
+      (format "#<~a ~a\n ~a>" kind header (string-replace text "\n" "\n "))
+      (format "#<~a ~a ~a>" kind header text)))
 
 (define (shape-text shape)
   (string-join (map number->string shape) "×" #:before-first "[" #:after-last "]"))

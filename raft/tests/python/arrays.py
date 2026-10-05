@@ -22,7 +22,12 @@ def run(case):
         d = device_ndarray.empty(
             case["shape"], dtype=case["dtype"], order=case["order"]
         )
-        return {"strides": element_strides(arr), "c_contiguous": d.c_contiguous}
+        return {
+            "strides": element_strides(arr),
+            "c_contiguous": d.c_contiguous,
+            "numpy_c": bool(arr.flags.c_contiguous),
+            "numpy_f": bool(arr.flags.f_contiguous),
+        }
     data = case["data"]
     arr = np.array(data, dtype=case["dtype"]) if case["dtype"] else np.array(data)
     arr = in_order(arr, case["order"])

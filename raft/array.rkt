@@ -27,6 +27,7 @@
          (only-in "private/resources.rkt" current-device-resources))
 
 (provide contiguous
+         contiguous?
          device-array? ;; noqa
          device-matrix
          device-matrix->list*
@@ -73,6 +74,9 @@
 
 (define (layout a)
   (strides->layout (device-array-shape a) (device-array-strides a)))
+
+(define (contiguous? a #:layout [order 'row-major])
+  (has-layout? a order))
 
 (define (contiguous a #:layout [order 'row-major])
   (if (has-layout? a order)

@@ -68,6 +68,15 @@ int rr_copy_d2h(void* dst, const rr_buffer* src, size_t bytes) {
   });
 }
 
+int rr_buffer_view(const rr_buffer* buffer, uint64_t offset, rr_view* view) {
+  return rr::translate_exceptions([&] {
+    auto& filled = *rr::require(view, "view");
+    const rr_view bound =
+        rr::bind(*rr::require(buffer, "buffer"), offset, filled);
+    filled = bound;
+  });
+}
+
 int rr_buffer_ready(const rr_buffer* buffer, int32_t* out) {
   return rr::translate_exceptions([&] {
     auto& ready = *rr::require(out, "out");

@@ -22,8 +22,6 @@ extern "C" {
 #define RR_MEMORY_DEVICE 2
 #define RR_MEMORY_MANAGED 3
 
-/* data is the buffer's base plus the view's byte offset; strides count
-   elements, not bytes. */
 typedef struct rr_view {
   void* data;
   int32_t dtype;
@@ -36,6 +34,11 @@ typedef struct rr_view {
 
 RR_API int rr_buffer_alloc(rr_resources* resources, size_t bytes,
                            rr_buffer** out);
+
+/* view->data is valid only while buffer lives, and only for work ordered
+   on buffer's stream. */
+RR_API int rr_buffer_view(const rr_buffer* buffer, uint64_t offset,
+                          rr_view* view);
 
 RR_API int rr_copy_h2d(rr_buffer* dst, const void* src, size_t bytes);
 RR_API int rr_copy_d2h(void* dst, const rr_buffer* src, size_t bytes);
