@@ -1,5 +1,6 @@
 #include "raftrkt/core.h"
 
+#include <cstddef>
 #include <cstdint>
 #include <cstdio>
 #include <cuda/std/version>
@@ -40,12 +41,14 @@ void require_device(int32_t device) {
   }
 }
 
+constexpr std::size_t version_text_capacity = 16;
+
 struct version_string {
   version_string() {
     std::snprintf(text, sizeof text, "%02d.%02d.%02d", RAFT_VERSION_MAJOR,
                   RAFT_VERSION_MINOR, RAFT_VERSION_PATCH);
   }
-  char text[16]{};
+  char text[version_text_capacity]{};
 };
 
 }  // namespace

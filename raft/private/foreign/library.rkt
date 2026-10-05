@@ -46,5 +46,5 @@
      (exn:fail:raft (format "~a: used after its release" what) (current-continuation-marks) 'logic)))
   handle)
 
-(define-cpointer-type _rr-resources #f (refuse-released 'rr-resources) #f)
-(define-cpointer-type _rr-buffer #f (refuse-released 'rr-buffer) #f)
+(define-cpointer-type _rr-resources #f (refuse-released 'device-resources) #f)
+(define-cpointer-type _rr-buffer #f (refuse-released 'buffer) #f)

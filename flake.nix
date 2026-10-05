@@ -231,28 +231,26 @@
         installPhase = "touch $out";
       });
 
+      sanitizerOptions = {
+        asan = "protect_shadow_gap=0:detect_leaks=1:abort_on_error=1";
+        ubsan = "print_stacktrace=1:halt_on_error=1";
+      };
+
       shimSanitizers = shim.overrideAttrs (old: {
         pname = "raftrkt-sanitizers";
-        outputs = [ "out" ];
-        cmakeFlags = [
-          "-DBUILD_TESTING=ON"
-          "-DCMAKE_CUDA_ARCHITECTURES=${cudaArchitectures}"
-          "-DRAFTRKT_SANITIZE=ON"
-        ];
+        cmakeFlags = old.cmakeFlags ++ [ "-DRAFTRKT_SANITIZE=ON" ];
         hardeningDisable = [
           "fortify"
           "fortify3"
         ];
         checkPhase = ''
           runHook preCheck
-          export ASAN_OPTIONS=protect_shadow_gap=0:detect_leaks=1:abort_on_error=1
-          export UBSAN_OPTIONS=print_stacktrace=1:halt_on_error=1
+          export ASAN_OPTIONS=${sanitizerOptions.asan}
+          export UBSAN_OPTIONS=${sanitizerOptions.ubsan}
           ./raftrkt_error_tests
           ./raftrkt_tests
           runHook postCheck
         '';
-        installPhase = "touch $out";
-        dontFixup = true;
       });
 
       racketReview = pkgs.stdenv.mkDerivation {
@@ -412,6 +410,9 @@
         export LD_LIBRARY_PATH="$_drv_farm''${_filtered:+:$_filtered}"
         export RAFT_CUDA_DRIVER_PATH="$_drv_farm"
         export RAFT_SHIM_TESTS="${shim.tests}/bin"
+        export RAFT_SHIM_SANITIZED_TESTS="${shimSanitizers.tests}/bin"
+        export RAFT_ASAN_OPTIONS="${sanitizerOptions.asan}"
+        export RAFT_UBSAN_OPTIONS="${sanitizerOptions.ubsan}"
         export CMAKE_BUILD_PARALLEL_LEVEL=${toString buildJobs}
       '';
     in

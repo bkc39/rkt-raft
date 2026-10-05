@@ -12,8 +12,12 @@
     #:description "a [name acquire release] binding"
     (pattern [name:id acquire:expr release:expr])))
 
-(define (refuse-reentry) ;; noqa
-  (raise (exn:fail:raft "with-release: cannot re-enter its body after its resources were released"
+(define reentry-message "cannot re-enter its body after its resources were released")
+
+(define (refuse-reentry who) ;; noqa
+  (raise (exn:fail:raft (if who
+                            (format "~a: ~a" who reentry-message)
+                            reentry-message)
                         (current-continuation-marks)
                         'logic)))
 
@@ -22,17 +26,19 @@
 ;; every exit; a thread killed inside the extent never runs it, so the
 ;; resource's finalizer stays the backstop.
 (define-syntax-parser with-release
-  [(_ () body:expr ...+)
+  [(_ (~optional (~seq #:who who:expr) #:defaults ([who #'#f])) () body:expr ...+)
    #'(let ()
        body ...)]
-  [(_ (b:release-binding more:release-binding ...) body:expr ...+)
+  [(_ (~optional (~seq #:who who:expr) #:defaults ([who #'#f]))
+      (b:release-binding more:release-binding ...)
+      body:expr ...+)
    #'(let ([held b.acquire]
            [entered? #f])
        (dynamic-wind (lambda ()
                        (when entered?
-                         (refuse-reentry))
+                         (refuse-reentry who))
                        (set! entered? #t))
-                     (lambda () (let ([b.name held]) (with-release (more ...) body ...)))
+                     (lambda () (let ([b.name held]) (with-release #:who who (more ...) body ...)))
                      (lambda ()
                        (when held
                          (b.release held)

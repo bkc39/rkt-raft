@@ -1,7 +1,7 @@
 #lang racket/base
 
 (require (only-in racket/generator generator in-generator yield)
-         (only-in rackunit check-equal? check-exn check-pred check-regexp-match test-case)
+         (only-in rackunit check-equal? check-exn check-pred test-case)
          (only-in "../private/exn.rkt" exn:fail:raft-kind exn:fail:raft?)
          (only-in "../private/resource.rkt" with-release))
 
@@ -85,6 +85,18 @@
         x)))
   (check-pred exn:fail:raft? e)
   (check-equal? (exn:fail:raft-kind e) 'logic)
-  (check-regexp-match #rx"^with-release: cannot re-enter its body" (exn-message e))
+  (check-equal? (exn-message e) "cannot re-enter its body after its resources were released")
   (check-equal? acquisitions 1)
+  (check-equal? released '(a)))
+
+(test-case "#:who names the public form in the re-entry error"
+  (fresh!)
+  (define e
+    (with-handlers ([exn:fail:raft? values])
+      (for/list ([x (in-generator (with-release #:who 'with-device-resources ([a 'a release!])
+                                    (yield a)
+                                    (yield a)))])
+        x)))
+  (check-equal? (exn-message e)
+                "with-device-resources: cannot re-enter its body after its resources were released")
   (check-equal? released '(a)))
