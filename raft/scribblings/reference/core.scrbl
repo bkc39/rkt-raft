@@ -220,8 +220,7 @@ idempotent, and the finalizer stays as a backstop for anything not released
 here. The @racket[resources-expr]s are evaluated in order, as by
 @racket[let*]: each one sees the @racket[id]s bound before it, but not its
 own, so @racket[(with-device-resources ([r r]) ....)] scopes an existing
-@racket[r]. A value that is not a resources object raises
-@racket[exn:fail:raft] before the body runs.
+@racket[r].
 
 Every jump out of the body releases, a generator's @racket[yield] included.
 Control that jumps back in afterwards, such as a generator resumed after that
@@ -338,17 +337,12 @@ native library's words. The @racket[kind] says what failed:
        example a device that does not exist or resources already released;}
  @item{@racket['generic]: anything else.}]
 
-An argument of the wrong kind, such as a string where a device number goes or
-a number where resources go, raises this type too, with kind @racket['logic]
-and the name of the procedure that was called.
-
 @examples[#:eval ev
 (define missing
   (with-handlers ([exn:fail:raft? values])
     (device-resources #:device (device-count))))
 (exn-message missing)
 (exn:fail:raft-kind missing)
-(eval:error (resources-device 5))
 ]
 
 Dispatching on the kind, to retry only what a retry can fix:

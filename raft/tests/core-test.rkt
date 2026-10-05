@@ -1,7 +1,37 @@
 #lang racket/base
 
-(require (only-in rackunit check-equal? check-pred check-true test-case)
+(require (only-in racket/match match match-define)
+         (only-in rackunit check-equal? check-pred check-true test-case)
          (only-in "../main.rkt" raft-abi raft-version))
+
+(define public-names
+  '(current-device-resources device-count
+                             device-resources
+                             device-resources?
+                             exn:fail:raft
+                             exn:fail:raft-kind
+                             exn:fail:raft?
+                             raft-abi
+                             raft-version
+                             resources-device
+                             resources-sync!
+                             struct:exn:fail:raft
+                             with-device-resources))
+
+(define (phase-0-exports mod)
+  (module-declared? mod #t)
+  (define-values (variables syntax) (module->exports mod))
+  (sort (for*/list ([exports (in-list (append variables syntax))]
+                    [entry (in-list (match exports
+                                      [(cons 0 entries) entries]
+                                      [_ '()]))])
+          (match-define (cons name _) entry)
+          name)
+        symbol<?))
+
+(test-case "raft/core and raft export exactly the documented names"
+  (check-equal? (phase-0-exports 'raft/core) public-names)
+  (check-equal? (phase-0-exports 'raft) public-names))
 
 (test-case "raft-version names the pinned RAFT release"
   (check-equal? (raft-version) "26.08.00"))

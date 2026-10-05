@@ -5,6 +5,7 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
 #include <cstdlib>
 #include <cuda/memory_resource>
 #include <raft/core/resource/cuda_stream.hpp>
@@ -36,12 +37,27 @@ int32_t current_kind() {
   return kind;
 }
 
+bool device_supports_pools() {
+  int supported = 0;
+  return cudaDeviceGetAttribute(&supported, cudaDevAttrMemoryPoolsSupported,
+                                0) == cudaSuccess &&
+         supported != 0;
+}
+
+#define RR_REQUIRE_POOLS()                                       \
+  do {                                                           \
+    if (!device_supports_pools()) {                              \
+      std::printf("SKIP: no memory-pool support on device 0\n"); \
+      GTEST_SKIP() << "no memory-pool support on device 0";      \
+    }                                                            \
+  } while (0)
+
 rr_resources* create_or_null() {
   rr_resources* r = nullptr;
   return rr_resources_create(0, &r) == RR_OK ? r : nullptr;
 }
 
-int first_use_installs_the_async_pool() {
+int first_use_installs_the_default() {
   if (current_kind() != rr::memory_resource_cuda) {
     return 1;
   }
@@ -51,7 +67,10 @@ int first_use_installs_the_async_pool() {
   }
   const int32_t kind = current_kind();
   rr_resources_free(r);
-  return kind == rr::memory_resource_cuda_async ? 0 : 3;
+  const int32_t expected = device_supports_pools()
+                               ? rr::memory_resource_cuda_async
+                               : rr::memory_resource_cuda;
+  return kind == expected ? 0 : 3;
 }
 
 int a_resource_set_beforehand_is_kept() {
@@ -91,8 +110,9 @@ class MemoryResourceDeathTest : public ::testing::Test {
   }
 };
 
-TEST_F(MemoryResourceDeathTest, TheFirstResourcesOnADeviceInstallTheAsyncPool) {
-  EXPECT_EXIT(exit_with(first_use_installs_the_async_pool()),
+TEST_F(MemoryResourceDeathTest,
+       TheFirstResourcesInstallThePoolWherePoolsAreSupported) {
+  EXPECT_EXIT(exit_with(first_use_installs_the_default()),
               ::testing::ExitedWithCode(0), "");
 }
 
@@ -102,6 +122,7 @@ TEST_F(MemoryResourceDeathTest, AResourceSetBeforehandIsKept) {
 }
 
 TEST_F(MemoryResourceDeathTest, OnlyTheFirstUseOfADeviceInstalls) {
+  RR_REQUIRE_POOLS();
   EXPECT_EXIT(exit_with(only_the_first_use_installs()),
               ::testing::ExitedWithCode(0), "");
 }
@@ -110,6 +131,7 @@ class Pool : public ::testing::Test {
  protected:
   void SetUp() override {
     RR_REQUIRE_GPU();
+    RR_REQUIRE_POOLS();
     ASSERT_EQ(rr_resources_create(0, &resources_), RR_OK) << rr_last_error();
     auto ref = rmm::mr::get_current_device_resource_ref();
     const auto* async =
@@ -167,15 +189,6 @@ TEST(MemoryResource, ThePoolGoesOnlyOverRmmsDefaultAndOnlyWithPoolSupport) {
   EXPECT_FALSE(rr::installs_async_pool(true, rr::memory_resource_cuda_async));
   EXPECT_FALSE(rr::installs_async_pool(true, rr::memory_resource_other));
   EXPECT_FALSE(rr::installs_async_pool(false, rr::memory_resource_other));
-}
-
-TEST(MemoryResource, ThisDeviceSupportsPools) {
-  RR_REQUIRE_GPU();
-  int supported = 0;
-  ASSERT_EQ(
-      cudaDeviceGetAttribute(&supported, cudaDevAttrMemoryPoolsSupported, 0),
-      cudaSuccess);
-  EXPECT_EQ(supported, 1);
 }
 
 TEST(MemoryResource, AMissingDeviceIsALogicError) {
