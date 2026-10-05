@@ -3,6 +3,12 @@
 
 #include "raftrkt/c_api.h"
 
+_Static_assert(sizeof(rr_view) == 152, "rr_view is 152 bytes");
+_Static_assert(offsetof(rr_view, dtype) == 8, "dtype follows data");
+_Static_assert(offsetof(rr_view, shape) == 24, "shape follows rank");
+_Static_assert(offsetof(rr_view, strides) == 88, "strides follow shape");
+_Static_assert(RR_MAX_RANK == 8, "RR_MAX_RANK is 8");
+
 void raftrkt_c_api_compile_check(void);
 
 void raftrkt_c_api_compile_check(void) {
@@ -22,6 +28,7 @@ void raftrkt_c_api_compile_check(void) {
   int (*copy_h2d)(rr_buffer*, const void*, size_t) = rr_copy_h2d;
   int (*copy_d2h)(void*, const rr_buffer*, size_t) = rr_copy_d2h;
   rr_abi_tag tag = {0};
+  rr_view view = {0};
   (void)last_error;
   (void)last_error_kind;
   (void)version;
@@ -38,4 +45,5 @@ void raftrkt_c_api_compile_check(void) {
   (void)copy_h2d;
   (void)copy_d2h;
   (void)tag;
+  (void)view;
 }

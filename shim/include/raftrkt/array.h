@@ -2,12 +2,37 @@
 #define RAFTRKT_ARRAY_H
 
 #include <stddef.h>
+#include <stdint.h>
 
 #include "raftrkt/core.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+#define RR_MAX_RANK 8
+
+#define RR_DTYPE_FLOAT32 0
+#define RR_DTYPE_FLOAT64 1
+#define RR_DTYPE_INT32 2
+#define RR_DTYPE_INT64 3
+
+#define RR_MEMORY_HOST 0
+#define RR_MEMORY_PINNED 1
+#define RR_MEMORY_DEVICE 2
+#define RR_MEMORY_MANAGED 3
+
+/* data is the buffer's base plus the view's byte offset; strides count
+   elements, not bytes. */
+typedef struct rr_view {
+  void* data;
+  int32_t dtype;
+  int32_t memory;
+  int32_t device;
+  int32_t rank;
+  int64_t shape[RR_MAX_RANK];
+  int64_t strides[RR_MAX_RANK];
+} rr_view;
 
 RR_API int rr_buffer_alloc(rr_resources* resources, size_t bytes,
                            rr_buffer** out);

@@ -28,24 +28,32 @@ include(cmake/RaftrktWarnings.cmake)
 include(cmake/RaftrktTools.cmake)
 
 if(RAFTRKT_SANITIZE)
-  add_compile_options(-fsanitize=address,undefined -fno-sanitize-recover=undefined
-                      -fno-omit-frame-pointer)
+  add_compile_options(
+    "$<$<COMPILE_LANGUAGE:C,CXX>:-fsanitize=address,undefined>"
+    "$<$<COMPILE_LANGUAGE:C,CXX>:-fno-sanitize-recover=undefined>"
+    "$<$<COMPILE_LANGUAGE:C,CXX>:-fno-omit-frame-pointer>")
   add_link_options(-fsanitize=address,undefined)
 endif()
 
 find_package(raft CONFIG REQUIRED)
+find_package(CUDAToolkit REQUIRED)
 
 add_library(raftrkt SHARED
+  src/array/array.cpp
   src/array/buffer.cpp
+  src/array/copy.cu
   src/core/core.cpp
   src/core/memory.cpp
   src/core/memory_resource.cpp
   src/detail/device.cpp
+  src/detail/dtype.cpp
   src/detail/error.cpp
+  src/detail/view.cpp
 )
 add_library(raftrkt::raftrkt ALIAS raftrkt)
 
 set_target_properties(raftrkt PROPERTIES
+  LINKER_LANGUAGE CXX
   CXX_VISIBILITY_PRESET hidden
   CUDA_VISIBILITY_PRESET hidden
   POSITION_INDEPENDENT_CODE ON
@@ -57,7 +65,7 @@ target_include_directories(raftrkt
   PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
-target_link_libraries(raftrkt PRIVATE raft::raft)
+target_link_libraries(raftrkt PRIVATE raft::raft CUDA::cublas)
 target_link_options(raftrkt PRIVATE
   "LINKER:--exclude-libs,ALL"
   $<$<NOT:$<BOOL:${RAFTRKT_SANITIZE}>>:LINKER:--no-undefined>
@@ -77,6 +85,7 @@ if(BUILD_TESTING)
   raftrkt_enable_warnings(raftrkt_c_api_compile_test)
 
   add_executable(raftrkt_tests
+    tests/array_ops_test.cpp
     tests/array_test.cpp
     tests/core_test.cpp
     tests/memory_test.cpp
@@ -90,8 +99,11 @@ if(BUILD_TESTING)
   gtest_discover_tests(raftrkt_tests DISCOVERY_MODE PRE_TEST)
 
   add_executable(raftrkt_error_tests
+    src/detail/dtype.cpp
     src/detail/error.cpp
+    src/detail/view.cpp
     tests/error_test.cpp
+    tests/view_test.cpp
   )
   target_include_directories(raftrkt_error_tests
     PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include ${CMAKE_CURRENT_SOURCE_DIR}/src)
