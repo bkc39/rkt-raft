@@ -76,9 +76,9 @@ An output shaped after its input, here the distances from each sample to each
 of three centroids:
 
 @examples[#:eval ev #:label #f
-(define (distance-matrix samples k)
-  (match-define (list n _) (shape samples))
-  (device-matrix n k #:dtype (dtype samples)))
+(define (distance-matrix data k)
+  (match-define (list n _) (shape data))
+  (device-matrix n k #:dtype (dtype data)))
 (define distances (distance-matrix X 3))
 (list (shape distances) (dtype distances))
 ]

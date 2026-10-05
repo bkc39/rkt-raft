@@ -25,7 +25,7 @@
          view-dtype-code
          view-shape
          view-strides
-         _rr-view-pointer)
+         _rr-view-pointer) ;; noqa
 
 (define max-rank 8)
 

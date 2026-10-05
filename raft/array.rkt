@@ -13,11 +13,10 @@
                   device-array?
                   has-layout?
                   numel
+                  read-all
                   read-array
                   strides->layout
                   write-array!)
-         (only-in "private/foreign/host.rkt" host-memory)
-         (only-in "private/dtype.rkt" dtype-itemsize)
          (only-in "private/pack.rkt"
                   infer-dtype
                   matrix-shape
@@ -28,7 +27,7 @@
          (only-in "private/resources.rkt" current-device-resources))
 
 (provide contiguous
-         device-array?
+         device-array? ;; noqa
          device-matrix
          device-matrix->list*
          device-matrix?
@@ -41,19 +40,21 @@
          layout
          list*->device-matrix
          list->device-vector
-         numel
+         numel ;; noqa
          shape
          strides)
 
 (define (device-matrix rows
                        cols
-                       #:dtype [dtype 'float32]
-                       #:layout [layout 'row-major]
+                       #:dtype [element-type 'float32]
+                       #:layout [order 'row-major]
                        #:resources [resources (current-device-resources)])
-  (allocate-array 'device-matrix resources dtype layout (list rows cols)))
+  (allocate-array 'device-matrix resources element-type order (list rows cols)))
 
-(define (device-vector n #:dtype [dtype 'float32] #:resources [resources (current-device-resources)])
-  (allocate-array 'device-vector resources dtype 'row-major (list n)))
+(define (device-vector n
+                       #:dtype [element-type 'float32]
+                       #:resources [resources (current-device-resources)])
+  (allocate-array 'device-vector resources element-type 'row-major (list n)))
 
 (define (device-matrix? v)
   (and (device-array? v) (= (array-rank v) 2)))
@@ -73,18 +74,17 @@
 (define (layout a)
   (strides->layout (device-array-shape a) (device-array-strides a)))
 
-(define (contiguous a #:layout [layout 'row-major])
-  (if (has-layout? a layout)
+(define (contiguous a #:layout [order 'row-major])
+  (if (has-layout? a order)
       a
-      (contiguous-array 'contiguous a layout)))
+      (contiguous-array 'contiguous a order)))
 
-(define (read-all who a)
-  (read-array who a (host-memory (* (numel a) (dtype-itemsize (device-array-dtype a))))))
-
-(define (list->device-vector xs #:dtype [dtype #f] #:resources [resources (current-device-resources)])
+(define (list->device-vector xs
+                             #:dtype [element-type #f]
+                             #:resources [resources (current-device-resources)])
   (define who 'list->device-vector)
   (define n (length xs))
-  (define v (allocate-array who resources (or dtype (infer-dtype who xs)) 'row-major (list n)))
+  (define v (allocate-array who resources (or element-type (infer-dtype who xs)) 'row-major (list n)))
   (write-array! who v (pack-vector (device-array-dtype v) n xs)))
 
 (define (device-vector->list v)
@@ -92,12 +92,13 @@
   (unpack-vector (device-array-dtype v) n (read-all 'device-vector->list v)))
 
 (define (list*->device-matrix rows
-                              #:dtype [dtype #f]
-                              #:layout [layout 'row-major]
+                              #:dtype [element-type #f]
+                              #:layout [order 'row-major]
                               #:resources [resources (current-device-resources)])
   (define who 'list*->device-matrix)
   (define extents (matrix-shape who rows))
-  (define m (allocate-array who resources (or dtype (infer-dtype who (append* rows))) layout extents))
+  (define m
+    (allocate-array who resources (or element-type (infer-dtype who (append* rows))) order extents))
   (write-array!
    who
    m
@@ -110,11 +111,11 @@
                  (read-all 'device-matrix->list* m)))
 
 (define (flvector->device-vector xs
-                                 #:dtype [dtype 'float64]
+                                 #:dtype [element-type 'float64]
                                  #:resources [resources (current-device-resources)])
   (define who 'flvector->device-vector)
   (define n (flvector-length xs))
-  (define v (allocate-array who resources dtype 'row-major (list n)))
+  (define v (allocate-array who resources element-type 'row-major (list n)))
   (write-array! who
                 v
                 (if (eq? (device-array-dtype v) 'float64)

@@ -17,11 +17,11 @@
                   view-shape
                   view-strides)
          (only-in "foreign/host.rkt" host-getter host-memory)
+         (only-in "foreign/memory.rkt" rr-buffer-free)
          (only-in "print.rkt" array-text summarised?)
          (only-in "resources.rkt" in-backoff resources-handle))
 
 (provide allocate-array
-         array-buffer-bytes
          array-buffer-handle
          array-device
          array-rank
@@ -33,11 +33,13 @@
          device-array?
          has-layout?
          numel
+         read-all
          read-array
+         release-array!
          strides->layout
          write-array!)
 
-(struct buffer (handle device bytes phantom))
+(struct buffer (handle device phantom))
 
 (struct device-array (buffer offset shape strides dtype memory)
   #:constructor-name buffer->device-array
@@ -55,9 +57,6 @@
 
 (define (array-buffer-handle a)
   (buffer-handle (device-array-buffer a)))
-
-(define (array-buffer-bytes a)
-  (buffer-bytes (device-array-buffer a)))
 
 (define (canonical-strides layout shape)
   (define ordered
@@ -91,7 +90,7 @@
   (define shape (view-shape view))
   (define dtype (code->dtype (view-dtype-code view)))
   (define bytes (* (apply * shape) (dtype-itemsize dtype)))
-  (buffer->device-array (buffer handle (view-device view) bytes (make-phantom-bytes bytes))
+  (buffer->device-array (buffer handle (view-device view) (make-phantom-bytes bytes))
                         0
                         shape
                         (view-strides view)
@@ -139,14 +138,26 @@
   (call/raft who (lambda () (rr-buffer-write (array-buffer-handle a) (device-array-offset a) host)))
   a)
 
+(define (read-all who a)
+  (read-array who a (host-memory (* (numel a) (dtype-itemsize (device-array-dtype a))))))
+
+(define (release-array! a)
+  (define b (device-array-buffer a))
+  (rr-buffer-free (buffer-handle b))
+  (set-phantom-bytes! (buffer-phantom b) 0))
+
 (define (element-reader who a)
   (define dtype (device-array-dtype a))
   (define get (host-getter dtype))
   (define itemsize (dtype-itemsize dtype))
-  (if (summarised? (device-array-shape a))
-      (lambda (index) (get (read-array who a (host-memory itemsize) index) 0))
-      (let ([all (read-array who a (host-memory (* itemsize (numel a))))])
-        (lambda (index) (get all index)))))
+  (cond
+    [(summarised? (device-array-shape a))
+     (lambda (index) (get (read-array who a (host-memory itemsize) index) 0))]
+    [else
+     (define all (read-all who a))
+     (lambda (index) (get all index))]))
+
+(define memory-prefixes (hasheq 'device "cuda"))
 
 (define (array->string a)
   (define shape (device-array-shape a))
@@ -161,7 +172,9 @@
                          (if (= (length shape) 2)
                              (list (symbol->string (strides->layout shape strides)))
                              '())
-                         (list (format "cuda:~a" (array-device a))))
+                         (list (format "~a:~a"
+                                       (hash-ref memory-prefixes (device-array-memory a))
+                                       (array-device a))))
                  " "))
   (define kind (if (= (length shape) 2) "device-matrix" "device-vector"))
   (if (regexp-match? #rx"\n" values-text)

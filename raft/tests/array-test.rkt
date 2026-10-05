@@ -23,11 +23,11 @@
                   shape
                   strides
                   with-device-resources)
-         (only-in "../private/array.rkt" array-buffer-handle)
+         (only-in "../private/array.rkt" array-buffer-handle release-array!)
          (only-in "../private/error.rkt" call/raft)
          (only-in "../private/foreign/array-api.rkt" rr-array-contiguous)
          (only-in "../private/foreign/array.rkt" blank-view describe-view!)
-         (only-in "../private/foreign/memory.rkt" buffer-drop-count rr-buffer-free)
+         (only-in "../private/foreign/memory.rkt" buffer-drop-count)
          (only-in "private/arrays.rkt" storage)
          (only-in "private/collect.rkt" collect-until drain-finalizers!)
          (only-in "private/gpu.rkt" test-gpu)
@@ -276,9 +276,14 @@
                     "list->device-vector: the device resources on device 0 were released"
                     (lambda () (list->device-vector '(1) #:resources released))))
 
-(test-gpu "a released buffer is refused with the public noun"
-  (define v (list->device-vector '(1 2 3)))
-  (rr-buffer-free (array-buffer-handle v))
+(test-gpu "a released buffer is refused with the public noun, and its phantom bytes are dropped"
+  (define bytes (* 1024 1024 8))
+  (drain-finalizers!)
+  (define before (current-memory-use))
+  (define v (device-vector (* 1024 1024) #:dtype 'int64))
+  (check-true (>= (- (current-memory-use) before) bytes))
+  (release-array! v)
+  (check-true (< (- (current-memory-use) before) (* 1024 1024)))
   (check-raft-error 'logic
                     "device-array: used after its release"
                     (lambda () (device-vector->list v))))
