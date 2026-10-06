@@ -8,7 +8,7 @@
 This chapter explains the model the library is built on: where data lives,
 what a @emph{resources} object is, what an array is, how memory comes back,
 and what an error looks like. Some of the names it mentions do not exist yet;
-each is marked with the leg that adds it (@status{L1c} to @status{L3}) and is
+each is marked with the leg that adds it (@status{L2} or @status{L3}) and is
 described here, not called, so the chapter can be read as the design before
 the code.
 
@@ -289,11 +289,11 @@ arrives.
              @tt{cudaMemcpyAsync}
              @elem{@tt{device_ndarray(np.asarray(xs))}, @tt{.copy_to_host()}}
              "here")
-       (list @tt{device-array->list*}
+       (list @elem{@racket[device-array->list*], @racket[device-array->vector*]}
              @elem{a copy to the host}
              @tt{.copy_to_host().tolist()}
-             @status{L1c})
-       (list @tt{matrix->device-matrix}
-             @elem{a host copy, then @tt{raft::copy}}
-             @tt{device_ndarray(np.array(A))}
-             @status{L1c}))]
+             "here")
+       (list @elem{@racket[matrix->device-matrix], @racket[array->device-array]}
+             @elem{a host buffer and @tt{cudaMemcpyAsync}}
+             @tt{device_ndarray(np.asarray(A))}
+             "here"))]

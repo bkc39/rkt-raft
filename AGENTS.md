@@ -31,7 +31,11 @@ Parity, §10 Build and §12 Starting cuML work before changing the design.
   predicates, `shape`, `dtype`, `layout`, `strides`, `numel`, `contiguous`,
   printing, phantom bytes, and the list, nested-list and flvector
   conversions; in the shim, the `rr_view` descriptor, the dtype and op
-  tables, the dispatch macros and the first kernels.
+  tables, the dispatch macros and the first kernels. Leg L1c (#5) landed
+  `raft/compat`: the conversion table for vectors, nested vectors and lists
+  of either rank, `f32vector`s, `f64vector`s, byte strings, `math/matrix`
+  matrices and `math/array` arrays of rank 1 and 2, plus re-exports of
+  `raft/array`'s list and flvector conversions.
 
 ## Layout
 
@@ -54,11 +58,13 @@ raft/                         the Racket package and collection
   main.rkt core.rkt           the public surface
   private/foreign/*.rkt       FFI bindings, one module per shim header
   array.rkt                   raft/array, re-exported by main.rkt
+  compat.rkt                  raft/compat, the only module that requires math-lib
   private/{error,resource,resources,install-native}.rkt
   private/{array,dtype,pack,print}.rkt   arrays over buffers, the tables, packing, printing
   scribblings/                the manual: guide/ chapters, reference/ sections
   tests/                      raco tests; tests/private/ the harness; tests/python/ the twins
 scripts/                      gates, the GPU suite, the docs render, the binding census
+bench/conversions.rkt         the conversion speed table (raft/compat), 10^6 elements
 plans/scoping-plan.md         the approved plan (revision 5), as Markdown
 ```
 
@@ -179,7 +185,9 @@ plans/scoping-plan.md         the approved plan (revision 5), as Markdown
     manual example shows is pinned in `raft/tests/docs-*test.rkt`
     (`docs-test.rkt` for leg 0's pages, `docs-core-test.rkt` for
     `raft/core`'s reference and the *Resources and the GPU* chapter,
-    `docs-array-test.rkt` for `raft/array`'s and *Device arrays*).
+    `docs-array-test.rkt` for `raft/array`'s and *Device arrays*,
+   `docs-compat-test.rkt` for `raft/compat`'s and *Moving data between
+   Racket and the GPU*).
 15. **Every review finding is addressed**, from reviewer agents and from bots
     (`chatgpt-codex-connector[bot]` leaves inline comments): fixed with a
     test, or explained with evidence. No silent deferrals.
@@ -335,12 +343,21 @@ plans/scoping-plan.md         the approved plan (revision 5), as Markdown
   (offset, shape, strides, dtype, memory). Only the handle has a finalizer.
   Reads and writes first poll the buffer's stream (`rr_buffer_ready` over
   `in-backoff`, as `resources-sync!` does), then copy on that stream.
-- `private/pack.rkt`, which L1c reuses: dtype inference, `matrix-shape` (a
-  ragged row raises `exn:fail:raft` naming the row), packing into host
-  memory by the array's strides (bounded by its shape, so it cannot write
-  past the memory), unpacking. `private/print.rkt`: the printed form.
+- `private/pack.rkt`, shared by `raft/array` and `raft/compat`: dtype
+  inference (`infer-dtype` over any sequence, `infer-rows-dtype` over
+  rows), `matrix-shape` (rows that are lists or vectors; a ragged row raises
+  `exn:fail:raft` naming the row), packing into host memory by the array's
+  strides (bounded by its shape, so it cannot write past the memory) from
+  rows (`pack-matrix`) or from row-major data (`pack-row-major`), and
+  unpacking into lists or vectors. `private/print.rkt`: the printed form.
+- `compat.rkt` (`raft/compat`) has no packing rules of its own: every
+  conversion goes through `pack.rkt`. It re-exports `raft/array`'s six
+  conversions, and `raft` does not re-export it (`core-test.rkt` pins both
+  export sets and that `raft` loads no `math/array`).
 - `private/foreign/host.rkt` keeps the FFI's host side in one place: the
-  `_host` type, `host-memory`, and element access by dtype. Every FFI detail
+  `_host` type (an flvector, a byte string or `host-memory`, each sized by
+  itself), `host-memory`, element access by dtype, and the copies between
+  `f32vector`s or `f64vector`s and host memory. Every FFI detail
   (pointer types, the `rr_view` cstruct, flvector passing) stays under
   `private/foreign/` for the planned port to `ffi2` (#15).
 - `private/exn.rkt` also defines `raise-raft` (`who kind format arg ...`),
@@ -712,3 +729,49 @@ the binding census), `racket-review`, `racket-version` (at least 9.3),
   L1b, so only internal code can reach it.
 - **L0's copies** (`rr_copy_h2d`, `rr_copy_d2h`) stay in the public header
   for C callers and tests; Racket binds them with `_host`.
+
+## Decisions recorded in L1c
+
+- **`raft/compat` is the only module that requires `math-lib`** (a runtime
+  dependency of the package; `math-doc` is a build dependency for the
+  manual's links). `raft` does not re-export it.
+- **The rank comes from the nesting** in `list*->device-array` and
+  `vector*->device-array`, by following first elements, as NumPy reads it
+  from the first entry: a list of lists is a matrix, anything else a vector,
+  and `'()` an empty vector (`np.asarray([])`). A mixed depth is refused
+  naming the element or row; ranks other than 1 and 2, from a nesting or a
+  `math/array` array, raise `rank N is not supported yet; rank 1 and 2
+  convert, and any rank arrives in leg 3`.
+- **Reading `math/array` arrays.** Every array that reaches untyped code
+  carries Typed Racket's contract, which checks each element as it is read:
+  `array->flarray`, `array->list` and `array->vector` all cost 0.6 to 1.2
+  µs an element from untyped code (measured: `array->flarray` on a 10^6-element
+  FlArray took 1.1 s). So the conversion takes a mutable array's vector
+  (`mutable-array-data`, O(1)) and a flonum array's flvector
+  (`flarray-data`, O(1)), and reads any other array once with
+  `array->vector`. There is no public `flarray?` and Typed Racket cannot
+  make one (`FlArray`'s contract is a chaperone, not flat), so a settable
+  array that is not mutable is tried with `flarray-data`, and its contract
+  failure means "not a flonum array" (only an `FCArray`, whose complex
+  elements are then refused). The brief's `array->flarray` route was
+  measured and not taken.
+- **Arrays come back** as flonum arrays from floating-point device arrays,
+  built with `unsafe-flarray` (exported by `math/array`, undocumented) over
+  the flvector read from the device, so a `'float64` round trip copies once
+  each way; integer arrays come back as mutable arrays (`vector->array`). A
+  device matrix with an extent of 0 comes back as an empty array that
+  `matrix?` rejects.
+- **`f32vector`s and `f64vector`s** are copied by `memcpy` between their
+  storage and `host-memory` sized by their own length, not passed as
+  `_host` (L1b's rule: `s:f64vector` can forge a length); the extra host
+  copy costs about 3 ms per 10^6 elements. Byte strings pass as `_host`
+  directly: `bytes-length` cannot be forged.
+- **`bytes->device-vector` takes a required `#:dtype`**, reads the machine's
+  byte order (`np.frombuffer`), and refuses a length that is not a whole
+  number of elements. An unknown dtype name is refused by the shim, as
+  elsewhere.
+- **`matrix->device-vector` refuses** a matrix with more than one row and
+  more than one column (data the conversion cannot make a vector of);
+  `matrix->device-matrix` given an array of another rank is a wrong kind,
+  unchecked until the contracts leg.
+

@@ -431,10 +431,10 @@ matrix's @racket[#:layout] decides the order the values are packed in on the
 host, so no copy runs on the GPU to change it. Coming back, the conversions
 wait for the work queued on the array's stream, as @racket[resources-sync!]
 does, then copy; floating-point elements become flonums and integer elements
-exact integers. A module of further conversions, @tt{raft/compat}
-@status{L1c}, adds vectors and nested vectors, @racket[f32vector]s,
-@racket[f64vector]s, byte strings, and @racketmodname[math/matrix] and
-@racketmodname[math/array] values.
+exact integers. @racketmodname[raft/compat] adds vectors and nested vectors,
+@racket[f32vector]s, @racket[f64vector]s, byte strings, and
+@racketmodname[math/matrix] and @racketmodname[math/array] values, by these
+same rules (@secref["ref-compat"]).
 
 @defproc[(list->device-vector [xs (listof real?)]
                               [#:dtype dtype (or/c #f 'float32 'float64 'int32 'int64) #f]
