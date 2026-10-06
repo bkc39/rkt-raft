@@ -250,6 +250,7 @@ TEST_F(Refusals, BufferViewBindsADescriptorToItsBuffer) {
   row.shape[0] = 3;
   row.shape[1] = 3;
   row.strides[0] = 3;
+  row.strides[1] = 1;
   expect_refusal(rr_buffer_view(buffer_, 0, &row),
                  "36 bytes at byte offset 0 do not fit a buffer of 24 bytes");
   EXPECT_EQ(row.data, nullptr);
