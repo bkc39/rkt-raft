@@ -84,9 +84,10 @@ refuses any other rank with @racket[exn:fail:raft]; arrays of any rank arrive
 later @status{L3}.
 
 @bold{Speed.} Packing goes element by element. An @racket[flvector] or a
-flonum array sent as @racket['float64], an @racket[f32vector] sent as
-@racket['float32], an @racket[f64vector] sent as @racket['float64] and a byte
-string skip it: their storage is copied to the device as it is.
+flonum array sent as @racket['float64] and a byte string skip it: their
+storage is copied to the device as it is. An @racket[f32vector] sent as
+@racket['float32] and an @racket[f64vector] sent as @racket['float64] skip
+it too, after one copy of their storage on the host.
 @secref["moving-data-speed"] measures every representation.
 
 @section[#:tag "ref-compat-nested"]{Vectors and nested data}
@@ -126,7 +127,7 @@ One column of a table whose rows are vectors:
 (device-vector->list (vector->device-vector lengths))
 ]
 
-A value with no element type is refused, naming it:
+A string is refused, and the error names it:
 
 @examples[#:eval ev #:label #f
 (eval:error (vector->device-vector (vector-map (lambda (row) (vector-ref row 0)) flowers)))
@@ -184,7 +185,7 @@ reads Fortran order:
     (for/vector ([y (in-range 2)])
       (+ (* 0.5 x) y))))
 (define G (vector*->device-matrix grid #:dtype 'float32 #:layout 'col-major))
-(list (shape G) (layout G) (strides G))
+(list (shape G) (contiguous? G #:layout 'col-major) (strides G))
 ]
 
 A ragged row is named, as a vector:
@@ -241,10 +242,15 @@ A loader that takes one series or a table of them, with the same call:
 (map shape (list (upload '(0.5 1.5)) (upload '((0.5 1.5) (2.5 3.5) (4.5 5.5)))))
 ]
 
-A nesting that is not one or two deep, or that mixes depths, is refused:
+The empty list is an empty vector:
 
 @examples[#:eval ev #:label #f
 (shape (list*->device-array '()))
+]
+
+A nesting that is not one or two deep, or that mixes depths, is refused:
+
+@examples[#:eval ev #:label #f
 (eval:error (list*->device-array '(((1 2) (3 4)))))
 (eval:error (list*->device-array '(1.0 (2.0 3.0))))
 ]}
@@ -341,7 +347,8 @@ Sorting a copy of a result on the host, leaving the device array as it was:
 Returns a vector holding the elements of @racket[xs], of @racket[dtype]. For
 @racket['float32] the storage is copied as it is, with no packing; other types
 are converted element by element. It is
-@tt{device_ndarray(np.asarray(xs, dtype=np.float32))}.
+@tt{device_ndarray(np.asarray(xs, dtype))} for an @tt{xs} of type
+@tt{np.float32}.
 
 @examples[#:eval ev
 (f32vector->device-vector (f32vector 0.5 1.5 2.5))
@@ -458,10 +465,10 @@ Labels stored as 32-bit integers in a binary file:
 
 @examples[#:eval ev #:label #f
 (define label-file (make-temporary-file))
-(call-with-output-file label-file #:exists 'truncate
-  (lambda (out)
-    (for ([label (in-list '(0 2 1 1))])
-      (write-bytes (integer->integer-bytes label 4 #t) out))))
+(define label-bytes
+  (apply bytes-append (for/list ([label (in-list '(0 2 1 1))])
+                        (integer->integer-bytes label 4 #t))))
+(display-to-file label-bytes label-file #:exists 'truncate)
 (device-vector->list (bytes->device-vector (file->bytes label-file) #:dtype 'int32))
 ]
 
@@ -489,8 +496,8 @@ Saving a result to a binary file and reading it back:
 
 @examples[#:eval ev #:label #f
 (define result-file (make-temporary-file))
-(call-with-output-file result-file #:exists 'truncate
-  (lambda (out) (void (write-bytes (device-vector->bytes (vector->device-vector #(0.5 0.25))) out))))
+(display-to-file (device-vector->bytes (vector->device-vector #(0.5 0.25))) result-file
+                 #:exists 'truncate)
 (file-size result-file)
 (device-vector->list (bytes->device-vector (file->bytes result-file) #:dtype 'float64))
 ]
@@ -517,15 +524,15 @@ array its vector (@racket[mutable-array-data]), and any other array is read by
 back as flonum arrays (@racket[FlArray]) from @racket['float32] and
 @racket['float64] device arrays and as mutable arrays from integer ones.
 
-@defproc[(matrix->device-matrix [m (Matrix Real)]
+@defproc[(matrix->device-matrix [m matrix?]
                                 [#:dtype dtype (or/c #f 'float32 'float64 'int32 'int64) #f]
                                 [#:layout layout (or/c 'row-major 'col-major) 'row-major]
                                 [#:resources resources device-resources?
                                              (current-device-resources)])
          device-matrix?]{
 
-Returns a device matrix holding @racket[m], of @racket[dtype] or the inferred
-type, packed in @racket[layout]. Like any @racketmodname[math/matrix] value,
+Returns a device matrix holding @racket[m], a matrix of real numbers, of
+@racket[dtype] or the inferred type, packed in @racket[layout]. Like any @racketmodname[math/matrix] value,
 @racket[m] is an array with two axes. It is
 @tt{device_ndarray(np.asarray(m, dtype))}.
 
@@ -547,10 +554,10 @@ A Gram matrix computed on the host, sent in single precision:
 @examples[#:eval ev #:label #f
 (dtype (matrix->device-matrix (identity-matrix 3)))
 (define I (matrix->device-matrix (identity-matrix 3) #:dtype 'float64 #:layout 'col-major))
-(list (dtype I) (layout I))
+(list (dtype I) (contiguous? I #:layout 'col-major))
 ]}
 
-@defproc[(device-matrix->matrix [m device-matrix?]) (Array Real)]{
+@defproc[(device-matrix->matrix [m device-matrix?]) array?]{
 
 Returns the rows and columns of @racket[m] as a @racketmodname[math/array]
 array with two axes, whatever its layout: a flonum array for a floating-point
@@ -577,7 +584,7 @@ Integer matrices come back exact, so the algebra stays exact:
 (matrix-inverse counts-matrix)
 ]}
 
-@defproc[(matrix->device-vector [m (Matrix Real)]
+@defproc[(matrix->device-vector [m matrix?]
                                 [#:dtype dtype (or/c #f 'float32 'float64 'int32 'int64) #f]
                                 [#:resources resources device-resources?
                                              (current-device-resources)])
@@ -605,7 +612,7 @@ A matrix with several rows and columns is not a vector:
 (eval:error (matrix->device-vector gram))
 ]}
 
-@defproc[(device-vector->col-matrix [v device-vector?]) (Array Real)]{
+@defproc[(device-vector->col-matrix [v device-vector?]) array?]{
 
 Returns the elements of @racket[v] as a column matrix, an array of shape
 @racket[(vector n 1)].
@@ -614,20 +621,20 @@ Returns the elements of @racket[v] as a column matrix, an array of shape
 (device-vector->col-matrix (vector->device-vector #(1.0 2.0 3.0)))
 ]
 
-Checking a GPU result on the host, as @racket[A] times it:
+Checking a GPU result on the host, by multiplying @racket[A] by it:
 
 @examples[#:eval ev #:label #f
 (define coefficients (vector->device-vector #(1.0 -1.0)))
 (matrix* A (device-vector->col-matrix coefficients))
 ]
 
-The length of a result vector, by @racketmodname[math/matrix]:
+The Euclidean norm of a result vector, by @racketmodname[math/matrix]:
 
 @examples[#:eval ev #:label #f
 (matrix-norm (device-vector->col-matrix (vector->device-vector #(3.0 4.0))))
 ]}
 
-@defproc[(device-vector->row-matrix [v device-vector?]) (Array Real)]{
+@defproc[(device-vector->row-matrix [v device-vector?]) array?]{
 
 Returns the elements of @racket[v] as a row matrix, an array of shape
 @racket[(vector 1 n)].
@@ -650,15 +657,15 @@ A dot product on the host, as a row times a column:
 (matrix* (device-vector->row-matrix u) (device-vector->col-matrix u))
 ]}
 
-@defproc[(array->device-array [arr (Array Real)]
+@defproc[(array->device-array [arr array?]
                               [#:dtype dtype (or/c #f 'float32 'float64 'int32 'int64) #f]
                               [#:layout layout (or/c 'row-major 'col-major) 'row-major]
                               [#:resources resources device-resources?
                                            (current-device-resources)])
          device-array?]{
 
-Returns a device vector for an array with one axis and a device matrix for an
-array with two, of @racket[dtype] or the inferred type; @racket[layout] applies
+Returns a device vector for an array of real numbers with one axis and a
+device matrix for an array with two, of @racket[dtype] or the inferred type; @racket[layout] applies
 to a matrix. Another rank is refused. A flonum array sent as
 @racket['float64] in row-major order is copied straight from its
 @racket[flvector].
@@ -668,7 +675,8 @@ to a matrix. Another rank is refused. A flonum array sent as
 (array->device-array (array #[1 2 3]))
 ]
 
-A table computed lazily by @racket[build-array], made concrete on the way:
+A table computed by @racket[build-array], which is neither a flonum array nor
+a mutable array, so its elements are read one by one:
 
 @examples[#:eval ev #:label #f
 (define distances-table
@@ -682,16 +690,21 @@ sliced yet @status{L3}:
 @examples[#:eval ev #:label #f
 (define measurements (flarray #[#[5.1 3.5 1.4] #[7.0 3.2 4.7] #[6.3 3.3 6.0]]))
 (define first-two (array-slice-ref measurements (list (::) (:: 0 2))))
-(shape (array->device-array first-two #:dtype 'float32))
+(device-array->list* (array->device-array first-two))
+]
+
+An array with three axes is refused:
+
+@examples[#:eval ev #:label #f
 (eval:error (array->device-array (array #[#[#[1 2]]])))
 ]}
 
-@defproc[(device-array->array [a device-array?]) (Array Real)]{
+@defproc[(device-array->array [a device-array?]) array?]{
 
 Returns the elements of @racket[a] as a @racketmodname[math/array] array of
-the same shape: a flonum array for a floating-point device array, whose
-@racket[flvector] a @racket['float64] row-major array is copied into directly,
-and a mutable array of exact integers for an integer one.
+the same shape: a flonum array for a floating-point device array, and a
+mutable array of exact integers for an integer one. A @racket['float64]
+row-major array is read straight into the result's @racket[flvector].
 
 @examples[#:eval ev
 (device-array->array (vector->device-vector #(1.5 2.5)))

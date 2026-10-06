@@ -1,7 +1,7 @@
 #lang racket/base
 
 (require (only-in ffi/vector f32vector->list f64vector->list list->f32vector list->f64vector)
-         (only-in math/array array->flarray array->list* build-array vector->array)
+         (only-in math/array :: array->flarray array->list* array-axis-swap array-slice-ref build-array vector->array)
          (only-in racket/flonum flsingle for/flvector in-flvector)
          (only-in racket/list append*)
          (only-in racket/math exact-truncate)
@@ -88,6 +88,17 @@
   (build-array (vector (length rows) cols)
                (lambda (js) (vector-ref flat (+ (* (vector-ref js 0) cols) (vector-ref js 1))))))
 
+(define (sliced-array rows cols)
+  (define wider
+    (for/list ([row (in-list rows)])
+      (append row '(-1 -2))))
+  (array-slice-ref (array->flarray (mutable-array wider (+ cols 2))) (list (::) (:: 0 cols))))
+
+(define (transposed-array rows cols)
+  (if (null? rows)
+      (mutable-array '() cols)
+      (array-axis-swap (mutable-array (apply map list rows) (length rows)) 0 1)))
+
 (define (flonum-array rows cols)
   (array->flarray (mutable-array rows cols)))
 
@@ -135,6 +146,8 @@
    (source 'array 2 values (send-matrix mutable-array array->device-array))
    (source 'lazy-array 2 values (send-matrix lazy-array array->device-array))
    (source 'flarray 2 real->double-flonum (send-matrix flonum-array array->device-array))
+   (source 'sliced-flarray 2 real->double-flonum (send-matrix sliced-array array->device-array))
+   (source 'transposed-array 2 values (send-matrix transposed-array array->device-array))
    (source 'list 1 values (send-vector values list->device-vector))
    (source 'list-array 1 values (send-vector values list*->device-array))
    (source 'vector 1 values (send-vector list->vector vector->device-vector))

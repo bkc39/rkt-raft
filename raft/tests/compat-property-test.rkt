@@ -2,8 +2,8 @@
 
 (require (only-in racket/list append*)
          (only-in racket/match match-define)
-         (only-in rackunit check-equal?)
-         (only-in "../main.rkt" dtype layout list*->device-matrix list->device-vector shape)
+         (only-in rackunit check-equal? check-true)
+         (only-in "../main.rkt" contiguous? dtype list*->device-matrix list->device-vector shape)
          (only-in "private/arrays.rkt" storage)
          (only-in "private/gpu.rkt" test-gpu)
          (only-in "private/representations.rkt"
@@ -83,8 +83,7 @@
     (define sent-shape (shape-sent src rows cols))
     (check-equal? (list (shape a) (dtype a)) (list sent-shape d) label)
     (define used-order (if (= (length sent-shape) 2) order 'row-major))
-    (when (and (= (length sent-shape) 2) (> (apply min sent-shape) 1))
-      (check-equal? (layout a) order label))
+    (check-true (contiguous? a #:layout used-order) label)
     (check-equal? (storage a) (in-storage-order used-order expected) label)))
 
 (test-gpu "every sink brings back any shape and dtype, from either layout"

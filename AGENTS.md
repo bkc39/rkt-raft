@@ -780,8 +780,18 @@ the binding census), `racket-review`, `racket-version` (at least 9.3),
   make one (`FlArray`'s contract is a chaperone, not flat), so a settable
   array that is not mutable is tried with `flarray-data`, and its contract
   failure means "not a flonum array" (only an `FCArray`, whose complex
-  elements are then refused). The brief's `array->flarray` route was
-  measured and not taken.
+  elements are then refused; building that contract's blame message costs
+  about 10 ms, once per array). The brief's `array->flarray` route was
+  measured and not taken. Results of `math/matrix` operations and
+  `build-array` are neither, so they take the element-by-element path.
+- **One loop per representation.** `pack.rkt`'s `over-elements` expands a
+  loop once each for lists, vectors, flvectors and any other sequence, so
+  the list paths keep `in-list`'s speed while taking vectors too;
+  `list*->device-matrix` now infers through `infer-rows-dtype`, the same
+  rule as every nested conversion. `repack` converts host memory between
+  element types directly (an `f32vector` sent as `'float64`), through the
+  same converter, so a finite value that overflows `'float32` is refused on
+  every path (L1b's rule).
 - **Arrays come back** as flonum arrays from floating-point device arrays,
   built with `unsafe-flarray` (exported by `math/array`, undocumented) over
   the flvector read from the device, so a `'float64` round trip copies once

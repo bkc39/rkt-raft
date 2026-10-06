@@ -88,7 +88,8 @@
     (define source (current-namespace))
     (parameterize ([current-namespace (make-base-empty-namespace)])
       (namespace-attach-module source mod)
-      (module-declared? 'math/array #f)))
+      (for/or ([math (in-list '(math math/array math/base math/flonum math/matrix))])
+        (module-declared? math #f))))
   (check-false (loads-math? 'raft))
   (check-true (loads-math? 'raft/compat)))
 

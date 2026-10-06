@@ -48,7 +48,7 @@
                   matrix-transpose
                   matrix?
                   row-matrix)
-         (only-in racket/file file->bytes make-temporary-file)
+         (only-in racket/file display-to-file file->bytes make-temporary-file)
          (only-in racket/list first index-of last remove-duplicates take)
          (only-in racket/port port->lines)
          (only-in racket/string string-split)
@@ -79,7 +79,7 @@
                   vector*->device-array
                   vector*->device-matrix
                   vector->device-vector)
-         (only-in "../main.rkt" device-matrix? dtype layout shape strides)
+         (only-in "../main.rkt" contiguous? device-matrix? dtype shape strides)
          (only-in "private/gpu.rkt" test-gpu)
          (only-in "private/raft-error.rkt" check-raft-error))
 
@@ -134,7 +134,7 @@
   (check-equal? (printed (vector*->device-matrix #(#(1 2 3) #(4 5 6))))
                 (lines "#<device-matrix int64[2×3] row-major cuda:0" " [[1 2 3]" "  [4 5 6]]>"))
   (define G (vector*->device-matrix grid #:dtype 'float32 #:layout 'col-major))
-  (check-equal? (list (shape G) (layout G) (strides G)) '((3 2) col-major (1 3)))
+  (check-equal? (list (shape G) (contiguous? G #:layout 'col-major) (strides G)) '((3 2) #t (1 3)))
   (check-raft-error 'logic
                     "vector*->device-matrix: row 1 has 1 element, but row 0 has 2: '#(3.0)"
                     (lambda () (vector*->device-matrix #(#(1.0 2.0) #(3.0)))))
@@ -229,11 +229,11 @@
   (check-equal? (printed (bytes->device-vector raw #:dtype 'float32))
                 "#<device-vector float32[2] cuda:0 [0.5 1.5]>")
   (define label-file (make-temporary-file))
-  (call-with-output-file label-file
-                         #:exists 'truncate
-                         (lambda (out)
-                           (for ([label (in-list '(0 2 1 1))])
-                             (write-bytes (integer->integer-bytes label 4 #t) out))))
+  (define label-bytes
+    (apply bytes-append
+           (for/list ([label (in-list '(0 2 1 1))])
+             (integer->integer-bytes label 4 #t))))
+  (display-to-file label-bytes label-file #:exists 'truncate)
   (check-equal? (device-vector->list (bytes->device-vector (file->bytes label-file) #:dtype 'int32))
                 '(0 2 1 1))
   (delete-file label-file)
@@ -244,10 +244,9 @@
   (check-equal? (device-vector->bytes (vector->device-vector #(1 2) #:dtype 'int32))
                 #"\1\0\0\0\2\0\0\0")
   (define result-file (make-temporary-file))
-  (call-with-output-file
-   result-file
-   #:exists 'truncate
-   (lambda (out) (void (write-bytes (device-vector->bytes (vector->device-vector #(0.5 0.25))) out))))
+  (display-to-file (device-vector->bytes (vector->device-vector #(0.5 0.25)))
+                   result-file
+                   #:exists 'truncate)
   (check-equal? (file-size result-file) 16)
   (check-equal? (device-vector->list (bytes->device-vector (file->bytes result-file)
                                                            #:dtype 'float64))
@@ -267,7 +266,7 @@
    (lines "#<device-matrix float32[2×2] row-major cuda:0" " [[35.0 44.0]" "  [44.0 56.0]]>"))
   (check-equal? (dtype (matrix->device-matrix (identity-matrix 3))) 'int64)
   (define I (matrix->device-matrix (identity-matrix 3) #:dtype 'float64 #:layout 'col-major))
-  (check-equal? (list (dtype I) (layout I)) '(float64 col-major))
+  (check-equal? (list (dtype I) (contiguous? I #:layout 'col-major)) '(float64 #t))
   (check-equal? (printed (device-matrix->matrix (matrix->device-matrix (matrix [[1.0 2.0]
                                                                                 [3.0 4.0]]))))
                 "(flarray #[#[1.0 2.0] #[3.0 4.0]])")
@@ -313,7 +312,8 @@
                 '((0.0 1.0 2.0) (1.0 0.0 1.0) (2.0 1.0 0.0)))
   (define measurements (flarray #[#[5.1 3.5 1.4] #[7.0 3.2 4.7] #[6.3 3.3 6.0]]))
   (define first-two (array-slice-ref measurements (list (::) (:: 0 2))))
-  (check-equal? (shape (array->device-array first-two #:dtype 'float32)) '(3 2))
+  (check-equal? (device-array->list* (array->device-array first-two))
+                '((5.1 3.5) (7.0 3.2) (6.3 3.3)))
   (check-raft-error
    'logic
    "array->device-array: rank 3 is not supported yet; rank 1 and 2 convert, and any rank arrives in leg 3"
@@ -402,7 +402,7 @@
 
 (test-gpu "moving-data guide: a layout for the solver"
   (define F (list*->device-array rows #:dtype 'float32 #:layout 'col-major))
-  (check-equal? (list (layout F) (strides F)) '(col-major (1 6)))
+  (check-equal? (list (contiguous? F #:layout 'col-major) (strides F)) '(#t (1 6)))
   (define F* (matrix->device-matrix M #:dtype 'float32 #:layout 'col-major))
   (check-equal? (device-array->list* F) (device-array->list* F*)))
 
@@ -416,9 +416,7 @@
   (check-equal? counts #(2 2 2))
   (define w (f64vector->device-vector (weights-of) #:dtype 'float32))
   (define saved (make-temporary-file))
-  (call-with-output-file saved
-                         #:exists 'truncate
-                         (lambda (out) (void (write-bytes (device-vector->bytes w) out))))
+  (display-to-file (device-vector->bytes w) saved #:exists 'truncate)
   (check-equal? (file-size saved) 24)
   (check-equal? (device-vector->list (bytes->device-vector (file->bytes saved) #:dtype 'float32))
                 '(2.0 2.0 1.0 1.0 1.0 1.0))

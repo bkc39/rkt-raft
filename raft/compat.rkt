@@ -42,34 +42,29 @@
                   matrix-shape
                   pack-matrix
                   pack-row-major
-                  pack-vector
+                  repack
                   unpack-matrix
                   unpack-row-major
                   unpack-vector)
          (only-in "private/resources.rkt" current-device-resources))
 
-(provide array->device-array
+(provide (all-from-out "array.rkt")
+         array->device-array
          bytes->device-vector
          device-array->array
          device-array->list*
          device-array->vector*
-         device-matrix->list* ;; noqa
          device-matrix->matrix
          device-matrix->vector*
          device-vector->bytes
          device-vector->col-matrix
          device-vector->f32vector
          device-vector->f64vector
-         device-vector->flvector ;; noqa
-         device-vector->list ;; noqa
          device-vector->row-matrix
          device-vector->vector
          f32vector->device-vector
          f64vector->device-vector
-         flvector->device-vector ;; noqa
          list*->device-array
-         list*->device-matrix ;; noqa
-         list->device-vector ;; noqa
          matrix->device-matrix
          matrix->device-vector
          vector*->device-array
@@ -121,14 +116,10 @@
 (define (nesting-depth xs nested?)
   (let loop ([x xs]
              [depth 0])
-    (cond
-      [(not (nested? x)) depth]
-      [(vector? x)
-       (if (zero? (vector-length x))
-           (add1 depth)
-           (loop (vector-ref x 0) (add1 depth)))]
-      [(null? x) (add1 depth)]
-      [else (loop (car x) (add1 depth))])))
+    (match x
+      [_ #:when (not (nested? x)) depth]
+      [(or (vector) '()) (add1 depth)]
+      [(or (vector head _ ...) (cons head _)) (loop head (add1 depth))])))
 
 (define (nested-rank who xs nested? noun)
   (define rank (nesting-depth xs nested?))
@@ -157,7 +148,8 @@
   (send-flat 'vector->device-vector resources element-type 'row-major (list (vector-length xs)) xs))
 
 (define (device-vector->vector v)
-  (receive 'device-vector->vector v 'vector))
+  (match-define (list n) (device-array-shape v))
+  (unpack-vector (device-array-dtype v) n (read-all 'device-vector->vector v) #:into 'vector))
 
 (define (vector*->device-matrix rows
                                 #:dtype [element-type #f]
@@ -166,7 +158,11 @@
   (send-rows 'vector*->device-matrix resources element-type order rows))
 
 (define (device-matrix->vector* m)
-  (receive 'device-matrix->vector* m 'vector))
+  (unpack-matrix (device-array-dtype m)
+                 (device-array-shape m)
+                 (device-array-strides m)
+                 (read-all 'device-matrix->vector* m)
+                 #:into 'vector))
 
 (define (list*->device-array xs
                              #:dtype [element-type #f]
@@ -194,7 +190,7 @@
                 v
                 (if (eq? d own-type)
                     host
-                    (pack-vector who d n (unpack-vector own-type n host)))))
+                    (repack who own-type d n host))))
 
 (define (f32vector->device-vector xs
                                   #:dtype [element-type 'float32]
@@ -212,7 +208,7 @@
   (define host (read-all who v))
   (if (eq? d own-type)
       host
-      (pack-vector who own-type n (unpack-vector d n host))))
+      (repack who d own-type n host)))
 
 (define (device-vector->f32vector v)
   (host->f32vector (numel v) (receive-packed 'device-vector->f32vector v 'float32)))
@@ -239,9 +235,8 @@
   (write-array! who (allocate-array who resources element-type 'row-major (list n)) bs))
 
 (define (device-vector->bytes v)
-  (read-array 'device-vector->bytes
-              v
-              (make-bytes (* (numel v) (dtype-itemsize (device-array-dtype v))))))
+  (match-define (list n) (device-array-shape v))
+  (read-array 'device-vector->bytes v (make-bytes (* n (dtype-itemsize (device-array-dtype v))))))
 
 (define (flarray-flonums arr)
   (with-handlers ([exn:fail:contract? (lambda (_) #f)])
@@ -310,7 +305,9 @@
   (math-array 'device-matrix->matrix m (device-array-shape m)))
 
 (define (device-vector->col-matrix v)
-  (math-array 'device-vector->col-matrix v (list (numel v) 1)))
+  (match-define (list n) (device-array-shape v))
+  (math-array 'device-vector->col-matrix v (list n 1)))
 
 (define (device-vector->row-matrix v)
-  (math-array 'device-vector->row-matrix v (list 1 (numel v))))
+  (match-define (list n) (device-array-shape v))
+  (math-array 'device-vector->row-matrix v (list 1 n)))

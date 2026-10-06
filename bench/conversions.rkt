@@ -5,6 +5,7 @@
          (only-in racket/flonum for/flvector)
          (only-in racket/format ~r)
          (only-in racket/list append*)
+         (only-in racket/match match-define)
          (only-in raft
                   device-matrix->list*
                   device-vector->list
@@ -98,7 +99,7 @@
         flat-array
         (lambda (v d) (array->device-array v #:dtype d))
         device-array->array)
-   (row "math lazy array"
+   (row "math array from build-array"
         (lambda ()
           (define data (list->vector xs))
           (build-array (vector n) (lambda (js) (vector-ref data (vector-ref js 0)))))
@@ -126,8 +127,8 @@
 (define (ms x)
   (~r x #:precision 1))
 
-(printf
- "| Racket value | to device, float64 | to device, float32 | back, float64 | back, float32 |\n")
-(printf "|---|---:|---:|---:|---:|\n")
+(displayln "| Racket value | to device, float64 | to device, float32 | back, float64 | back, float32 |")
+(displayln "|---|---:|---:|---:|---:|")
 (for ([r (in-list table)])
-  (apply printf "| ~a | ~a | ~a | ~a | ~a |\n" (car r) (map ms (cdr r))))
+  (match-define (cons name times) r)
+  (apply printf "| ~a | ~a | ~a | ~a | ~a |\n" name (map ms times)))

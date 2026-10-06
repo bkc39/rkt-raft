@@ -38,13 +38,13 @@
                   vector*->device-matrix
                   vector->device-vector)
          (only-in "../main.rkt"
+                  contiguous?
                   device-matrix
                   device-matrix?
                   device-resources
                   device-vector
                   device-vector?
                   dtype
-                  layout
                   shape
                   with-device-resources)
          (only-in "private/arrays.rkt" storage)
@@ -66,7 +66,8 @@
 
 (test-gpu "nested vectors come back as nested vectors, whatever the layout"
   (define m (vector*->device-matrix #(#(1 2 3) #(4 5 6)) #:layout 'col-major))
-  (check-equal? (list (shape m) (layout m) (storage m)) '((2 3) col-major (1 4 2 5 3 6)))
+  (check-equal? (list (shape m) (contiguous? m #:layout 'col-major) (storage m))
+                '((2 3) #t (1 4 2 5 3 6)))
   (check-equal? (device-matrix->vector* m) #(#(1 2 3) #(4 5 6)))
   (check-equal? (device-matrix->vector* (vector*->device-matrix #())) #())
   (check-equal? (shape (vector*->device-matrix #(#() #()))) '(2 0)))
@@ -231,3 +232,36 @@
   (check-pred bytes? (device-vector->bytes v))
   (check-equal? (array-shape (device-matrix->matrix (list*->device-matrix '(() ())))) #(2 0))
   (check-equal? (f32vector->list (device-vector->f32vector v)) '()))
+
+(test-gpu "a finite value that overflows a float type raises on every path, naming the procedure"
+  (check-raft-error 'logic
+                    "vector->device-vector: 1e+300 does not fit float32"
+                    (lambda () (vector->device-vector #(1.0 1e300) #:dtype 'float32)))
+  (check-raft-error 'logic
+                    #rx"^vector->device-vector: 1000+[.]* does not fit float64$"
+                    (lambda () (vector->device-vector (vector 1/2 (expt 10 400)))))
+  (check-raft-error 'logic
+                    "f64vector->device-vector: 1e+300 does not fit float32"
+                    (lambda () (f64vector->device-vector (f64vector 1e300) #:dtype 'float32)))
+  (check-raft-error 'logic
+                    "array->device-array: 1e+300 does not fit float32"
+                    (lambda () (array->device-array (flarray #[1.0 1e300]) #:dtype 'float32)))
+  (check-raft-error 'logic
+                    "array->device-array: 1e+300 does not fit float32"
+                    (lambda ()
+                      (array->device-array (flarray #[#[1.0] #[1e300]])
+                                           #:dtype 'float32
+                                           #:layout 'col-major)))
+  (check-raft-error 'logic
+                    "matrix->device-matrix: 1e+300 does not fit float32"
+                    (lambda () (matrix->device-matrix (matrix [[1e300 2.0]]) #:dtype 'float32)))
+  (check-raft-error 'logic
+                    "vector*->device-matrix: 1e+300 does not fit float32"
+                    (lambda () (vector*->device-matrix #(#(1e300)) #:dtype 'float32)))
+  (check-raft-error 'logic
+                    "device-vector->f32vector: 1e+300 does not fit float32"
+                    (lambda () (device-vector->f32vector (vector->device-vector #(1e300)))))
+  (check-equal? (f32vector->list (device-vector->f32vector (vector->device-vector #(+inf.0 -inf.0))))
+                '(+inf.0 -inf.0))
+  (check-equal? (device-vector->list (f64vector->device-vector (f64vector +inf.0) #:dtype 'float32))
+                '(+inf.0)))

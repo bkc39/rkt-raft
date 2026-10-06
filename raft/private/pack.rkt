@@ -1,8 +1,10 @@
 #lang racket/base
 
-(require (only-in racket/flonum flsingle)
+(require (only-in racket/flonum flsingle flvector? in-flvector)
          (only-in racket/match match match* match-define)
          (only-in racket/math exact-truncate infinite?)
+         ;; whole-module: it also provides syntax/parse at phase 1
+         syntax/parse/define
          (only-in "dtype.rkt" dtype-itemsize)
          (only-in "exn.rkt" raise-raft)
          (only-in "foreign/host.rkt" host-getter host-memory host-setter))
@@ -14,9 +16,20 @@
          pack-matrix
          pack-row-major
          pack-vector
+         repack
          unpack-matrix
          unpack-row-major
          unpack-vector)
+
+(define-syntax-parse-rule (over-elements (loop:id prefix:expr ...)
+                                         ([x:id xs:expr] clause:expr ...)
+                                         body:expr ...+)
+  (let ([elements xs])
+    (cond
+      [(list? elements) (loop prefix ... ([x (in-list elements)] clause ...) body ...)]
+      [(vector? elements) (loop prefix ... ([x (in-vector elements)] clause ...) body ...)]
+      [(flvector? elements) (loop prefix ... ([x (in-flvector elements)] clause ...) body ...)]
+      [else (loop prefix ... ([x elements] clause ...) body ...)])))
 
 (define (widen who kind x)
   (cond
@@ -24,16 +37,16 @@
     [(and (exact-integer? x) (not (eq? kind 'float64))) 'int64]
     [else 'float64]))
 
+(define (widen-over who kind xs)
+  (over-elements (for/fold ([kind kind])) ([x xs])
+    (widen who kind x)))
+
 (define (infer-dtype who xs)
-  (or (for/fold ([kind #f]) ([x xs])
-        (widen who kind x))
-      'float64))
+  (or (widen-over who #f xs) 'float64))
 
 (define (infer-rows-dtype who rows)
-  (or (for*/fold ([kind #f])
-                 ([row rows]
-                  [x row])
-        (widen who kind x))
+  (or (over-elements (for/fold ([kind #f])) ([row rows])
+        (widen-over who kind row))
       'float64))
 
 (define (extent row)
@@ -45,8 +58,7 @@
   (define cols
     (for/first ([row rows])
       (extent row)))
-  (for ([row rows]
-        [i (in-naturals)])
+  (over-elements (for) ([row rows] [i (in-naturals)])
     (define n (extent row))
     (unless (= n cols)
       (raise-raft who 'logic "row ~a has ~a, but row 0 has ~a: ~e" i (elements n) cols row)))
@@ -95,10 +107,18 @@
   (define host (host-for dtype n))
   (define set (host-setter dtype))
   (define convert (element-converter who dtype))
-  (for ([x xs]
-        [i (in-range n)])
+  (over-elements (for) ([x xs] [i (in-range n)])
     (set host i (convert x)))
   host)
+
+(define (repack who from to n host)
+  (define get (host-getter from))
+  (define set (host-setter to))
+  (define convert (element-converter who to))
+  (define out (host-for to n))
+  (for ([i (in-range n)])
+    (set out i (convert (get host i))))
+  out)
 
 (define (pack-matrix who dtype shape strides rows)
   (define host (host-for dtype (apply * shape)))
@@ -106,10 +126,8 @@
   (define convert (element-converter who dtype))
   (match-define (list row-count col-count) shape)
   (match-define (list row-step col-step) strides)
-  (for ([row rows]
-        [i (in-range row-count)])
-    (for ([x row]
-          [j (in-range col-count)])
+  (over-elements (for) ([row rows] [i (in-range row-count)])
+    (over-elements (for) ([x row] [j (in-range col-count)])
       (set host (+ (* i row-step) (* j col-step)) (convert x))))
   host)
 
@@ -121,8 +139,7 @@
      (define host (host-for dtype (* rows cols)))
      (define set (host-setter dtype))
      (define convert (element-converter who dtype))
-     (for ([x xs]
-           [k (in-range (* rows cols))])
+     (over-elements (for) ([x xs] [k (in-range (* rows cols))])
        (define-values (i j) (quotient/remainder k cols))
        (set host (+ (* i row-step) (* j col-step)) (convert x)))
      host]
