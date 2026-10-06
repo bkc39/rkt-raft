@@ -70,7 +70,8 @@
     (define spec (format "~a" (fitted-spec f)))
     (define ours (device-matrix->list* (fitted-centroids f)))
     (define theirs (hash-ref twin 'centroids))
-    (define worst (largest-difference ours theirs))
+    (define matched? (andmap list? theirs))
+    (define worst (and matched? (largest-difference ours theirs)))
     (printf "twin ~a: ARI ~a (truth ~a, sklearn ~a); inertia ~a against ~a; centroids within ~a\n"
             spec
             (hash-ref twin 'ari)
@@ -82,6 +83,6 @@
     (check-equal? (hash-ref twin 'ari) 1.0 spec)
     (check-true (close? (fitted-inertia f) (hash-ref twin 'inertia) tolerance) spec)
     (check-true (close? (fitted-fit-inertia f) (hash-ref twin 'inertia) tolerance) spec)
-    (check-true (<= worst tolerance) spec)
-    (check-equal? (length (filter values theirs)) (length ours) spec))
+    (check-true matched? (format "every canary cluster has a cuML cluster: ~a" spec))
+    (check-true (and worst (<= worst tolerance)) spec))
   (check-equal? (hash-ref (first results) 'version) "26.08.00"))

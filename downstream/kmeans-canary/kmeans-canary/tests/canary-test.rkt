@@ -51,7 +51,7 @@
 
 (test-gpu "every init method fits"
   (define-values (X _) (blobs 200 2 #:centers 3 #:cluster-std 0.5 #:seed 5))
-  (for ([init (in-list '(k-means++ scalable-k-means++ random))])
+  (for ([init (in-list (list 'k-means++ 'scalable-k-means++ (string->symbol "k-means||") 'random))])
     (define-values (centroids inertia _n-iter) (kmeans-fit X #:n-clusters 3 #:init init #:seed 1))
     (check-equal? (shape centroids) '(3 2) (format "~a" init))
     (check-true (> inertia 0) (format "~a" init)))
@@ -87,9 +87,10 @@
   (check-raft-error 'logic
                     "kmeans-fit: X: 10 samples are fewer than the 11 clusters"
                     (lambda () (kmeans-fit X #:n-clusters 11)))
-  (check-raft-error 'logic
-                    "kmeans-fit: unknown init code -1"
-                    (lambda () (kmeans-fit X #:init 'bogus)))
+  (check-raft-error
+   'logic
+   "kmeans-fit: init: unknown method -1; expected k-means++ (0), random (1) or an array (2)"
+   (lambda () (kmeans-fit X #:init 'bogus)))
   (define wide (list*->device-matrix '((0 0 0)) #:dtype 'float32))
   (check-raft-error 'logic
                     "kmeans-predict: X: expected 3 columns, got 2"

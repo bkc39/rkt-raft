@@ -57,8 +57,14 @@ struct resources {
   void* handle = nullptr;
 };
 
+constexpr std::size_t wide_item = 8;
+constexpr std::size_t narrow_item = 4;
+constexpr int32_t unknown_init = 7;
+constexpr int64_t too_few_columns = 2;
+
 std::size_t itemsize(int32_t dtype) {
-  return dtype == RR_DTYPE_FLOAT64 || dtype == RR_DTYPE_INT64 ? 8 : 4;
+  return dtype == RR_DTYPE_FLOAT64 || dtype == RR_DTYPE_INT64 ? wide_item
+                                                              : narrow_item;
 }
 
 struct device_array {
@@ -121,60 +127,100 @@ bool same_partition(const std::vector<int32_t>& a,
   return true;
 }
 
-int blobs(const resources& res, device_array& x, device_array& labels) {
-  return kc_make_blobs(res.handle, &x.view, &labels.view, clusters, spread, 1,
-                       -box, box, blob_seed);
+std::string outcome(int status) {
+  return status == RR_OK ? std::string("accepted")
+                         : std::string(kc_last_error());
 }
 
-int fit(const resources& res, const device_array& x, device_array& centroids,
-        double& inertia, int32_t& n_iter) {
-  return kc_fit(res.handle, &x.view, nullptr, &centroids.view,
-                KC_INIT_KMEANS_PLUS_PLUS, max_iter, tol, 1, 0.0, fit_seed,
-                &inertia, &n_iter);
+std::string blobs(const resources& res, device_array& x, device_array& labels) {
+  return outcome(kc_make_blobs(res.handle, &x.view, &labels.view, clusters,
+                               spread, 1, -box, box, blob_seed));
+}
+
+struct fitted {
+  std::string outcome;
+  double inertia = 0;
+  int32_t n_iter = 0;
+};
+
+fitted fit(const resources& res, const rr_view& x, device_array& centroids,
+           int32_t init = KC_INIT_KMEANS_PLUS_PLUS, int32_t n_init = 1) {
+  fitted result;
+  result.outcome = outcome(kc_fit(res.handle, &x, nullptr, &centroids.view,
+                                  init, max_iter, tol, n_init, 0.0, fit_seed,
+                                  &result.inertia, &result.n_iter));
+  return result;
+}
+
+struct predicted {
+  std::string outcome;
+  double inertia = 0;
+};
+
+predicted predict(const resources& res, device_array& centroids,
+                  const device_array& x, device_array& labels) {
+  predicted result;
+  result.outcome =
+      outcome(kc_predict(res.handle, &centroids.view, &x.view, nullptr, 1,
+                         &labels.view, &result.inertia));
+  return result;
 }
 
 TEST(Abi, TheCanaryAcceptsTheShimItWasBuiltWith) {
-  EXPECT_EQ(kc_check_abi(rr_abi()), RR_OK) << kc_last_error();
+  EXPECT_EQ(outcome(kc_check_abi(rr_abi())), "accepted");
   rr_abi_tag forged = *rr_abi();
   forged.raft_minor += 2;
-  EXPECT_EQ(kc_check_abi(&forged), RR_ERROR);
+  EXPECT_EQ(outcome(kc_check_abi(&forged)),
+            "RAFT: built against 26.08.00, but libraftrkt has 26.10.00; "
+            "build both against the same rapids package set");
   EXPECT_EQ(kc_last_error_kind(), RR_ERROR_LOGIC);
-  EXPECT_EQ(std::string(kc_last_error())
-                .rfind("RAFT: built against 26.08.00, "
-                       "but libraftrkt has 26.10.00",
-                       0),
-            0U)
-      << kc_last_error();
+}
+
+struct blob_run {
+  std::string outcome;
+  fitted fit_result;
+  predicted predict_result;
+  std::vector<int32_t> found;
+  std::vector<int32_t> truth;
+};
+
+blob_run fit_and_predict_blobs() {
+  const resources res;
+  device_array x(res.r, RR_DTYPE_FLOAT32, {samples, features});
+  device_array truth(res.r, RR_DTYPE_INT32, {samples});
+  device_array centroids(res.r, RR_DTYPE_FLOAT32, {clusters, features});
+  device_array labels(res.r, RR_DTYPE_INT32, {samples});
+  blob_run run;
+  run.outcome = blobs(res, x, truth);
+  if (run.outcome != "accepted") {
+    return run;
+  }
+  run.fit_result = fit(res, x.view, centroids);
+  run.predict_result = predict(res, centroids, x, labels);
+  run.outcome = run.fit_result.outcome == "accepted"
+                    ? run.predict_result.outcome
+                    : run.fit_result.outcome;
+  run.found = labels.read<int32_t>();
+  run.truth = truth.read<int32_t>();
+  return run;
 }
 
 TEST(KMeans, FitsAndPredictsTheBlobsItMade) {
   KC_REQUIRE_GPU();
+  const blob_run run = fit_and_predict_blobs();
+  ASSERT_EQ(run.outcome, "accepted");
+  const double inertia = run.fit_result.inertia;
+  EXPECT_TRUE(inertia > 0.0 && run.fit_result.n_iter >= 1);
+  EXPECT_NEAR(run.predict_result.inertia, inertia, 1e-3 * inertia);
+  EXPECT_TRUE(same_partition(run.found, run.truth));
+  EXPECT_EQ(std::set<int32_t>(run.found.begin(), run.found.end()).size(),
+            static_cast<std::size_t>(clusters));
+}
+
+TEST(KMeans, EveryBufferOfARunIsFreed) {
+  KC_REQUIRE_GPU();
   const uint64_t drops = rr_buffer_drop_count();
-  {
-    const resources res;
-    device_array x(res.r, RR_DTYPE_FLOAT32, {samples, features});
-    device_array truth(res.r, RR_DTYPE_INT32, {samples});
-    device_array centroids(res.r, RR_DTYPE_FLOAT32, {clusters, features});
-    device_array labels(res.r, RR_DTYPE_INT32, {samples});
-    ASSERT_EQ(blobs(res, x, truth), RR_OK) << kc_last_error();
-    double inertia = 0;
-    int32_t n_iter = 0;
-    ASSERT_EQ(fit(res, x, centroids, inertia, n_iter), RR_OK)
-        << kc_last_error();
-    EXPECT_GT(inertia, 0.0);
-    EXPECT_GE(n_iter, 1);
-    double score = 0;
-    ASSERT_EQ(kc_predict(res.handle, &centroids.view, &x.view, nullptr, 1,
-                         &labels.view, &score),
-              RR_OK)
-        << kc_last_error();
-    EXPECT_NEAR(score, inertia, 1e-3 * inertia);
-    const auto predicted = labels.read<int32_t>();
-    const auto expected = truth.read<int32_t>();
-    EXPECT_TRUE(same_partition(predicted, expected));
-    EXPECT_EQ(std::set<int32_t>(predicted.begin(), predicted.end()).size(),
-              static_cast<std::size_t>(clusters));
-  }
+  EXPECT_EQ(fit_and_predict_blobs().outcome, "accepted");
   EXPECT_EQ(rr_buffer_drop_count(), drops + 4);
 }
 
@@ -183,82 +229,113 @@ TEST(KMeans, Float64AndColumnMajorBlobs) {
   const resources res;
   device_array f(res.r, RR_DTYPE_FLOAT64, {samples, features}, true);
   device_array truth(res.r, RR_DTYPE_INT32, {samples});
-  ASSERT_EQ(blobs(res, f, truth), RR_OK) << kc_last_error();
+  ASSERT_EQ(blobs(res, f, truth), "accepted");
   device_array x(res.r, RR_DTYPE_FLOAT64, {samples, features});
   device_array centroids(res.r, RR_DTYPE_FLOAT64, {clusters, features});
-  double inertia = 0;
-  int32_t n_iter = 0;
-  EXPECT_EQ(fit(res, f, centroids, inertia, n_iter), RR_ERROR);
-  EXPECT_STREQ(kc_last_error(), "X: expected row-major, got col-major 300x5");
-  ASSERT_EQ(blobs(res, x, truth), RR_OK) << kc_last_error();
-  ASSERT_EQ(fit(res, x, centroids, inertia, n_iter), RR_OK) << kc_last_error();
-  EXPECT_GT(inertia, 0.0);
+  EXPECT_EQ(fit(res, f.view, centroids).outcome,
+            "X: expected row-major, got col-major 300x5");
+  ASSERT_EQ(blobs(res, x, truth), "accepted");
+  const fitted result = fit(res, x.view, centroids);
+  EXPECT_EQ(result.outcome, "accepted");
+  EXPECT_GT(result.inertia, 0.0);
 }
 
-TEST(KMeans, RefusalsNameTheArgument) {
+TEST(KMeans, DataRefusalsNameTheArgument) {
   KC_REQUIRE_GPU();
   const resources res;
   device_array ints(res.r, RR_DTYPE_INT32, {samples, features});
   device_array x(res.r, RR_DTYPE_FLOAT32, {samples, features});
-  device_array narrow(res.r, RR_DTYPE_FLOAT32, {clusters, 2});
-  device_array labels(res.r, RR_DTYPE_INT32, {samples - 1});
-  double inertia = 0;
-  int32_t n_iter = 0;
-  EXPECT_EQ(fit(res, ints, narrow, inertia, n_iter), RR_ERROR);
-  EXPECT_STREQ(kc_last_error(), "X: expected float32 or float64, got int32");
+  device_array narrow(res.r, RR_DTYPE_FLOAT32, {clusters, too_few_columns});
+  EXPECT_EQ(fit(res, ints.view, narrow).outcome,
+            "X: expected float32 or float64, got int32");
   EXPECT_EQ(kc_last_error_kind(), RR_ERROR_LOGIC);
-  EXPECT_EQ(fit(res, x, narrow, inertia, n_iter), RR_ERROR);
-  EXPECT_STREQ(kc_last_error(), "centroids: expected 5 columns, got 2");
+  EXPECT_EQ(fit(res, x.view, narrow).outcome,
+            "centroids: expected 5 columns, got 2");
   device_array centroids(res.r, RR_DTYPE_FLOAT32, {clusters, features});
-  EXPECT_EQ(kc_predict(res.handle, &centroids.view, &x.view, nullptr, 1,
-                       &labels.view, &inertia),
-            RR_ERROR);
-  EXPECT_STREQ(kc_last_error(), "labels: expected 300 elements, got 299");
-  EXPECT_EQ(kc_fit(nullptr, &x.view, nullptr, &centroids.view, 0, 1, tol, 1,
-                   0.0, 0, &inertia, &n_iter),
-            RR_ERROR);
-  EXPECT_STREQ(kc_last_error(), "handle is NULL");
+  device_array short_labels(res.r, RR_DTYPE_INT32, {samples - 1});
+  EXPECT_EQ(predict(res, centroids, x, short_labels).outcome,
+            "labels: expected 300 elements, got 299");
   rr_view unbound = x.view;
   unbound.memory = -1;
-  EXPECT_EQ(fit(res, x, centroids, inertia, n_iter), RR_OK) << kc_last_error();
-  EXPECT_EQ(kc_fit(res.handle, &unbound, nullptr, &centroids.view, 0, 1, tol, 1,
-                   0.0, 0, &inertia, &n_iter),
-            RR_ERROR);
-  EXPECT_STREQ(kc_last_error(), "X: not a view bound to device memory");
-  EXPECT_EQ(kc_fit(res.handle, &x.view, nullptr, &centroids.view, 7, 1, tol, 1,
-                   0.0, 0, &inertia, &n_iter),
-            RR_ERROR);
-  EXPECT_STREQ(kc_last_error(), "unknown init code 7");
+  EXPECT_EQ(fit(res, unbound, centroids).outcome,
+            "X: not a view bound to device memory");
+}
+
+TEST(KMeans, ArgumentRefusalsNameTheArgument) {
+  KC_REQUIRE_GPU();
+  const resources res;
+  device_array x(res.r, RR_DTYPE_FLOAT32, {samples, features});
+  device_array centroids(res.r, RR_DTYPE_FLOAT32, {clusters, features});
+  double inertia = 0;
+  int32_t n_iter = 0;
+  EXPECT_EQ(outcome(kc_fit(nullptr, &x.view, nullptr, &centroids.view, 0, 1,
+                           tol, 1, 0.0, 0, &inertia, &n_iter)),
+            "handle is NULL");
+  EXPECT_EQ(fit(res, x.view, centroids, unknown_init).outcome,
+            "init: unknown method 7; expected k-means++ (0), random (1) or an "
+            "array (2)");
+  EXPECT_EQ(fit(res, x.view, centroids, KC_INIT_KMEANS_PLUS_PLUS, 0).outcome,
+            "n-init: expected at least 1, got 0");
+  device_array no_features(res.r, RR_DTYPE_FLOAT32, {samples, 0});
+  device_array no_centroids(res.r, RR_DTYPE_FLOAT32, {clusters, 0});
+  EXPECT_EQ(fit(res, no_features.view, no_centroids).outcome,
+            "X: expected at least 1 column, got 0");
+}
+
+struct pool_bytes {
+  int64_t used = 0;
+  int64_t high = 0;
+  int64_t reserved = 0;
+};
+
+pool_bytes pool() {
+  pool_bytes bytes;
+  EXPECT_EQ(
+      outcome(kc_pool_bytes(0, &bytes.used, &bytes.high, &bytes.reserved)),
+      "accepted");
+  return bytes;
+}
+
+bool has_pool() {
+  int32_t is_async = 0;
+  return kc_current_is_async(0, &is_async) == RR_OK && is_async != 0;
+}
+
+struct pool_run {
+  std::string outcome;
+  pool_bytes before;
+  pool_bytes after;
+};
+
+pool_run fit_in_pool() {
+  const resources res;
+  device_array x(res.r, RR_DTYPE_FLOAT32, {samples, features});
+  device_array truth(res.r, RR_DTYPE_INT32, {samples});
+  device_array centroids(res.r, RR_DTYPE_FLOAT32, {clusters, features});
+  pool_run run;
+  run.outcome = blobs(res, x, truth);
+  if (run.outcome != "accepted" || rr_resources_sync(res.r) != RR_OK) {
+    return run;
+  }
+  run.outcome = outcome(kc_pool_reset_high(0));
+  run.before = pool();
+  if (run.outcome == "accepted") {
+    run.outcome = fit(res, x.view, centroids).outcome;
+  }
+  run.after = pool();
+  return run;
 }
 
 TEST(Pool, CumlAllocatesFromThePoolRaftInstalled) {
   KC_REQUIRE_GPU();
-  const resources res;
-  int32_t is_async = 0;
-  ASSERT_EQ(kc_current_is_async(0, &is_async), RR_OK) << kc_last_error();
-  if (is_async == 0) {
+  if (!has_pool()) {
     std::printf("SKIP: no memory-pool support on device 0\n");
     GTEST_SKIP() << "no memory pool";
   }
-  device_array x(res.r, RR_DTYPE_FLOAT32, {samples, features});
-  device_array truth(res.r, RR_DTYPE_INT32, {samples});
-  device_array centroids(res.r, RR_DTYPE_FLOAT32, {clusters, features});
-  ASSERT_EQ(blobs(res, x, truth), RR_OK) << kc_last_error();
-  ASSERT_EQ(rr_resources_sync(res.r), RR_OK);
-  int64_t used = 0;
-  int64_t high = 0;
-  int64_t reserved = 0;
-  ASSERT_EQ(kc_pool_reset_high(0), RR_OK) << kc_last_error();
-  ASSERT_EQ(kc_pool_bytes(0, &used, &high, &reserved), RR_OK)
-      << kc_last_error();
-  const int64_t before = used;
-  double inertia = 0;
-  int32_t n_iter = 0;
-  ASSERT_EQ(fit(res, x, centroids, inertia, n_iter), RR_OK) << kc_last_error();
-  ASSERT_EQ(kc_pool_bytes(0, &used, &high, &reserved), RR_OK)
-      << kc_last_error();
-  EXPECT_EQ(used, before);
-  EXPECT_GT(high, before);
+  const pool_run run = fit_in_pool();
+  ASSERT_EQ(run.outcome, "accepted");
+  EXPECT_EQ(run.after.used, run.before.used);
+  EXPECT_GT(run.after.high, run.before.used);
 }
 
 }  // namespace

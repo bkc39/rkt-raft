@@ -82,8 +82,10 @@ UTF-8, with @racket[#\uFFFD] for anything that does not decode.
 
 The call and both reads happen in one atomic section
 (@racket[call-as-atomic]). The C side keeps its last error per OS thread, and
-every Racket thread of a place runs on the same OS thread, so without it
-another Racket thread's call could overwrite the message before it is read.
+coroutine threads of a place share one OS thread, so without it another
+Racket thread's call could overwrite the message before it is read; inside
+the atomic section no other thread runs and the calling thread does not move
+to another OS thread.
 The atomic section also means the native call holds up the place's other
 Racket threads until it returns, as a non-blocking foreign call does anyway.
 @racket[last-error] and @racket[last-error-kind] are called only after a
@@ -408,7 +410,7 @@ messages, and throws @tt{raftrkt::logic_error}:
        any_extent)}: refuses a @tt{NULL} or unbound view, a rank other than 2,
        an element type other than @tt{T}'s (@tt{const T} reads the same
        type), a layout other than @tt{l} (an axis of extent 1 fits either),
-       extents other than those asked for, and extents that do not fit
+       extents other than those asked for, and extents, or an element count, that do not fit
        @tt{Index}.}
  @item{@tt{T* raftrkt::vector_data<T, Index>(const rr_view* view, const char*
        name, int64_t n = any_extent)}: the same for a contiguous rank-1

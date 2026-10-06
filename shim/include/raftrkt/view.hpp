@@ -102,15 +102,26 @@ inline std::string extents_text(const int64_t* shape, int32_t rank) {
   return rank == 0 ? "a scalar" : text;
 }
 
-inline const rr_view& require_bound(const rr_view* view, const char* name,
-                                    int32_t rank, int32_t dtype) {
+inline const char* layout_text(const rr_view& view) noexcept {
+  if (has_layout(view, layout::row_major)) {
+    return "row-major";
+  }
+  if (has_layout(view, layout::col_major)) {
+    return "col-major";
+  }
+  return "strided";
+}
+
+template <int32_t Rank>
+const rr_view& require_bound(const rr_view* view, const char* name,
+                             int32_t dtype) {
   const std::string who(name);
   const rr_view& v = *require(view, name);
   if (v.memory != RR_MEMORY_DEVICE || v.rank < 0 || v.rank > RR_MAX_RANK) {
     throw logic_error(who + ": not a view bound to device memory");
   }
-  if (v.rank != rank) {
-    throw logic_error(who + ": expected rank " + std::to_string(rank) +
+  if (v.rank != Rank) {
+    throw logic_error(who + ": expected rank " + std::to_string(Rank) +
                       ", got rank " + std::to_string(v.rank));
   }
   if (v.dtype != dtype) {
@@ -148,11 +159,25 @@ void require_index(const std::string& who, int64_t extent) {
   }
 }
 
+template <typename Index>
+void require_index(const std::string& who, int64_t rows, int64_t cols) {
+  require_index<Index>(who, rows);
+  require_index<Index>(who, cols);
+  int64_t count = 0;
+  if (__builtin_mul_overflow(rows, cols, &count) ||
+      static_cast<uint64_t>(count) >
+          static_cast<uint64_t>(std::numeric_limits<Index>::max())) {
+    throw logic_error(who + ": " + std::to_string(rows) + "x" +
+                      std::to_string(cols) +
+                      " elements do not fit the index type");
+  }
+}
+
 }  // namespace detail
 
 template <typename T, typename Index = int64_t>
 T* vector_data(const rr_view* view, const char* name, int64_t n = any_extent) {
-  const rr_view& v = detail::require_bound(view, name, 1, dtype_code<T>);
+  const rr_view& v = detail::require_bound<1>(view, name, dtype_code<T>);
   const std::string who(name);
   detail::require_extent(who, "elements", v.shape[0], n);
   detail::require_index<Index>(who, v.shape[0]);
@@ -166,18 +191,15 @@ T* vector_data(const rr_view* view, const char* name, int64_t n = any_extent) {
 template <typename T, typename Index = int64_t>
 T* matrix_data(const rr_view* view, const char* name, layout l,
                int64_t rows = any_extent, int64_t cols = any_extent) {
-  const rr_view& v = detail::require_bound(view, name, 2, dtype_code<T>);
+  const rr_view& v = detail::require_bound<2>(view, name, dtype_code<T>);
   const std::string who(name);
   detail::require_extent(who, "rows", v.shape[0], rows);
   detail::require_extent(who, "columns", v.shape[1], cols);
-  detail::require_index<Index>(who, v.shape[0]);
-  detail::require_index<Index>(who, v.shape[1]);
+  detail::require_index<Index>(who, v.shape[0], v.shape[1]);
   if (!has_layout(v, l)) {
     throw logic_error(who + ": expected " + layout_name(l) + ", got " +
-                      (has_layout(v, layout::row_major)   ? "row-major"
-                       : has_layout(v, layout::col_major) ? "col-major"
-                                                          : "strided") +
-                      " " + detail::extents_text(v.shape, v.rank));
+                      detail::layout_text(v) + " " +
+                      detail::extents_text(v.shape, v.rank));
   }
   return static_cast<T*>(v.data);
 }

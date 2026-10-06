@@ -54,7 +54,9 @@
 (define canary-skip ;; noqa
   (or gpu-skip
       (and (not canary-path)
-           "no k-means canary (RAFT_KMEANS_CANARY is not set; run inside nix develop)")))
+           "no k-means canary (RAFT_KMEANS_CANARY is not set; run inside nix develop)")
+      (and (not (collection-file-path "main.rkt" "kmeans-canary" #:fail (lambda (_) #f)))
+           "no k-means canary (the kmeans-canary package is not installed; run inside nix develop)")))
 
 (define-syntax-parse-rule (test-canary name:expr body:expr ...+) ;; noqa
   (test-unless-skipped canary-skip name body ...))

@@ -29,13 +29,13 @@ struct rr_abi_tag {
   int64_t handle_size;
 };
 
+/* NOLINTBEGIN(modernize-use-nullptr,readability-implicit-bool-conversion,readability-magic-numbers)
+ * -- C, shared with C callers */
 static inline int rr_abi_triple_differs(int32_t a0, int32_t a1, int32_t a2,
                                         int32_t b0, int32_t b1, int32_t b2) {
   return a0 != b0 || a1 != b1 || a2 != b2;
 }
 
-/* Answers 0 when the two tags agree. Otherwise answers 1 and, when why is
-   not NULL, writes the first field that differs. */
 static inline int rr_abi_compare(const rr_abi_tag* built,
                                  const rr_abi_tag* loaded, char* why,
                                  size_t why_size) {
@@ -99,6 +99,8 @@ static inline int rr_abi_compare(const rr_abi_tag* built,
   }
   return 1;
 }
+/* NOLINTEND(modernize-use-nullptr,readability-implicit-bool-conversion,readability-magic-numbers)
+ */
 
 #ifdef __cplusplus
 }
@@ -118,21 +120,21 @@ static inline int rr_abi_compare(const rr_abi_tag* built,
 namespace raftrkt {
 
 inline rr_abi_tag compiled_abi() noexcept {
-  return rr_abi_tag{
-      .abi_version = RR_ABI_VERSION,
-      .raft_major = RAFT_VERSION_MAJOR,
-      .raft_minor = RAFT_VERSION_MINOR,
-      .raft_patch = RAFT_VERSION_PATCH,
-      .rmm_major = RMM_VERSION_MAJOR,
-      .rmm_minor = RMM_VERSION_MINOR,
-      .rmm_patch = RMM_VERSION_PATCH,
-      .cccl_major = CCCL_MAJOR_VERSION,
-      .cccl_minor = CCCL_MINOR_VERSION,
-      .cccl_patch = CCCL_PATCH_VERSION,
-      .cuda_runtime = CUDART_VERSION,
-      .resource_types = raft::resource::resource_type::LAST_KEY,
-      .handle_size = sizeof(raft::handle_t),
-  };
+  rr_abi_tag tag{};
+  tag.abi_version = RR_ABI_VERSION;
+  tag.raft_major = RAFT_VERSION_MAJOR;
+  tag.raft_minor = RAFT_VERSION_MINOR;
+  tag.raft_patch = RAFT_VERSION_PATCH;
+  tag.rmm_major = RMM_VERSION_MAJOR;
+  tag.rmm_minor = RMM_VERSION_MINOR;
+  tag.rmm_patch = RMM_VERSION_PATCH;
+  tag.cccl_major = CCCL_MAJOR_VERSION;
+  tag.cccl_minor = CCCL_MINOR_VERSION;
+  tag.cccl_patch = CCCL_PATCH_VERSION;
+  tag.cuda_runtime = CUDART_VERSION;
+  tag.resource_types = raft::resource::resource_type::LAST_KEY;
+  tag.handle_size = sizeof(raft::handle_t);
+  return tag;
 }
 
 inline void require_abi(const rr_abi_tag* loaded) {

@@ -49,7 +49,7 @@ inline const raft::handle_t& handle_of(void* handle) {
 
 inline void require_device(std::initializer_list<const rr_view*> views) {
   int device = -1;
-  cudaGetDevice(&device);
+  raftrkt::cuda_check(cudaGetDevice(&device), "cudaGetDevice");
   for (const rr_view* view : views) {
     if (view != nullptr && view->memory == RR_MEMORY_DEVICE &&
         view->device != device) {

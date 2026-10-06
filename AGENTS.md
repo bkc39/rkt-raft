@@ -987,7 +987,19 @@ returning (until the stream API, #13, gives it events). Internal entry points
   `kmeans-predict` (values labels, inertia), with cuML Python's `init` names
   and its `n_init='auto'` rule, `#:seed` defaulting to 0. It refuses data it
   would have to convert (column-major, integer) where cuML Python converts.
-  It synchronises its handle's stream before every return.
+  It synchronises its handle's stream before every return. It calls cuML's
+  `int` overloads, as cuML Python does whenever the element count fits an
+  `int`, and `view.hpp` refuses a view whose extent or element count does
+  not; the `int64_t` overloads are the cuML binding's to add. A device
+  matrix as `#:init` gives the cluster count by its rows (`#:n-clusters` is
+  not consulted; cuML Python raises when they disagree, which would be a
+  Racket argument check here). Its tests reach into raft's internals
+  (`raft/private/foreign/memory` for the drop counters,
+  `raft/tests/private/*` for the skip and twin helpers); only tests may.
+- **`rr_resources_create` resolves the handle's device id under its device
+  guard.** RAFT caches it from whatever device is current on first use, so a
+  downstream's first `get_device_id` on another thread could otherwise
+  cache the wrong device.
 - **The twin passes the canary's data** to Python as JSON (exact for
   float32 and float64) instead of re-seeding, and compares by machine:
   adjusted Rand index 1 (`sklearn.metrics.adjusted_rand_score`), inertia and

@@ -71,8 +71,8 @@ The numbers differ because the data does: Python's @tt{make_blobs} is written
 in CuPy with its own generator, and returns column-major data and
 @tt{float32} labels, where the canary binds the C++ @tt{make_blobs} and
 returns row-major data and @racket['int32] labels. The k-means calls are the
-same: given the same data, init and seed, the canary and @tt{KMeans} agree
-exactly, which the canary's twin test checks on eight data sets (adjusted
+same: given the same data, init and seed, the canary and @tt{KMeans} agree,
+which the canary's twin test checks on eight data sets (adjusted
 Rand index 1, inertia and centroids within @racket[1e-4]). Two smaller
 differences: @tt{KMeans} draws a random seed when @tt{random_state} is
 @tt{None}, where @racket[kmeans-fit]'s @racket[#:seed] defaults to 0; and
@@ -135,9 +135,12 @@ int kc_fit(void* handle, const rr_view* x, const rr_view* sample_weight,
 The work is in a template over the element type. The views become typed
 pointers through @tt{raftrkt::matrix_data} and @tt{raftrkt::vector_data}
 (from @tt{raftrkt/view.hpp}), which refuse a view of the wrong element type,
-layout or extents before cuML sees it. cuML's @tt{int} overloads take the
-extents, so the views are read with an @tt{int} index, which refuses extents
-that do not fit one:
+layout or extents before cuML sees it. The canary calls cuML's @tt{int}
+overloads, which index the data with @tt{int} (cuML's Python takes them
+whenever the element count fits one), so it reads the views with an @tt{int}
+index, which refuses an extent or an element count that does not fit one; a
+larger data set needs the @tt{int64_t} overloads, which the cuML binding will
+add:
 
 @listing["C++"]|{
 template <typename T>
@@ -274,7 +277,10 @@ resources it runs on, takes the handle with
   (values centroids inertia n-iter))
 ]
 
-The optional @racket[sample-weight] needs no special case:
+Given a device matrix as @racket[#:init], @racket[initial-centroids] copies it
+into the centroids, and its rows are the clusters: @racket[#:n-clusters] is
+not consulted, where cuML's Python raises when the two disagree. The
+optional @racket[sample-weight] needs no special case:
 @racket[with-array-views] binds @racket[#f] to @racket[#f], which reaches C
 as @tt{NULL}. Sample weights work like cuML's: weighting every point equally
 changes nothing.

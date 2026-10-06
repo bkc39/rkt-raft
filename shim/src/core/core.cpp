@@ -5,6 +5,7 @@
 #include <cstdio>
 #include <memory>
 #include <raft/core/resource/cuda_stream.hpp>
+#include <raft/core/resource/device_id.hpp>
 #include <raft/version_config.hpp>
 
 #include "detail/error.hpp"
@@ -59,6 +60,8 @@ int rr_resources_create(int32_t device, rr_resources** out) {
     rr::install_default_memory_resource(device);
     auto owner = std::make_shared<rr::owned_handle>();
     std::shared_ptr<raft::handle_t> handle(owner, &owner->handle);
+    // RAFT caches the handle's device from the current device on first use.
+    static_cast<void>(raft::resource::get_device_id(*handle));
     result = new rr_resources{device, std::move(handle)};
   });
 }

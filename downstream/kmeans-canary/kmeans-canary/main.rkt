@@ -17,7 +17,8 @@
          kmeans-fit
          kmeans-predict)
 
-(define init-codes (hasheq 'k-means++ 0 'scalable-k-means++ 0 'random 1))
+(define init-codes
+  (hasheq 'k-means++ 0 'scalable-k-means++ 0 (string->symbol "k-means||") 0 'random 1))
 (define array-init 2)
 
 (define (blobs n-samples

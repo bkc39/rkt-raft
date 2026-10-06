@@ -1,5 +1,7 @@
 #include <gtest/gtest.h>
 
+#include <array>
+#include <cstddef>
 #include <cstdint>
 #include <limits>
 #include <raft/core/device_mdspan.hpp>
@@ -16,14 +18,20 @@
 
 namespace {
 
-constexpr uintptr_t fake_address = 0x1000;
+constexpr std::size_t why_capacity = 160;
+constexpr int32_t runtime_step = 10;
+constexpr int64_t pointer_size = 8;
+constexpr int64_t odd_stride = 7;
+constexpr int64_t label_count = 5;
 constexpr int32_t raft_release = 26;
 constexpr int32_t raft_minor = 8;
 constexpr int32_t other_minor = 10;
 constexpr int64_t too_many_rows = 3000000000;
+constexpr int64_t square_side = 65536;
 
 void* fake_data() {
-  return reinterpret_cast<void*>(fake_address);
+  static std::array<double, 2> storage{};
+  return storage.data();
 }
 
 rr_view bound(int32_t dtype, rr::layout l, int64_t rows, int64_t cols) {
@@ -34,9 +42,10 @@ rr_view bound(int32_t dtype, rr::layout l, int64_t rows, int64_t cols) {
   return view;
 }
 
-rr_view bound_vector(int32_t dtype, int64_t n) {
+template <int32_t Dtype>
+rr_view bound_vector(int64_t n) {
   const int64_t shape[] = {n};
-  rr_view view = rr::describe(dtype, rr::layout::row_major, 1, shape);
+  rr_view view = rr::describe(Dtype, rr::layout::row_major, 1, shape);
   view.data = fake_data();
   view.device = 0;
   return view;
@@ -54,7 +63,7 @@ std::string refusal(Fn&& fn) {
 
 std::string compared(const rr_abi_tag& loaded) {
   const rr_abi_tag built = raftrkt::compiled_abi();
-  char why[160] = {};
+  char why[why_capacity] = {};
   const int differs = rr_abi_compare(&built, &loaded, why, sizeof why);
   return differs == 0 ? std::string("same") : std::string(why);
 }
@@ -93,26 +102,26 @@ TEST(AbiHeader, TheFirstDifferenceIsNamed) {
   tag.cccl_minor += 1;
   EXPECT_EQ(compared(tag).rfind("CCCL: built against ", 0), 0U);
   tag = raftrkt::compiled_abi();
-  tag.cuda_runtime += 10;
+  tag.cuda_runtime += runtime_step;
   EXPECT_EQ(compared(tag).rfind("CUDA runtime: built against ", 0), 0U);
   tag = raftrkt::compiled_abi();
   tag.resource_types += 1;
   EXPECT_EQ(compared(tag).rfind("RAFT resource types: built against ", 0), 0U);
   tag = raftrkt::compiled_abi();
-  tag.handle_size += 8;
+  tag.handle_size += pointer_size;
   EXPECT_EQ(compared(tag).rfind("raft::handle_t size: built against ", 0), 0U);
 }
 
 TEST(AbiHeader, AMissingTagDiffers) {
   const rr_abi_tag built = raftrkt::compiled_abi();
-  char why[160] = {};
+  char why[why_capacity] = {};
   EXPECT_EQ(rr_abi_compare(&built, nullptr, why, sizeof why), 1);
   EXPECT_STREQ(why, "ABI tag: built against present, but libraftrkt has none");
 }
 
 TEST(AbiHeader, RequireAbiRefusesAMismatchAsALogicError) {
   rr_abi_tag tag = raftrkt::compiled_abi();
-  tag.handle_size += 8;
+  tag.handle_size += pointer_size;
   const std::string why = refusal([&] { raftrkt::require_abi(&tag); });
   EXPECT_NE(why.find("raft::handle_t size: built against "), std::string::npos)
       << why;
@@ -158,25 +167,30 @@ TEST(ViewHeader, AMatchingMatrixGivesItsPointer) {
             fake_data());
 }
 
+std::string as_float(const rr_view* v, int64_t rows, int64_t cols) {
+  return refusal([&] {
+    raftrkt::matrix_data<float, int>(v, "X", raftrkt::layout::row_major, rows,
+                                     cols);
+  });
+}
+
 TEST(ViewHeader, MatrixRefusalsNameTheArgument) {
-  rr_view x = bound(RR_DTYPE_FLOAT32, rr::layout::row_major, 3, 2);
-  const auto as_float = [&](const rr_view* v, int64_t rows, int64_t cols) {
-    return refusal([&] {
-      raftrkt::matrix_data<float, int>(v, "X", raftrkt::layout::row_major, rows,
-                                       cols);
-    });
-  };
+  const rr_view x = bound(RR_DTYPE_FLOAT32, rr::layout::row_major, 3, 2);
   EXPECT_EQ(as_float(nullptr, 3, 2), "X is NULL");
   EXPECT_EQ(as_float(&x, 4, 2), "X: expected 4 rows, got 3");
   EXPECT_EQ(as_float(&x, 3, 5), "X: expected 5 columns, got 2");
   rr_view ints = bound(RR_DTYPE_INT32, rr::layout::row_major, 3, 2);
   EXPECT_EQ(as_float(&ints, 3, 2), "X: expected float32, got int32");
-  rr_view v = bound_vector(RR_DTYPE_FLOAT32, 3);
+  rr_view v = bound_vector<RR_DTYPE_FLOAT32>(3);
   EXPECT_EQ(as_float(&v, 3, 2), "X: expected rank 2, got rank 1");
+}
+
+TEST(ViewHeader, LayoutAndBindingRefusalsNameTheArgument) {
   rr_view f = bound(RR_DTYPE_FLOAT32, rr::layout::col_major, 3, 2);
   EXPECT_EQ(as_float(&f, 3, 2), "X: expected row-major, got col-major 3x2");
-  f.strides[0] = 7;
+  f.strides[0] = odd_stride;
   EXPECT_EQ(as_float(&f, 3, 2), "X: expected row-major, got strided 3x2");
+  rr_view x = bound(RR_DTYPE_FLOAT32, rr::layout::row_major, 3, 2);
   x.memory = -1;
   EXPECT_EQ(as_float(&x, 3, 2), "X: not a view bound to device memory");
   x = bound(RR_DTYPE_FLOAT32, rr::layout::row_major, 3, 2);
@@ -193,6 +207,21 @@ TEST(ViewHeader, ExtentsMustFitTheIndexType) {
   EXPECT_EQ(narrow, "X: extent 3000000000 does not fit the index type");
   float* wide = raftrkt::matrix_data<float, int64_t>(
       &big, "X", raftrkt::layout::row_major);
+  EXPECT_EQ(static_cast<void*>(wide), fake_data());
+}
+
+TEST(ViewHeader, TheElementCountMustFitTheIndexTypeToo) {
+  const rr_view square =
+      bound(RR_DTYPE_FLOAT32, rr::layout::row_major, square_side, square_side);
+  const std::string narrow = refusal([&] {
+    raftrkt::matrix_data<float, int>(&square, "X", raftrkt::layout::row_major);
+  });
+  EXPECT_EQ(narrow, "X: 65536x65536 elements do not fit the index type");
+  const std::string as_view = refusal(
+      [&] { raftrkt::matrix_view<float, raft::row_major, int>(&square, "X"); });
+  EXPECT_EQ(as_view, narrow);
+  float* wide = raftrkt::matrix_data<float, int64_t>(
+      &square, "X", raftrkt::layout::row_major);
   EXPECT_EQ(static_cast<void*>(wide), fake_data());
 }
 
@@ -215,8 +244,9 @@ TEST(ViewHeader, AnEmptyViewNeedsNoData) {
 }
 
 TEST(ViewHeader, VectorsAreCheckedLikeMatrices) {
-  rr_view labels = bound_vector(RR_DTYPE_INT32, 5);
-  EXPECT_EQ(raftrkt::vector_data<int32_t>(&labels, "labels", 5), fake_data());
+  rr_view labels = bound_vector<RR_DTYPE_INT32>(label_count);
+  EXPECT_EQ(raftrkt::vector_data<int32_t>(&labels, "labels", label_count),
+            fake_data());
   EXPECT_EQ(
       refusal([&] { raftrkt::vector_data<int32_t>(&labels, "labels", 4); }),
       "labels: expected 4 elements, got 5");
@@ -235,7 +265,7 @@ TEST(ViewHeader, MdspanViewsCarryTheExtents) {
   EXPECT_EQ(static_cast<void*>(m.data_handle()), fake_data());
   EXPECT_EQ(refusal([&] { raftrkt::matrix_view<float>(&f, "F"); }),
             "F: expected row-major, got col-major 3x2");
-  const rr_view v = bound_vector(RR_DTYPE_INT64, 7);
+  const rr_view v = bound_vector<RR_DTYPE_INT64>(7);
   auto w = raftrkt::vector_view<const int64_t>(&v, "w");
   EXPECT_EQ(w.extent(0), 7);
   EXPECT_EQ(static_cast<const void*>(w.data_handle()), fake_data());

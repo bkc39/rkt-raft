@@ -23,12 +23,44 @@ namespace {
 using kc::logic_error;
 using raftrkt::layout;
 
+struct fit_arrays {
+  const rr_view* x;
+  const rr_view* sample_weight;
+  const rr_view* centroids;
+};
+
 struct fit_options {
   int32_t init;
   int32_t max_iter;
   double tol;
   int32_t n_init;
   double oversampling_factor;
+  uint64_t seed;
+};
+
+struct fit_result {
+  double inertia;
+  int32_t n_iter;
+};
+
+struct predict_arrays {
+  const rr_view* centroids;
+  const rr_view* x;
+  const rr_view* sample_weight;
+  const rr_view* labels;
+};
+
+struct blob_arrays {
+  const rr_view* out;
+  const rr_view* labels;
+};
+
+struct blob_options {
+  int32_t n_clusters;
+  double cluster_std;
+  bool shuffle;
+  double center_box_min;
+  double center_box_max;
   uint64_t seed;
 };
 
@@ -41,7 +73,15 @@ ML::kmeans::KMeansParams::InitMethod init_method(int32_t init) {
     case KC_INIT_ARRAY:
       return ML::kmeans::KMeansParams::InitMethod::Array;
     default:
-      throw logic_error("unknown init code " + std::to_string(init));
+      throw logic_error("init: unknown method " + std::to_string(init) +
+                        "; expected k-means++ (0), random (1) or an array (2)");
+  }
+}
+
+void require_positive(const char* name, int64_t value) {
+  if (value < 1) {
+    throw logic_error(std::string(name) + ": expected at least 1, got " +
+                      std::to_string(value));
   }
 }
 
@@ -59,6 +99,13 @@ int clusters_in(const rr_view& centroids) {
   return static_cast<int>(centroids.shape[0]);
 }
 
+int features_in(const rr_view& x) {
+  if (x.shape[1] < 1) {
+    throw logic_error("X: expected at least 1 column, got 0");
+  }
+  return static_cast<int>(x.shape[1]);
+}
+
 template <typename T>
 const T* weights(const rr_view* sample_weight, int n) {
   return sample_weight == nullptr ? nullptr
@@ -67,21 +114,23 @@ const T* weights(const rr_view* sample_weight, int n) {
 }
 
 template <typename T>
-void fit(const raft::handle_t& handle, const rr_view* x,
-         const rr_view* sample_weight, const rr_view* centroids,
-         const fit_options& options, double& inertia, int32_t& n_iter) {
-  const T* data = raftrkt::matrix_data<const T, int>(x, "X", layout::row_major);
-  const int n = static_cast<int>(x->shape[0]);
-  const int d = static_cast<int>(x->shape[1]);
+fit_result fit(const raft::handle_t& handle, const fit_arrays& arrays,
+               const fit_options& options) {
+  const T* data =
+      raftrkt::matrix_data<const T, int>(arrays.x, "X", layout::row_major);
+  const int n = static_cast<int>(arrays.x->shape[0]);
+  const int d = features_in(*arrays.x);
   T* centers = raftrkt::matrix_data<T, int>(
-      centroids, "centroids", layout::row_major, raftrkt::any_extent, d);
-  const int k = clusters_in(*centroids);
+      arrays.centroids, "centroids", layout::row_major, raftrkt::any_extent, d);
+  const int k = clusters_in(*arrays.centroids);
   if (n < k) {
     throw logic_error("X: " + std::to_string(n) +
                       " samples are fewer than the " + std::to_string(k) +
                       " clusters");
   }
-  const T* w = weights<T>(sample_weight, n);
+  require_positive("max-iter", options.max_iter);
+  require_positive("n-init", options.n_init);
+  const T* w = weights<T>(arrays.sample_weight, n);
   ML::kmeans::KMeansParams params = params_for(k);
   params.init = init_method(options.init);
   params.max_iter = options.max_iter;
@@ -89,55 +138,41 @@ void fit(const raft::handle_t& handle, const rr_view* x,
   params.n_init = options.n_init;
   params.oversampling_factor = options.oversampling_factor;
   params.rng_state.seed = options.seed;
-  T result = 0;
+  T inertia = 0;
   int iterations = 0;
-  ML::kmeans::fit(handle, params, data, n, d, w, centers, result, iterations);
-  inertia = static_cast<double>(result);
-  n_iter = iterations;
+  ML::kmeans::fit(handle, params, data, n, d, w, centers, inertia, iterations);
+  return {static_cast<double>(inertia), iterations};
 }
 
 template <typename T>
-void predict(const raft::handle_t& handle, const rr_view* centroids,
-             const rr_view* x, const rr_view* sample_weight,
-             bool normalize_weights, const rr_view* labels, double& inertia) {
-  const T* centers = raftrkt::matrix_data<const T, int>(centroids, "centroids",
-                                                        layout::row_major);
-  const int k = clusters_in(*centroids);
-  const int d = static_cast<int>(centroids->shape[1]);
-  const T* data = raftrkt::matrix_data<const T, int>(x, "X", layout::row_major,
-                                                     raftrkt::any_extent, d);
-  const int n = static_cast<int>(x->shape[0]);
-  int* out = raftrkt::vector_data<int32_t, int>(labels, "labels", n);
-  const T* w = weights<T>(sample_weight, n);
-  T result = 0;
+double predict(const raft::handle_t& handle, const predict_arrays& arrays,
+               bool normalize_weights) {
+  const T* centers = raftrkt::matrix_data<const T, int>(
+      arrays.centroids, "centroids", layout::row_major);
+  const int k = clusters_in(*arrays.centroids);
+  const int d = features_in(*arrays.centroids);
+  const T* data = raftrkt::matrix_data<const T, int>(
+      arrays.x, "X", layout::row_major, raftrkt::any_extent, d);
+  const int n = static_cast<int>(arrays.x->shape[0]);
+  int* out = raftrkt::vector_data<int32_t, int>(arrays.labels, "labels", n);
+  const T* w = weights<T>(arrays.sample_weight, n);
+  T inertia = 0;
   ML::kmeans::predict(handle, params_for(k), centers, data, n, d, w,
-                      normalize_weights, out, result);
-  inertia = static_cast<double>(result);
+                      normalize_weights, out, inertia);
+  return static_cast<double>(inertia);
 }
 
-struct blob_options {
-  int32_t n_clusters;
-  double cluster_std;
-  bool shuffle;
-  double center_box_min;
-  double center_box_max;
-  uint64_t seed;
-};
-
 template <typename T>
-void make_blobs(const raft::handle_t& handle, const rr_view* out,
-                const rr_view* labels, const blob_options& options) {
-  const rr_view& view = *raftrkt::require(out, "out");
+void make_blobs(const raft::handle_t& handle, const blob_arrays& arrays,
+                const blob_options& options) {
+  const rr_view& view = *raftrkt::require(arrays.out, "out");
   const bool row_major = raftrkt::has_layout(view, layout::row_major);
   T* data = raftrkt::matrix_data<T, int>(
-      out, "out", row_major ? layout::row_major : layout::col_major);
+      arrays.out, "out", row_major ? layout::row_major : layout::col_major);
   const int n = static_cast<int>(view.shape[0]);
   const int d = static_cast<int>(view.shape[1]);
-  int* classes = raftrkt::vector_data<int32_t, int>(labels, "labels", n);
-  if (options.n_clusters < 1) {
-    throw logic_error("n-clusters: expected at least 1, got " +
-                      std::to_string(options.n_clusters));
-  }
+  int* classes = raftrkt::vector_data<int32_t, int>(arrays.labels, "labels", n);
+  require_positive("n-clusters", options.n_clusters);
   ML::Datasets::make_blobs(
       handle, data, classes, n, d, options.n_clusters, row_major, nullptr,
       nullptr, static_cast<T>(options.cluster_std), options.shuffle,
@@ -188,11 +223,13 @@ int kc_fit(void* handle, const rr_view* x, const rr_view* sample_weight,
     const raft::handle_t& h = kc::handle_of(handle);
     const kc::device_scope scope{raft::resource::get_device_id(h)};
     kc::require_device({x, sample_weight, centroids});
+    const fit_arrays arrays{x, sample_weight, centroids};
     const fit_options options{init, max_iter, tol, n_init, oversampling_factor,
                               seed};
     on_floats(x, "X", [&](auto tag) {
-      fit<decltype(tag)>(h, x, sample_weight, centroids, options, inertia_out,
-                         n_iter_out);
+      const fit_result result = fit<decltype(tag)>(h, arrays, options);
+      inertia_out = result.inertia;
+      n_iter_out = result.n_iter;
     });
     raft::resource::sync_stream(h);
   });
@@ -207,9 +244,9 @@ int kc_predict(void* handle, const rr_view* centroids, const rr_view* x,
     const raft::handle_t& h = kc::handle_of(handle);
     const kc::device_scope scope{raft::resource::get_device_id(h)};
     kc::require_device({centroids, x, sample_weight, labels});
+    const predict_arrays arrays{centroids, x, sample_weight, labels};
     on_floats(centroids, "centroids", [&](auto tag) {
-      predict<decltype(tag)>(h, centroids, x, sample_weight,
-                             normalize_weights != 0, labels, inertia_out);
+      inertia_out = predict<decltype(tag)>(h, arrays, normalize_weights != 0);
     });
     raft::resource::sync_stream(h);
   });
@@ -222,11 +259,11 @@ int kc_make_blobs(void* handle, const rr_view* out, const rr_view* labels,
     const raft::handle_t& h = kc::handle_of(handle);
     const kc::device_scope scope{raft::resource::get_device_id(h)};
     kc::require_device({out, labels});
+    const blob_arrays arrays{out, labels};
     const blob_options options{n_clusters,     cluster_std,    shuffle != 0,
                                center_box_min, center_box_max, seed};
-    on_floats(out, "out", [&](auto tag) {
-      make_blobs<decltype(tag)>(h, out, labels, options);
-    });
+    on_floats(out, "out",
+              [&](auto tag) { make_blobs<decltype(tag)>(h, arrays, options); });
     raft::resource::sync_stream(h);
   });
 }

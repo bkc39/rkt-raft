@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 
 #include <cstdint>
+#include <raft/core/resource/device_id.hpp>
 #include <string>
 
 #include "detail/handles.hpp"
@@ -100,6 +101,7 @@ TEST(Resources, HandleIsTheRaftHandle) {
   void* again = nullptr;
   ASSERT_EQ(rr_resources_handle(r, &again), RR_OK);
   EXPECT_EQ(again, handle);
+  EXPECT_EQ(raft::resource::get_device_id(*r->handle), r->device);
   rr_resources_free(r);
 }
 
