@@ -3,10 +3,8 @@
 
 @title[#:tag "guide" #:style 'toc]{Guide}
 
-The guide is a tutorial. Each chapter tells one story with client code that
-runs, and after the important Racket blocks it shows the same steps in Python
-with @tt{pylibraft}, @tt{rmm}, CuPy or NumPy, then says where the two sides
-differ. For the definition of each name, follow its link into the
+Each chapter is one program, with the same steps in Python (@tt{pylibraft},
+@tt{rmm}, CuPy or NumPy) after the key Racket blocks. Names link to the
 @secref["reference"].
 
 @local-table-of-contents[]
