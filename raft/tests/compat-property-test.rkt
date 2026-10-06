@@ -82,10 +82,7 @@
     (define label (format "~a ~a ~a ~a" (source-name src) d order extent))
     (define sent-shape (shape-sent src rows cols))
     (check-equal? (list (shape a) (dtype a)) (list sent-shape d) label)
-    (define used-order
-      (if (= (length sent-shape) 2)
-          order
-          'row-major))
+    (define used-order (if (= (length sent-shape) 2) order 'row-major))
     (when (and (= (length sent-shape) 2) (> (apply min sent-shape) 1))
       (check-equal? (layout a) order label))
     (check-equal? (storage a) (in-storage-order used-order expected) label)))

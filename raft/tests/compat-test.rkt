@@ -186,9 +186,11 @@
   (check-equal? (dtype (f64vector->device-vector (f64vector 0.1))) 'float64)
   (check-equal? (device-vector->list (f32vector->device-vector (f32vector 1.5 -2.5) #:dtype 'int32))
                 '(1 -2))
-  (check-equal? (f64vector->list (device-vector->f64vector (list->device-vector '(1 2) #:dtype 'int64)))
+  (check-equal? (f64vector->list (device-vector->f64vector (list->device-vector '(1 2)
+                                                                                #:dtype 'int64)))
                 '(1.0 2.0))
-  (check-equal? (f32vector->list (device-vector->f32vector (list->device-vector '(0.1)))) '(0.10000000149011612))
+  (check-equal? (f32vector->list (device-vector->f32vector (list->device-vector '(0.1))))
+                '(0.10000000149011612))
   (check-equal? (f64vector->list (device-vector->f64vector (f64vector->device-vector (f64vector))))
                 '()))
 
@@ -199,9 +201,10 @@
   (check-equal? (device-vector->bytes ints)
                 (bytes-append (integer->integer-bytes 1 4 #t) (integer->integer-bytes -2 4 #t)))
   (check-equal? (device-vector->bytes (bytes->device-vector #"" #:dtype 'int64)) #"")
-  (check-raft-error 'logic
-                    "bytes->device-vector: 6 bytes do not hold a whole number of 4-byte float32 elements"
-                    (lambda () (bytes->device-vector (make-bytes 6) #:dtype 'float32)))
+  (check-raft-error
+   'logic
+   "bytes->device-vector: 6 bytes do not hold a whole number of 4-byte float32 elements"
+   (lambda () (bytes->device-vector (make-bytes 6) #:dtype 'float32)))
   (check-raft-error
    'logic
    "bytes->device-vector: unsupported dtype float16; expected float32, float64, int32 or int64"
@@ -217,7 +220,8 @@
                     (lambda () (array->device-array (flarray #[1.0]) #:resources released)))
   (check-raft-error 'logic
                     "bytes->device-vector: the device resources on device 0 were released"
-                    (lambda () (bytes->device-vector (make-bytes 8) #:dtype 'float64 #:resources released))))
+                    (lambda ()
+                      (bytes->device-vector (make-bytes 8) #:dtype 'float64 #:resources released))))
 
 (test-gpu "an empty device vector converts to every empty form"
   (define v (device-vector 0 #:dtype 'int32))

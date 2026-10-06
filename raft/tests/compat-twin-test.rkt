@@ -73,10 +73,7 @@
 
 (test-twin "every sink brings back what copy_to_host().tolist() does"
   (define (rows-for-sink snk d)
-    (define rows
-      (if (memq d '(float32 float64))
-          float-rows
-          integer-rows))
+    (define rows (if (memq d '(float32 float64)) float-rows integer-rows))
     (if (= (sink-rank snk) 1)
         (list (car rows))
         rows))

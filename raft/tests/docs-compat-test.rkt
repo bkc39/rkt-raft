@@ -161,8 +161,7 @@
   (check-raft-error 'logic
                     "list*->device-array: element 1 is a list, but element 0 is not: '(2.0 3.0)"
                     (lambda () (list*->device-array '(1.0 (2.0 3.0)))))
-  (check-equal? (printed (vector*->device-array #(1 2 3)))
-                "#<device-vector int64[3] cuda:0 [1 2 3]>")
+  (check-equal? (printed (vector*->device-array #(1 2 3))) "#<device-vector int64[3] cuda:0 [1 2 3]>")
   (define saved (read (open-input-string "#(#(0.1 0.2) #(0.3 0.4) #(0.5 0.6))")))
   (check-equal? (shape (vector*->device-array saved #:dtype 'float32)) '(3 2))
   (check-raft-error 'logic
@@ -210,9 +209,9 @@
   (check-equal? (printed (f64vector->device-vector readings #:dtype 'float32))
                 "#<device-vector float32[4] cuda:0 [ 21.5 21.75  22.0  22.5]>")
   (check-equal? (dtype (f64vector->device-vector (f64vector 3.0 0.0 12.0) #:dtype 'int64)) 'int64)
-  (check-equal? (f32vector->list (device-vector->f32vector (f32vector->device-vector (f32vector 0.5
-                                                                                             1.5))))
-                '(0.5 1.5))
+  (check-equal?
+   (f32vector->list (device-vector->f32vector (f32vector->device-vector (f32vector 0.5 1.5))))
+   '(0.5 1.5))
   (define out (device-vector->f32vector (vector->device-vector #(0.1 0.2))))
   (check-equal? (list (f32vector-length out) (f32vector-ref out 0)) '(2 0.10000000149011612))
   (define labels (vector->device-vector #(0 2 1 2 2 0) #:dtype 'int32))
@@ -238,9 +237,10 @@
   (check-equal? (device-vector->list (bytes->device-vector (file->bytes label-file) #:dtype 'int32))
                 '(0 2 1 1))
   (delete-file label-file)
-  (check-raft-error 'logic
-                    "bytes->device-vector: 6 bytes do not hold a whole number of 4-byte float32 elements"
-                    (lambda () (bytes->device-vector (make-bytes 6) #:dtype 'float32)))
+  (check-raft-error
+   'logic
+   "bytes->device-vector: 6 bytes do not hold a whole number of 4-byte float32 elements"
+   (lambda () (bytes->device-vector (make-bytes 6) #:dtype 'float32)))
   (check-equal? (device-vector->bytes (vector->device-vector #(1 2) #:dtype 'int32))
                 #"\1\0\0\0\2\0\0\0")
   (define result-file (make-temporary-file))
@@ -249,7 +249,8 @@
    #:exists 'truncate
    (lambda (out) (void (write-bytes (device-vector->bytes (vector->device-vector #(0.5 0.25))) out))))
   (check-equal? (file-size result-file) 16)
-  (check-equal? (device-vector->list (bytes->device-vector (file->bytes result-file) #:dtype 'float64))
+  (check-equal? (device-vector->list (bytes->device-vector (file->bytes result-file)
+                                                           #:dtype 'float64))
                 '(0.5 0.25))
   (delete-file result-file)
   (define one (device-vector->bytes (vector->device-vector #(1.0) #:dtype 'float32)))
@@ -261,17 +262,18 @@
 (test-gpu "compat reference: math/matrix"
   (check-equal? (printed (matrix->device-matrix (matrix [[1.0 2.0] [3.0 4.0]])))
                 (lines "#<device-matrix float64[2×2] row-major cuda:0" " [[1.0 2.0]" "  [3.0 4.0]]>"))
-  (check-equal? (printed (matrix->device-matrix gram #:dtype 'float32))
-                (lines "#<device-matrix float32[2×2] row-major cuda:0" " [[35.0 44.0]" "  [44.0 56.0]]>"))
+  (check-equal?
+   (printed (matrix->device-matrix gram #:dtype 'float32))
+   (lines "#<device-matrix float32[2×2] row-major cuda:0" " [[35.0 44.0]" "  [44.0 56.0]]>"))
   (check-equal? (dtype (matrix->device-matrix (identity-matrix 3))) 'int64)
   (define I (matrix->device-matrix (identity-matrix 3) #:dtype 'float64 #:layout 'col-major))
   (check-equal? (list (dtype I) (layout I)) '(float64 col-major))
-  (check-equal? (printed (device-matrix->matrix (matrix->device-matrix (matrix [[1.0 2.0] [3.0 4.0]]))))
+  (check-equal? (printed (device-matrix->matrix (matrix->device-matrix (matrix [[1.0 2.0]
+                                                                                [3.0 4.0]]))))
                 "(flarray #[#[1.0 2.0] #[3.0 4.0]])")
   (define back (device-matrix->matrix (matrix->device-matrix gram)))
   (check-equal? (list (matrix-trace back) (matrix-determinant back)) '(91.0 24.0))
-  (define counts-matrix
-    (device-matrix->matrix (list*->device-matrix '((2 1) (1 3)) #:dtype 'int32)))
+  (define counts-matrix (device-matrix->matrix (list*->device-matrix '((2 1) (1 3)) #:dtype 'int32)))
   (check-equal? (array->list* (matrix-inverse counts-matrix)) '((3/5 -1/5) (-1/5 2/5)))
   (check-equal? (printed (matrix->device-vector (col-matrix [1 2 3])))
                 "#<device-vector int64[3] cuda:0 [1 2 3]>")
@@ -316,7 +318,8 @@
    'logic
    "array->device-array: rank 3 is not supported yet; rank 1 and 2 convert, and any rank arrives in leg 3"
    (lambda () (array->device-array (array #[#[#[1 2]]]))))
-  (check-equal? (printed (device-array->array (vector->device-vector #(1.5 2.5)))) "(flarray #[1.5 2.5])")
+  (check-equal? (printed (device-array->array (vector->device-vector #(1.5 2.5))))
+                "(flarray #[1.5 2.5])")
   (check-equal? (printed (device-array->array (list*->device-matrix '((1 2) (3 4)) #:dtype 'int32)))
                 "(mutable-array #[#[1 2] #[3 4]])")
   (check-equal? (array-all-sum (device-array->array (vector->device-vector #(0.5 1.5 2.0)))) 4.0)
@@ -390,11 +393,7 @@
 (define (weights-of)
   (define weights (make-f64vector n))
   (for ([i (in-range n)])
-    (f64vector-set! weights
-                    i
-                    (if (< i 2)
-                        2.0
-                        1.0)))
+    (f64vector-set! weights i (if (< i 2) 2.0 1.0)))
   weights)
 
 (test-gpu "moving-data guide: weights from foreign code"

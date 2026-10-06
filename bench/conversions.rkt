@@ -5,7 +5,11 @@
          (only-in racket/flonum for/flvector)
          (only-in racket/format ~r)
          (only-in racket/list append*)
-         (only-in raft device-matrix->list* device-vector->list list*->device-matrix list->device-vector)
+         (only-in raft
+                  device-matrix->list*
+                  device-vector->list
+                  list*->device-matrix
+                  list->device-vector)
          (only-in raft/compat
                   array->device-array
                   bytes->device-vector
@@ -57,7 +61,8 @@
         (median-ms (lambda () (back on-device)))
         (median-ms (lambda () (back on-device-32)))))
 
-(define (flat-array) (vector->array (vector n) (list->vector xs)))
+(define (flat-array)
+  (vector->array (vector n) (list->vector xs)))
 
 (define table
   (list
@@ -121,7 +126,8 @@
 (define (ms x)
   (~r x #:precision 1))
 
-(printf "| Racket value | to device, float64 | to device, float32 | back, float64 | back, float32 |\n")
+(printf
+ "| Racket value | to device, float64 | to device, float32 | back, float64 | back, float32 |\n")
 (printf "|---|---:|---:|---:|---:|\n")
 (for ([r (in-list table)])
   (apply printf "| ~a | ~a | ~a | ~a | ~a |\n" (car r) (map ms (cdr r))))

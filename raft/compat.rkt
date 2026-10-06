@@ -95,7 +95,8 @@
 
 (define (send-rows who resources element-type order rows)
   (define extents (matrix-shape who rows))
-  (define m (allocate-array who resources (or element-type (infer-rows-dtype who rows)) order extents))
+  (define m
+    (allocate-array who resources (or element-type (infer-rows-dtype who rows)) order extents))
   (write-array!
    who
    m
@@ -105,7 +106,8 @@
   (define host (read-all who a))
   (match (device-array-shape a)
     [(list n) (unpack-vector (device-array-dtype a) n host #:into into)]
-    [extents (unpack-matrix (device-array-dtype a) extents (device-array-strides a) host #:into into)]))
+    [extents
+     (unpack-matrix (device-array-dtype a) extents (device-array-strides a) host #:into into)]))
 
 (define (raise-rank who rank)
   (raise-raft who
@@ -121,7 +123,10 @@
              [depth 0])
     (cond
       [(not (nested? x)) depth]
-      [(vector? x) (if (zero? (vector-length x)) (add1 depth) (loop (vector-ref x 0) (add1 depth)))]
+      [(vector? x)
+       (if (zero? (vector-length x))
+           (add1 depth)
+           (loop (vector-ref x 0) (add1 depth)))]
       [(null? x) (add1 depth)]
       [else (loop (car x) (add1 depth))])))
 
@@ -284,9 +289,7 @@
   (define n (numel a))
   (if (and (eq? (device-array-dtype a) 'float64) (has-layout? a 'row-major))
       (read-array who a (make-flvector n))
-      (for/flvector #:length n
-                    ([x (in-vector (row-major-elements who a))])
-        x)))
+      (for/flvector #:length n ([x (in-vector (row-major-elements who a))]) x)))
 
 (define (row-major-elements who a)
   (unpack-row-major (device-array-dtype a)

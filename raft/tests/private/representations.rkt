@@ -104,9 +104,7 @@
   (vector->array (vector (length xs) 1) (list->vector xs)))
 
 (define (list->flvector xs)
-  (for/flvector #:length (length xs)
-                ([x (in-list xs)])
-    (real->double-flonum x)))
+  (for/flvector #:length (length xs) ([x (in-list xs)]) (real->double-flonum x)))
 
 (define (flvector->list v)
   (for/list ([x (in-flvector v)])
@@ -116,12 +114,10 @@
   (flsingle (real->double-flonum x)))
 
 (define (send-matrix make-value send)
-  (lambda (rows cols dtype layout)
-    (send (make-value rows cols) #:dtype dtype #:layout layout)))
+  (lambda (rows cols dtype layout) (send (make-value rows cols) #:dtype dtype #:layout layout)))
 
 (define (send-vector make-value send)
-  (lambda (rows _cols dtype _layout)
-    (send (make-value (car rows)) #:dtype dtype)))
+  (lambda (rows _cols dtype _layout) (send (make-value (car rows)) #:dtype dtype)))
 
 (define (send-bytes rows _cols dtype _layout)
   (define xs
@@ -130,25 +126,26 @@
   (bytes->device-vector (numbers->bytes dtype xs) #:dtype dtype))
 
 (define sources
-  (list (source 'list* 2 values (send-matrix (ignoring-cols values) list*->device-matrix))
-        (source 'list*-array 2 values (send-matrix (ignoring-cols values) list*->device-array))
-        (source 'vector* 2 values (send-matrix (ignoring-cols rows->vector*) vector*->device-matrix))
-        (source 'vector*-array 2 values (send-matrix (ignoring-cols rows->vector*) vector*->device-array))
-        (source 'matrix 2 values (send-matrix mutable-array matrix->device-matrix))
-        (source 'array 2 values (send-matrix mutable-array array->device-array))
-        (source 'lazy-array 2 values (send-matrix lazy-array array->device-array))
-        (source 'flarray 2 real->double-flonum (send-matrix flonum-array array->device-array))
-        (source 'list 1 values (send-vector values list->device-vector))
-        (source 'list-array 1 values (send-vector values list*->device-array))
-        (source 'vector 1 values (send-vector list->vector vector->device-vector))
-        (source 'vector-array 1 values (send-vector list->vector vector*->device-array))
-        (source 'flvector 1 real->double-flonum (send-vector list->flvector flvector->device-vector))
-        (source 'f64vector 1 real->double-flonum (send-vector list->f64vector f64vector->device-vector))
-        (source 'f32vector 1 single (send-vector list->f32vector f32vector->device-vector))
-        (source 'array1 1 values (send-vector rank-1-array array->device-array))
-        (source 'row-matrix 1 values (send-vector row-matrix matrix->device-vector))
-        (source 'col-matrix 1 values (send-vector col-matrix matrix->device-vector))
-        (source 'bytes 1 values send-bytes)))
+  (list
+   (source 'list* 2 values (send-matrix (ignoring-cols values) list*->device-matrix))
+   (source 'list*-array 2 values (send-matrix (ignoring-cols values) list*->device-array))
+   (source 'vector* 2 values (send-matrix (ignoring-cols rows->vector*) vector*->device-matrix))
+   (source 'vector*-array 2 values (send-matrix (ignoring-cols rows->vector*) vector*->device-array))
+   (source 'matrix 2 values (send-matrix mutable-array matrix->device-matrix))
+   (source 'array 2 values (send-matrix mutable-array array->device-array))
+   (source 'lazy-array 2 values (send-matrix lazy-array array->device-array))
+   (source 'flarray 2 real->double-flonum (send-matrix flonum-array array->device-array))
+   (source 'list 1 values (send-vector values list->device-vector))
+   (source 'list-array 1 values (send-vector values list*->device-array))
+   (source 'vector 1 values (send-vector list->vector vector->device-vector))
+   (source 'vector-array 1 values (send-vector list->vector vector*->device-array))
+   (source 'flvector 1 real->double-flonum (send-vector list->flvector flvector->device-vector))
+   (source 'f64vector 1 real->double-flonum (send-vector list->f64vector f64vector->device-vector))
+   (source 'f32vector 1 single (send-vector list->f32vector f32vector->device-vector))
+   (source 'array1 1 values (send-vector rank-1-array array->device-array))
+   (source 'row-matrix 1 values (send-vector row-matrix matrix->device-vector))
+   (source 'col-matrix 1 values (send-vector col-matrix matrix->device-vector))
+   (source 'bytes 1 values send-bytes)))
 
 (define (one-row f)
   (lambda (v _dtype) (list (f v))))
@@ -157,24 +154,25 @@
   (lambda (v _dtype) (f v)))
 
 (define sinks
-  (list (sink 'list* 2 device-matrix->list* (ignoring-dtype values) values)
-        (sink 'list*-array 2 device-array->list* (ignoring-dtype values) values)
-        (sink 'vector* 2 device-matrix->vector* (ignoring-dtype vector*->rows) values)
-        (sink 'vector*-array 2 device-array->vector* (ignoring-dtype vector*->rows) values)
-        (sink 'matrix 2 device-matrix->matrix (ignoring-dtype array->list*) values)
-        (sink 'array 2 device-array->array (ignoring-dtype array->list*) values)
-        (sink 'list 1 device-vector->list (one-row values) values)
-        (sink 'list-array 1 device-array->list* (one-row values) values)
-        (sink 'vector 1 device-vector->vector (one-row vector->list) values)
-        (sink 'vector-array 1 device-array->vector* (one-row vector->list) values)
-        (sink 'flvector 1 device-vector->flvector (one-row flvector->list) real->double-flonum)
-        (sink 'f64vector 1 device-vector->f64vector (one-row f64vector->list) real->double-flonum)
-        (sink 'f32vector 1 device-vector->f32vector (one-row f32vector->list) single)
-        (sink 'array1 1 device-array->array (one-row array->list*) values)
-        (sink 'row-matrix 1 device-vector->row-matrix (ignoring-dtype array->list*) values)
-        (sink 'col-matrix
-              1
-              device-vector->col-matrix
-              (ignoring-dtype (lambda (a) (list (map car (array->list* a)))))
-              values)
-        (sink 'bytes 1 device-vector->bytes (lambda (bs dtype) (list (bytes->numbers dtype bs))) values)))
+  (list
+   (sink 'list* 2 device-matrix->list* (ignoring-dtype values) values)
+   (sink 'list*-array 2 device-array->list* (ignoring-dtype values) values)
+   (sink 'vector* 2 device-matrix->vector* (ignoring-dtype vector*->rows) values)
+   (sink 'vector*-array 2 device-array->vector* (ignoring-dtype vector*->rows) values)
+   (sink 'matrix 2 device-matrix->matrix (ignoring-dtype array->list*) values)
+   (sink 'array 2 device-array->array (ignoring-dtype array->list*) values)
+   (sink 'list 1 device-vector->list (one-row values) values)
+   (sink 'list-array 1 device-array->list* (one-row values) values)
+   (sink 'vector 1 device-vector->vector (one-row vector->list) values)
+   (sink 'vector-array 1 device-array->vector* (one-row vector->list) values)
+   (sink 'flvector 1 device-vector->flvector (one-row flvector->list) real->double-flonum)
+   (sink 'f64vector 1 device-vector->f64vector (one-row f64vector->list) real->double-flonum)
+   (sink 'f32vector 1 device-vector->f32vector (one-row f32vector->list) single)
+   (sink 'array1 1 device-array->array (one-row array->list*) values)
+   (sink 'row-matrix 1 device-vector->row-matrix (ignoring-dtype array->list*) values)
+   (sink 'col-matrix
+         1
+         device-vector->col-matrix
+         (ignoring-dtype (lambda (a) (list (map car (array->list* a)))))
+         values)
+   (sink 'bytes 1 device-vector->bytes (lambda (bs dtype) (list (bytes->numbers dtype bs))) values)))
