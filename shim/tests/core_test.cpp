@@ -101,6 +101,13 @@ TEST(Resources, HandleIsTheRaftHandle) {
   void* again = nullptr;
   ASSERT_EQ(rr_resources_handle(r, &again), RR_OK);
   EXPECT_EQ(again, handle);
+  rr_resources_free(r);
+}
+
+TEST(Resources, HandleKnowsItsDevice) {
+  RR_REQUIRE_GPU();
+  rr_resources* r = nullptr;
+  ASSERT_EQ(rr_resources_create(0, &r), RR_OK) << rr_last_error();
   EXPECT_EQ(raft::resource::get_device_id(*r->handle), r->device);
   rr_resources_free(r);
 }
