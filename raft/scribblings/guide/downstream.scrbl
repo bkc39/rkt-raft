@@ -12,9 +12,8 @@ binding of @tt{ML::kmeans::fit}, @tt{ML::kmeans::predict} and
 @tt{ML::Datasets::make_blobs}, whose tests check it against
 @tt{cuml.cluster.KMeans} and fit it a thousand times to show memory stays
 flat. The Racket names are in @racketmodname[raft/unsafe], the C side in
-@secref["ref-unsafe-c"]. The examples need the canary's library, which
-@tt{nix develop} builds and points @tt{RAFT_KMEANS_CANARY} at
-(@secref["ref-unsafe"] says how to build it elsewhere).
+@secref["ref-unsafe-c"]. To run the examples, set @tt{RAFT_KMEANS_CANARY}
+to the canary library, @tt{libkmeans_canary.so}.
 
 @section[#:tag "downstream-client"]{k-means from Racket}
 
@@ -103,10 +102,13 @@ caller.
 
 @section[#:tag "downstream-build"]{The build}
 
-The canary is a CMake project built against raft's flake: the headers and
-their CMake package in @tt{packages.raft-dev}, and the RAPIDS libraries in
-@tt{packages.rapids}. It does not link @tt{libraftrkt}; the handle, the views
-and the ABI tag reach it from Racket at run time:
+A downstream shim needs the raftrkt headers and their CMake package,
+@tt{libraftrkt}, and the same RAPIDS 26.08 libraries and headers that
+@tt{libraftrkt} was built with; the
+@hyperlink["https://github.com/bkc39/rkt-raft#native-bindings"]{repository
+README} says how the project builds them. The canary is a CMake project. It does not link
+@tt{libraftrkt}, which raft has already loaded; the handle, the views and the
+ABI tag reach it from Racket at run time:
 
 @excerpt["CMake" "downstream/kmeans-canary/CMakeLists.txt"
          "find_package(raftrkt CONFIG REQUIRED)"
@@ -122,16 +124,9 @@ hides its static CUDA runtime, and refuses undefined symbols:
          "add_library(kmeans_canary SHARED src/canary.cpp src/pool.cpp)"
          "kc_strict(kmeans_canary)"]
 
-In the flake it is one more derivation over the same inputs:
-
-@excerpt["Nix" "flake.nix"
-         "      kmeansCanary = cudaPackages.backendStdenv.mkDerivation {"
-         "      };"]
-
 So the canary and @tt{libraftrkt} compile against the same headers and load
 the same @tt{librmm.so}. A package outside this repository, such as the cuML
-binding, takes raft's flake as an input and uses its @tt{packages.rapids} and
-@tt{packages.raft-dev} the same way.
+binding, builds the same way.
 
 @section[#:tag "downstream-racket"]{The Racket module}
 
@@ -256,7 +251,7 @@ module passes in with @racket[raft-abi-pointer]:
 A mismatch stops @racket[(require kmeans-canary)], naming the first field
 that differs. The tag compares release numbers and the handle's size, and
 says nothing of the RAFT that @tt{libcuml.so} was built with; hence the rule
-is one @tt{rapids} package set, not merely matching tags.
+is one set of RAPIDS libraries and headers, not merely matching tags.
 
 Python has no such check: pip enforces each wheel's pinned versions at
 install time.
@@ -267,8 +262,8 @@ ABI version 1 freezes the interface the canary uses (@secref["ref-unsafe-c"]
 lists it). A change bumps the version in @racket[raft-abi] and the canary in
 the same pull request, so a stale library is refused at load.
 
-The cuML binding is its own package, which takes raft's flake as an input
-and follows the canary's pattern. It starts by growing the canary into a
+The cuML binding is its own package, built against the same RAPIDS
+libraries and headers, and follows the canary's pattern. It starts by growing the canary into a
 full k-means binding (@tt{fit_predict}, @tt{transform}, the @tt{int64_t}
 overloads), then adds DBSCAN, agglomerative clustering and HDBSCAN.
 

@@ -21,11 +21,8 @@ not pointer types.
 @secref["downstream"] builds the k-means canary on this module. The
 interface is frozen at ABI version 1 (@secref["ref-unsafe-c"]).
 
-The examples call the canary's @tt{libkmeans_canary.so}, which @tt{nix
-develop} builds and points @tt{RAFT_KMEANS_CANARY} at; elsewhere, run
-@tt{nix build .#kmeans-canary} and set it to
-@tt{result/lib/libkmeans_canary.so}, or rendering these pages fails. They
-share these bindings, in which handles and views cross as plain
+The examples call the canary's library: set @tt{RAFT_KMEANS_CANARY} to
+@tt{libkmeans_canary.so} to run them. They share these bindings, in which handles and views cross as plain
 @racket[_pointer]s:
 
 @examples[#:eval ev #:label #f
@@ -273,10 +270,11 @@ is refused:
 
 The C side is the public C headers of @tt{libraftrkt} (@tt{core.h},
 @tt{array.h}, @tt{memory.h}, gathered by @tt{c_api.h}), the ABI header and
-two header-only C++ helpers, shipped in @tt{packages.raft-dev} with a CMake
-package (@tt{find_package(raftrkt)} defines @tt{raftrkt::headers}, which
-links @tt{raft::raft}). A downstream library compiles against it and
-@tt{packages.rapids} and does not link @tt{libraftrkt}.
+two header-only C++ helpers, shipped with a CMake package
+(@tt{find_package(raftrkt)} defines @tt{raftrkt::headers}, which links
+@tt{raft::raft}). A downstream library compiles against them and the same
+RAPIDS 26.08 libraries and headers as @tt{libraftrkt}, and does not link
+@tt{libraftrkt}.
 
 @bold{The handle.} @tt{int rr_resources_handle(rr_resources* resources,
 void** out)} sets @racket[out] to @tt{NULL}, then to the
