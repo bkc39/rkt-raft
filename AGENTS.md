@@ -518,8 +518,7 @@ the binding census), `racket-review`, `racket-version` (at least 9.3),
   `with-device-resources` and the test macros keep the name (and
   `test-unless-skipped`'s reason) on the first line and a body that holds a
   list below, as `let` does, while a body of atoms (a macro's `body ...`)
-  stays on one line; `over-elements` (`private/pack.rkt`) keeps its loop
-form and its clauses on the first line, as `for` does. The `_fun`, hash and body formatters use fmt's internal
+  stays on one line. The `_fun`, hash and body formatters use fmt's internal
   document model, which fmt calls unstable, so `nix/racket-tools.nix` pins
   fmt, review and pretty-expressive by commit (the catalog's own source for
   each) and a bump is a deliberate change: check `.fmt.rkt` with the new fmt. Any form whose head is a
@@ -785,8 +784,10 @@ form and its clauses on the first line, as `for` does. The `_fun`, hash and body
   about 10 ms, once per array). The brief's `array->flarray` route was
   measured and not taken. Results of `math/matrix` operations and
   `build-array` are neither, so they take the element-by-element path.
-- **One loop per representation.** `pack.rkt`'s `over-elements` expands a
-  loop once each for lists, vectors, flvectors and any other sequence, so
+- **One loop per representation.** `pack.rkt`'s `over-elements` wraps an
+  ordinary `for` form (so raco review and raco fmt read it as one) and
+  expands it once each for lists, vectors, flvectors and any other sequence
+  in its first clause, so
   the list paths keep `in-list`'s speed while taking vectors too;
   `list*->device-matrix` now infers through `infer-rows-dtype`, the same
   rule as every nested conversion. `repack` converts host memory between

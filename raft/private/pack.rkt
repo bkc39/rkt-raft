@@ -21,8 +21,8 @@
          unpack-row-major
          unpack-vector)
 
-(define-syntax-parse-rule (over-elements (loop:id prefix:expr ...) ([x:id xs:expr] clause:expr ...)
-                            body:expr ...+)
+(define-syntax-parse-rule (over-elements
+                           (loop:id prefix:expr ... ([x:id xs:expr] clause:expr ...) body:expr ...+))
   (let ([elements xs])
     (cond
       [(list? elements) (loop prefix ... ([x (in-list elements)] clause ...) body ...)]
@@ -37,15 +37,15 @@
     [else 'float64]))
 
 (define (widen-over who kind xs)
-  (over-elements (for/fold ([kind kind])) ([x xs])
-    (widen who kind x)))
+  (over-elements (for/fold ([kind kind]) ([x xs])
+                   (widen who kind x))))
 
 (define (infer-dtype who xs)
   (or (widen-over who #f xs) 'float64))
 
 (define (infer-rows-dtype who rows)
-  (or (over-elements (for/fold ([kind #f])) ([row rows])
-        (widen-over who kind row))
+  (or (over-elements (for/fold ([kind #f]) ([row rows])
+                       (widen-over who kind row)))
       'float64))
 
 (define (extent row)
@@ -57,10 +57,12 @@
   (define cols
     (for/first ([row rows])
       (extent row)))
-  (over-elements (for) ([row rows] [i (in-naturals)])
-    (define n (extent row))
-    (unless (= n cols)
-      (raise-raft who 'logic "row ~a has ~a, but row 0 has ~a: ~e" i (elements n) cols row)))
+  (over-elements
+   (for ([row rows]
+         [i (in-naturals)])
+     (define n (extent row))
+     (unless (= n cols)
+       (raise-raft who 'logic "row ~a has ~a, but row 0 has ~a: ~e" i (elements n) cols row))))
   (list (extent rows) (or cols 0)))
 
 (define (elements n)
@@ -106,8 +108,9 @@
   (define host (host-for dtype n))
   (define set (host-setter dtype))
   (define convert (element-converter who dtype))
-  (over-elements (for) ([x xs] [i (in-range n)])
-    (set host i (convert x)))
+  (over-elements (for ([x xs]
+                       [i (in-range n)])
+                   (set host i (convert x))))
   host)
 
 (define (repack who from to n host)
@@ -125,9 +128,11 @@
   (define convert (element-converter who dtype))
   (match-define (list row-count col-count) shape)
   (match-define (list row-step col-step) strides)
-  (over-elements (for) ([row rows] [i (in-range row-count)])
-    (over-elements (for) ([x row] [j (in-range col-count)])
-      (set host (+ (* i row-step) (* j col-step)) (convert x))))
+  (over-elements (for ([row rows]
+                       [i (in-range row-count)])
+                   (over-elements (for ([x row]
+                                        [j (in-range col-count)])
+                                    (set host (+ (* i row-step) (* j col-step)) (convert x))))))
   host)
 
 (define (pack-row-major who dtype shape strides xs)
@@ -138,9 +143,10 @@
      (define host (host-for dtype (* rows cols)))
      (define set (host-setter dtype))
      (define convert (element-converter who dtype))
-     (over-elements (for) ([x xs] [k (in-range (* rows cols))])
-       (define-values (i j) (quotient/remainder k cols))
-       (set host (+ (* i row-step) (* j col-step)) (convert x)))
+     (over-elements (for ([x xs]
+                          [k (in-range (* rows cols))])
+                      (define-values (i j) (quotient/remainder k cols))
+                      (set host (+ (* i row-step) (* j col-step)) (convert x))))
      host]
     [((list rows cols) _) (pack-vector who dtype (* rows cols) xs)]))
 
