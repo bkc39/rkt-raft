@@ -3,9 +3,7 @@
 
 @title[#:tag "guide" #:style 'toc]{Guide}
 
-Each chapter is one program, with the same steps in Python (@tt{pylibraft},
-@tt{rmm}, CuPy or NumPy) after the key Racket blocks. Names link to the
-@secref["reference"].
+Each chapter is one program. Names link to the @secref["reference"].
 
 @local-table-of-contents[]
 
