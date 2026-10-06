@@ -83,7 +83,8 @@ TEST(AbiHeader, TheFirstDifferenceIsNamed) {
             "RAFT: built against 26.08.00, but libraftrkt has 26.10.00");
   tag = raftrkt::compiled_abi();
   tag.abi_version = 2;
-  EXPECT_EQ(compared(tag), "ABI version: built against 1, but libraftrkt has 2");
+  EXPECT_EQ(compared(tag),
+            "ABI version: built against 1, but libraftrkt has 2");
   tag = raftrkt::compiled_abi();
   tag.rmm_patch = 1;
   EXPECT_EQ(compared(tag),
@@ -137,12 +138,11 @@ TEST(ErrorHeader, ADownstreamSlotIsIndependentOfTheShims) {
 
 TEST(ErrorHeader, CudaFailuresAreClassifiedThroughTheSlot) {
   raftrkt::error_slot slot;
-  EXPECT_EQ(raftrkt::translate_exceptions(
-                slot,
-                [] {
-                  raftrkt::cuda_check(cudaErrorMemoryAllocation, "cudaMalloc");
-                }),
-            RR_ERROR);
+  EXPECT_EQ(
+      raftrkt::translate_exceptions(
+          slot,
+          [] { raftrkt::cuda_check(cudaErrorMemoryAllocation, "cudaMalloc"); }),
+      RR_ERROR);
   EXPECT_EQ(slot.kind, raftrkt::error_kind::oom);
   EXPECT_EQ(std::string(slot.message.data()).rfind("cudaMalloc: ", 0), 0U);
   EXPECT_EQ(raftrkt::translate_exceptions(slot, [] { throw 1; }), RR_ERROR);
@@ -162,8 +162,8 @@ TEST(ViewHeader, MatrixRefusalsNameTheArgument) {
   rr_view x = bound(RR_DTYPE_FLOAT32, rr::layout::row_major, 3, 2);
   const auto as_float = [&](const rr_view* v, int64_t rows, int64_t cols) {
     return refusal([&] {
-      raftrkt::matrix_data<float, int>(v, "X", raftrkt::layout::row_major,
-                                       rows, cols);
+      raftrkt::matrix_data<float, int>(v, "X", raftrkt::layout::row_major, rows,
+                                       cols);
     });
   };
   EXPECT_EQ(as_float(nullptr, 3, 2), "X is NULL");
@@ -198,27 +198,28 @@ TEST(ViewHeader, ExtentsMustFitTheIndexType) {
 
 TEST(ViewHeader, AnAxisOfExtentOneLeavesTheLayoutOpen) {
   const rr_view column = bound(RR_DTYPE_FLOAT64, rr::layout::col_major, 4, 1);
-  EXPECT_EQ(raftrkt::matrix_data<double>(&column, "y",
-                                         raftrkt::layout::row_major),
-            fake_data());
-  EXPECT_EQ(raftrkt::matrix_data<double>(&column, "y",
-                                         raftrkt::layout::col_major),
-            fake_data());
+  EXPECT_EQ(
+      raftrkt::matrix_data<double>(&column, "y", raftrkt::layout::row_major),
+      fake_data());
+  EXPECT_EQ(
+      raftrkt::matrix_data<double>(&column, "y", raftrkt::layout::col_major),
+      fake_data());
 }
 
 TEST(ViewHeader, AnEmptyViewNeedsNoData) {
   rr_view empty = bound(RR_DTYPE_FLOAT32, rr::layout::row_major, 0, 4);
   empty.data = nullptr;
-  EXPECT_EQ(raftrkt::matrix_data<float>(&empty, "X",
-                                        raftrkt::layout::row_major, 0, 4),
+  EXPECT_EQ(raftrkt::matrix_data<float>(&empty, "X", raftrkt::layout::row_major,
+                                        0, 4),
             nullptr);
 }
 
 TEST(ViewHeader, VectorsAreCheckedLikeMatrices) {
   rr_view labels = bound_vector(RR_DTYPE_INT32, 5);
   EXPECT_EQ(raftrkt::vector_data<int32_t>(&labels, "labels", 5), fake_data());
-  EXPECT_EQ(refusal([&] { raftrkt::vector_data<int32_t>(&labels, "labels", 4); }),
-            "labels: expected 4 elements, got 5");
+  EXPECT_EQ(
+      refusal([&] { raftrkt::vector_data<int32_t>(&labels, "labels", 4); }),
+      "labels: expected 4 elements, got 5");
   EXPECT_EQ(refusal([&] { raftrkt::vector_data<int64_t>(&labels, "labels"); }),
             "labels: expected int64, got int32");
   labels.strides[0] = 2;

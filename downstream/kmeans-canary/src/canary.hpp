@@ -53,10 +53,9 @@ inline void require_device(std::initializer_list<const rr_view*> views) {
   for (const rr_view* view : views) {
     if (view != nullptr && view->memory == RR_MEMORY_DEVICE &&
         view->device != device) {
-      throw logic_error("an array is on device " +
-                        std::to_string(view->device) +
-                        ", but the resources are on device " +
-                        std::to_string(device));
+      throw logic_error(
+          "an array is on device " + std::to_string(view->device) +
+          ", but the resources are on device " + std::to_string(device));
     }
   }
 }

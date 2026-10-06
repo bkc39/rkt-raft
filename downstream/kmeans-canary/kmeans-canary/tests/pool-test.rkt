@@ -31,10 +31,11 @@
   (canary-pool-reset-high!)
   (define-values (centroids _inertia _n-iter) (kmeans-fit X #:n-clusters 6 #:seed 4))
   (define-values (used high _reserved) (canary-pool-bytes))
-  (printf "pool: ~a bytes in use before the fit, ~a after it (plus the centroids), peak ~a during it\n"
-          before
-          used
-          high)
+  (printf
+   "pool: ~a bytes in use before the fit, ~a after it (plus the centroids), peak ~a during it\n"
+   before
+   used
+   high)
   (check-true (> high (+ before (* 6 16 4))) "the fit's own allocations reached the pool")
   (check-equal? used (+ before (* 6 16 4)) "and were returned to it, leaving only the centroids")
   (check-equal? (map shape (list centroids truth)) '((6 16) (5000))))
@@ -43,7 +44,9 @@
   (define readelf (find-executable-path "readelf"))
   (define listing
     (with-output-to-string (lambda () (system* readelf "--dyn-syms" "-W" (path->string library)))))
-  (regexp-match* #rx"UNIQUE +DEFAULT +[0-9]+ +(_ZZN3rmm[^ \n]*get_ref_map[^ \n]*)" listing #:match-select cadr))
+  (regexp-match* #rx"UNIQUE +DEFAULT +[0-9]+ +(_ZZN3rmm[^ \n]*get_ref_map[^ \n]*)"
+                 listing
+                 #:match-select cadr))
 
 (test-pools "the canary and libcuml export RMM's registry as GNU unique symbols"
   (define cuml (build-path (getenv "RAFT_RAPIDS_PREFIX") "lib" "libcuml.so"))

@@ -253,27 +253,30 @@
             makeWrapperArgs = [ "--set CUDA_PATH ${cudaHome}" ];
           };
 
-      lineCount = pkgs.runCommand "rkt-raft-line-count" {
-        src = lib.fileset.toSource {
-          root = ./.;
-          fileset = lib.fileset.unions [
-            ./shim
-            ./downstream
-          ];
-        };
-      } ''
-        failed=0
-        while IFS= read -r file; do
-          lines=$(wc -l < "$file")
-          if [ "$lines" -gt 500 ]; then
-            echo "ERROR: $file has $lines lines; the limit is 500" >&2
-            failed=1
-          fi
-        done < <(find $src -type f \( -name '*.c' -o -name '*.h' -o -name '*.hpp' \
-                   -o -name '*.cpp' -o -name '*.cu' \))
-        [ "$failed" = 0 ] || exit 1
-        touch $out
-      '';
+      lineCount =
+        pkgs.runCommand "rkt-raft-line-count"
+          {
+            src = lib.fileset.toSource {
+              root = ./.;
+              fileset = lib.fileset.unions [
+                ./shim
+                ./downstream
+              ];
+            };
+          }
+          ''
+            failed=0
+            while IFS= read -r file; do
+              lines=$(wc -l < "$file")
+              if [ "$lines" -gt 500 ]; then
+                echo "ERROR: $file has $lines lines; the limit is 500" >&2
+                failed=1
+              fi
+            done < <(find $src -type f \( -name '*.c' -o -name '*.h' -o -name '*.hpp' \
+                       -o -name '*.cpp' -o -name '*.cu' \))
+            [ "$failed" = 0 ] || exit 1
+            touch $out
+          '';
 
       clangTidy = shim.overrideAttrs (old: {
         pname = "raftrkt-clang-tidy";

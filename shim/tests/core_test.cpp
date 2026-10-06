@@ -3,8 +3,8 @@
 #include <cstdint>
 #include <string>
 
-#include "gpu.hpp"
 #include "detail/handles.hpp"
+#include "gpu.hpp"
 #include "raftrkt/c_api.h"
 
 namespace {

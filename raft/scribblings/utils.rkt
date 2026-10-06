@@ -89,7 +89,10 @@
 
 (define (make-downstream-eval)
   (define ev (make-raft-eval))
-  (ev '(require ffi/unsafe ffi/unsafe/define ffi/unsafe/define/conventions raft/unsafe))
+  (ev '(require ffi/unsafe
+                ffi/unsafe/define
+                ffi/unsafe/define/conventions
+                raft/unsafe))
   ev)
 
 (define (listing language . lines)

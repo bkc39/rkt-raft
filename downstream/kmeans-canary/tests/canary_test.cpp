@@ -32,13 +32,13 @@ std::string gpu_unavailable_reason() {
   return count == 0 ? "no GPU: no CUDA device" : "";
 }
 
-#define KC_REQUIRE_GPU()                                     \
-  do {                                                       \
-    const std::string kc_reason = gpu_unavailable_reason();  \
-    if (!kc_reason.empty()) {                                \
-      std::printf("SKIP: %s\n", kc_reason.c_str());          \
-      GTEST_SKIP() << kc_reason;                             \
-    }                                                        \
+#define KC_REQUIRE_GPU()                                    \
+  do {                                                      \
+    const std::string kc_reason = gpu_unavailable_reason(); \
+    if (!kc_reason.empty()) {                               \
+      std::printf("SKIP: %s\n", kc_reason.c_str());         \
+      GTEST_SKIP() << kc_reason;                            \
+    }                                                       \
   } while (0)
 
 struct resources {
@@ -139,9 +139,10 @@ TEST(Abi, TheCanaryAcceptsTheShimItWasBuiltWith) {
   forged.raft_minor += 2;
   EXPECT_EQ(kc_check_abi(&forged), RR_ERROR);
   EXPECT_EQ(kc_last_error_kind(), RR_ERROR_LOGIC);
-  EXPECT_EQ(std::string(kc_last_error()).rfind("RAFT: built against 26.08.00, "
-                                               "but libraftrkt has 26.10.00",
-                                               0),
+  EXPECT_EQ(std::string(kc_last_error())
+                .rfind("RAFT: built against 26.08.00, "
+                       "but libraftrkt has 26.10.00",
+                       0),
             0U)
       << kc_last_error();
 }
@@ -220,12 +221,12 @@ TEST(KMeans, RefusalsNameTheArgument) {
   rr_view unbound = x.view;
   unbound.memory = -1;
   EXPECT_EQ(fit(res, x, centroids, inertia, n_iter), RR_OK) << kc_last_error();
-  EXPECT_EQ(kc_fit(res.handle, &unbound, nullptr, &centroids.view, 0, 1, tol,
-                   1, 0.0, 0, &inertia, &n_iter),
+  EXPECT_EQ(kc_fit(res.handle, &unbound, nullptr, &centroids.view, 0, 1, tol, 1,
+                   0.0, 0, &inertia, &n_iter),
             RR_ERROR);
   EXPECT_STREQ(kc_last_error(), "X: not a view bound to device memory");
-  EXPECT_EQ(kc_fit(res.handle, &x.view, nullptr, &centroids.view, 7, 1, tol,
-                   1, 0.0, 0, &inertia, &n_iter),
+  EXPECT_EQ(kc_fit(res.handle, &x.view, nullptr, &centroids.view, 7, 1, tol, 1,
+                   0.0, 0, &inertia, &n_iter),
             RR_ERROR);
   EXPECT_STREQ(kc_last_error(), "unknown init code 7");
 }
@@ -248,12 +249,14 @@ TEST(Pool, CumlAllocatesFromThePoolRaftInstalled) {
   int64_t high = 0;
   int64_t reserved = 0;
   ASSERT_EQ(kc_pool_reset_high(0), RR_OK) << kc_last_error();
-  ASSERT_EQ(kc_pool_bytes(0, &used, &high, &reserved), RR_OK) << kc_last_error();
+  ASSERT_EQ(kc_pool_bytes(0, &used, &high, &reserved), RR_OK)
+      << kc_last_error();
   const int64_t before = used;
   double inertia = 0;
   int32_t n_iter = 0;
   ASSERT_EQ(fit(res, x, centroids, inertia, n_iter), RR_OK) << kc_last_error();
-  ASSERT_EQ(kc_pool_bytes(0, &used, &high, &reserved), RR_OK) << kc_last_error();
+  ASSERT_EQ(kc_pool_bytes(0, &used, &high, &reserved), RR_OK)
+      << kc_last_error();
   EXPECT_EQ(used, before);
   EXPECT_GT(high, before);
 }

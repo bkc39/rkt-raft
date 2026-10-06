@@ -1,12 +1,12 @@
 #include <cuda_runtime_api.h>
 
 #include <cstdint>
-#include <string>
 #include <cuda/memory_resource>
 #include <rmm/cuda_device.hpp>
 #include <rmm/mr/cuda_async_memory_resource.hpp>
 #include <rmm/mr/per_device_resource.hpp>
 #include <rmm/resource_ref.hpp>
+#include <string>
 
 #include "canary.hpp"
 #include "kmeans_canary.h"

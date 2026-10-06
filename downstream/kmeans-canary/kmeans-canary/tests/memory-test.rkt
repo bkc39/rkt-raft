@@ -36,26 +36,25 @@
                         (fit-once X i)
                         (zero? (modulo (add1 i) sample-every))))
       (pool-sample)))
-  (check-true (collect-until (lambda ()
-                               (>= (buffer-drop-count) (+ drops (* buffers-per-fit fits))))))
+  (check-true (collect-until (lambda () (>= (buffer-drop-count) (+ drops (* buffers-per-fit fits))))))
   (define freed (- (buffer-drop-count) drops))
   (define used (map car samples))
   (define reserved (map cadr samples))
-  (printf "memory: ~a fits; pool used ~a bytes before, ~a after each 100 (max ~a); reserved ~a before, ~a to ~a after; ~a buffers freed of ~a allocated; ~a release failures\n"
-          fits
-          (car baseline)
-          (remove-duplicates used)
-          (apply max used)
-          (cadr baseline)
-          (apply min reserved)
-          (apply max reserved)
-          freed
-          (* buffers-per-fit fits)
-          (- (release-failure-count) failures))
+  (printf
+   "memory: ~a fits; pool used ~a bytes before, ~a after each 100 (max ~a); reserved ~a before, ~a to ~a after; ~a buffers freed of ~a allocated; ~a release failures\n"
+   fits
+   (car baseline)
+   (remove-duplicates used)
+   (apply max used)
+   (cadr baseline)
+   (apply min reserved)
+   (apply max reserved)
+   freed
+   (* buffers-per-fit fits)
+   (- (release-failure-count) failures))
   (check-equal? freed (* buffers-per-fit fits))
   (check-equal? (- (release-failure-count) failures) 0)
   (for ([u (in-list used)])
     (check-equal? u (car baseline) "pool use returns to the baseline after a collection"))
   (check-equal? (apply max reserved) (cadr baseline) "the pool reserves no more than after warm-up")
   (check-equal? (map shape (list X truth)) '((2000 8) (2000)) "the data stayed live throughout"))
-

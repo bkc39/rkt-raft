@@ -1,3 +1,5 @@
+#include "canary.hpp"
+
 #include <cuda_runtime_api.h>
 
 #include <cstdint>
@@ -10,7 +12,6 @@
 #include <rapids_logger/logger.hpp>
 #include <string>
 
-#include "canary.hpp"
 #include "kmeans_canary.h"
 #include "raftrkt/abi.h"
 #include "raftrkt/array.h"
@@ -60,23 +61,20 @@ int clusters_in(const rr_view& centroids) {
 
 template <typename T>
 const T* weights(const rr_view* sample_weight, int n) {
-  return sample_weight == nullptr
-             ? nullptr
-             : raftrkt::vector_data<const T, int>(sample_weight,
-                                                  "sample-weight", n);
+  return sample_weight == nullptr ? nullptr
+                                  : raftrkt::vector_data<const T, int>(
+                                        sample_weight, "sample-weight", n);
 }
 
 template <typename T>
 void fit(const raft::handle_t& handle, const rr_view* x,
          const rr_view* sample_weight, const rr_view* centroids,
          const fit_options& options, double& inertia, int32_t& n_iter) {
-  const T* data =
-      raftrkt::matrix_data<const T, int>(x, "X", layout::row_major);
+  const T* data = raftrkt::matrix_data<const T, int>(x, "X", layout::row_major);
   const int n = static_cast<int>(x->shape[0]);
   const int d = static_cast<int>(x->shape[1]);
-  T* centers = raftrkt::matrix_data<T, int>(centroids, "centroids",
-                                            layout::row_major,
-                                            raftrkt::any_extent, d);
+  T* centers = raftrkt::matrix_data<T, int>(
+      centroids, "centroids", layout::row_major, raftrkt::any_extent, d);
   const int k = clusters_in(*centroids);
   if (n < k) {
     throw logic_error("X: " + std::to_string(n) +
@@ -106,8 +104,8 @@ void predict(const raft::handle_t& handle, const rr_view* centroids,
                                                         layout::row_major);
   const int k = clusters_in(*centroids);
   const int d = static_cast<int>(centroids->shape[1]);
-  const T* data = raftrkt::matrix_data<const T, int>(
-      x, "X", layout::row_major, raftrkt::any_extent, d);
+  const T* data = raftrkt::matrix_data<const T, int>(x, "X", layout::row_major,
+                                                     raftrkt::any_extent, d);
   const int n = static_cast<int>(x->shape[0]);
   int* out = raftrkt::vector_data<int32_t, int>(labels, "labels", n);
   const T* w = weights<T>(sample_weight, n);
@@ -140,13 +138,11 @@ void make_blobs(const raft::handle_t& handle, const rr_view* out,
     throw logic_error("n-clusters: expected at least 1, got " +
                       std::to_string(options.n_clusters));
   }
-  ML::Datasets::make_blobs(handle, data, classes, n, d, options.n_clusters,
-                           row_major, nullptr, nullptr,
-                           static_cast<T>(options.cluster_std),
-                           options.shuffle,
-                           static_cast<T>(options.center_box_min),
-                           static_cast<T>(options.center_box_max),
-                           options.seed);
+  ML::Datasets::make_blobs(
+      handle, data, classes, n, d, options.n_clusters, row_major, nullptr,
+      nullptr, static_cast<T>(options.cluster_std), options.shuffle,
+      static_cast<T>(options.center_box_min),
+      static_cast<T>(options.center_box_max), options.seed);
 }
 
 template <typename Fn>
@@ -157,7 +153,8 @@ void on_floats(const rr_view* x, const char* name, Fn&& fn) {
   } else if (view.dtype == RR_DTYPE_FLOAT64) {
     fn(double{});
   } else {
-    throw logic_error(std::string(name) + ": expected float32 or float64, got " +
+    throw logic_error(std::string(name) +
+                      ": expected float32 or float64, got " +
                       raftrkt::dtype_name(view.dtype));
   }
 }
@@ -175,14 +172,14 @@ int kc_last_error_kind(void) {
 }
 
 int kc_check_abi(const rr_abi_tag* loaded) {
-  return raftrkt::translate_exceptions(
-      kc::last_error_slot(), [&] { raftrkt::require_abi(loaded); });
+  return raftrkt::translate_exceptions(kc::last_error_slot(),
+                                       [&] { raftrkt::require_abi(loaded); });
 }
 
 int kc_fit(void* handle, const rr_view* x, const rr_view* sample_weight,
-           const rr_view* centroids, int32_t init, int32_t max_iter,
-           double tol, int32_t n_init, double oversampling_factor,
-           uint64_t seed, double* inertia, int32_t* n_iter) {
+           const rr_view* centroids, int32_t init, int32_t max_iter, double tol,
+           int32_t n_init, double oversampling_factor, uint64_t seed,
+           double* inertia, int32_t* n_iter) {
   return raftrkt::translate_exceptions(kc::last_error_slot(), [&] {
     auto& inertia_out = *raftrkt::require(inertia, "inertia");
     auto& n_iter_out = *raftrkt::require(n_iter, "n_iter");
@@ -220,8 +217,7 @@ int kc_predict(void* handle, const rr_view* centroids, const rr_view* x,
 
 int kc_make_blobs(void* handle, const rr_view* out, const rr_view* labels,
                   int32_t n_clusters, double cluster_std, int32_t shuffle,
-                  double center_box_min, double center_box_max,
-                  uint64_t seed) {
+                  double center_box_min, double center_box_max, uint64_t seed) {
   return raftrkt::translate_exceptions(kc::last_error_slot(), [&] {
     const raft::handle_t& h = kc::handle_of(handle);
     const kc::device_scope scope{raft::resource::get_device_id(h)};

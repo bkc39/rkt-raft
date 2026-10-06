@@ -87,7 +87,9 @@
   (check-raft-error 'logic
                     "kmeans-fit: X: 10 samples are fewer than the 11 clusters"
                     (lambda () (kmeans-fit X #:n-clusters 11)))
-  (check-raft-error 'logic "kmeans-fit: unknown init code -1" (lambda () (kmeans-fit X #:init 'bogus)))
+  (check-raft-error 'logic
+                    "kmeans-fit: unknown init code -1"
+                    (lambda () (kmeans-fit X #:init 'bogus)))
   (define wide (list*->device-matrix '((0 0 0)) #:dtype 'float32))
   (check-raft-error 'logic
                     "kmeans-predict: X: expected 3 columns, got 2"
@@ -101,8 +103,7 @@
    'logic
    "kmeans-canary: RAFT: built against 26.08.00, but libraftrkt has 26.10.00; build both against the same rapids package set"
    (lambda () (call/kc 'kmeans-canary (lambda () (kc-check-abi forged)))))
-  (check-equal? (call-with-values (lambda ()
-                                    (call/kc 'kmeans-canary (lambda () (kc-check-abi (raft-abi-pointer)))))
-                                  list)
+  (check-equal? (call-with-values
+                 (lambda () (call/kc 'kmeans-canary (lambda () (kc-check-abi (raft-abi-pointer)))))
+                 list)
                 '()))
-

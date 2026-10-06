@@ -31,10 +31,11 @@
 (define canary-library
   (if canary-path
       (ffi-lib canary-path)
-      (raise (exn:fail:raft
-              "kmeans-canary: the canary library is not built; set RAFT_KMEANS_CANARY to libkmeans_canary.so (nix develop sets it from packages.kmeans-canary)"
-              (current-continuation-marks)
-              'generic))))
+      (raise
+       (exn:fail:raft
+        "kmeans-canary: the canary library is not built; set RAFT_KMEANS_CANARY to libkmeans_canary.so (nix develop sets it from packages.kmeans-canary)"
+        (current-continuation-marks)
+        'generic))))
 
 (define-ffi-definer define-kc canary-library #:make-c-id convention:hyphen->underscore)
 

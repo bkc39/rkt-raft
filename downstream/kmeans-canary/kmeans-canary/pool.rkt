@@ -1,10 +1,6 @@
 #lang racket/base
 
-(require (only-in "private/native.rkt"
-                  call/kc
-                  kc-current-is-async
-                  kc-pool-bytes
-                  kc-pool-reset-high))
+(require (only-in "private/native.rkt" call/kc kc-current-is-async kc-pool-bytes kc-pool-reset-high))
 
 (provide canary-current-is-async?
          canary-pool-bytes

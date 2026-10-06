@@ -15,8 +15,6 @@ using raftrkt::require;
 
 raftrkt::error_slot& last_error_slot() noexcept;
 
-
-
 inline const char* last_error() noexcept {
   return last_error_slot().message.data();
 }
@@ -27,8 +25,7 @@ inline error_kind last_error_kind() noexcept {
 
 template <typename Fn>
 int translate_exceptions(Fn&& fn) noexcept {
-  return raftrkt::translate_exceptions(last_error_slot(),
-                                       std::forward<Fn>(fn));
+  return raftrkt::translate_exceptions(last_error_slot(), std::forward<Fn>(fn));
 }
 
 }  // namespace rr

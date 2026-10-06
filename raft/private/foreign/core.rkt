@@ -57,4 +57,6 @@
 (define-raft rr-resources-sync (_fun _rr-resources -> (status : _int) -> (zero? status)))
 
 (define-raft rr-resources-handle
-  (_fun _rr-resources (out : (_ptr o _raft-handle/null)) -> (status : _int) -> (and (zero? status) out)))
+  (_fun _rr-resources (out : (_ptr o _raft-handle/null))
+        -> (status : _int)
+        -> (and (zero? status) out)))

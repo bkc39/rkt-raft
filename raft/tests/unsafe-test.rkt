@@ -83,9 +83,7 @@
   (check-equal? (list a b) '(1 2)))
 
 (test-gpu "a view that escapes the body is cleared"
-  (define escaped
-    (with-array-views ([x (device-vector 3)])
-      x))
+  (define escaped (with-array-views ([x (device-vector 3)]) x))
   (check-false (view-data escaped))
   (check-equal? (view-device escaped) -1))
 
@@ -125,10 +123,11 @@
   (define entered (box #f))
   (define released (box #f))
   (define worker
-    (with-release ([held (probe-hold! (resources-handle 'hold r))
-                         (lambda (_)
-                           (set-box! released (current-inexact-milliseconds))
-                           (probe-release!))])
+    (with-release ([held
+                    (probe-hold! (resources-handle 'hold r))
+                    (lambda (_)
+                      (set-box! released (current-inexact-milliseconds))
+                      (probe-release!))])
       (check-true held)
       (define body-thread
         (thread (lambda ()
@@ -150,25 +149,21 @@
   (check-equal? (call-with-values (lambda () (check 'demo (lambda () 0))) list) '()))
 
 (test-case "status-checker raises exn:fail:raft with the library's message and kind"
-  (check-raft-error 'logic "kmeans-fit: X: expected float32" (lambda ()
-                                                                 ((checker #"X: expected float32" 3)
-                                                                  'kmeans-fit
-                                                                  (lambda () 1))))
-  (check-raft-error 'out-of-memory "fit: pool exhausted" (lambda ()
-                                                          ((checker "pool exhausted" 1)
-                                                           'fit
-                                                           (lambda () (values 2 'ignored)))))
+  (check-raft-error 'logic
+                    "kmeans-fit: X: expected float32"
+                    (lambda () ((checker #"X: expected float32" 3) 'kmeans-fit (lambda () 1))))
+  (check-raft-error 'out-of-memory
+                    "fit: pool exhausted"
+                    (lambda () ((checker "pool exhausted" 1) 'fit (lambda () (values 2 'ignored)))))
   (check-raft-error 'generic "fit: odd" (lambda () ((checker #"odd" 9) 'fit (lambda () 1))))
-  (check-raft-error 'cuda "fit: bad � byte" (lambda ()
-                                                  ((checker #"bad \377 byte" 'cuda)
-                                                   'fit
-                                                   (lambda () 1)))))
+  (check-raft-error 'cuda
+                    "fit: bad � byte"
+                    (lambda () ((checker #"bad \377 byte" 'cuda) 'fit (lambda () 1)))))
 
 (struct exn:fail:canary exn:fail:raft ())
 
 (test-case "status-checker builds a downstream's own exception"
-  (define check
-    (status-checker (lambda () #"refused") (lambda () 3) #:exn exn:fail:canary))
+  (define check (status-checker (lambda () #"refused") (lambda () 3) #:exn exn:fail:canary))
   (check-exn (lambda (e)
                (and (exn:fail:canary? e)
                     (equal? (exn-message e) "blobs: refused")

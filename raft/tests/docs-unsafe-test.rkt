@@ -49,9 +49,7 @@
          (only-in "private/gpu.rkt" gpu-skip test-unless-skipped)
          (only-in "private/raft-error.rkt" check-raft-error))
 
-(define canary-path
-  (let ([path (getenv "RAFT_KMEANS_CANARY")])
-    (and (non-empty-string? path) path)))
+(define canary-path (let ([path (getenv "RAFT_KMEANS_CANARY")]) (and (non-empty-string? path) path)))
 
 (define canary-skip ;; noqa
   (or gpu-skip
@@ -114,7 +112,8 @@
 
 (test-canary "unsafe reference: checking native calls"
   (define check (status-checker kc-last-error kc-last-error-kind))
-  (check-equal? (no-values (lambda () (check 'kmeans-canary (lambda () (kc-check-abi (raft-abi-pointer))))))
+  (check-equal? (no-values (lambda ()
+                             (check 'kmeans-canary (lambda () (kc-check-abi (raft-abi-pointer))))))
                 '())
   (define ints (list*->device-matrix '((1 2) (3 4) (5 6)) #:dtype 'int32))
   (define handle (resources->handle-pointer (current-device-resources)))
@@ -216,10 +215,9 @@
   (check-raft-error 'logic
                     "kmeans-fit: X: expected row-major, got col-major 300x2"
                     (lambda () (kmeans-fit (contiguous X #:layout 'col-major) #:n-clusters 3)))
-  (check-raft-error
-   'logic
-   "kmeans-fit: X: expected float32 or float64, got int32"
-   (lambda () (kmeans-fit (list*->device-matrix '((1 2) (3 4)) #:dtype 'int32))))
+  (check-raft-error 'logic
+                    "kmeans-fit: X: expected float32 or float64, got int32"
+                    (lambda () (kmeans-fit (list*->device-matrix '((1 2) (3 4)) #:dtype 'int32))))
   (check-raft-error 'logic
                     "kmeans-fit: X: 300 samples are fewer than the 301 clusters"
                     (lambda () (kmeans-fit X #:n-clusters 301)))

@@ -48,14 +48,13 @@
           'truth (device-vector->list (fitted-truth f))))
 
 (define specs
-  '((300 2 3 float32 k-means++ 1)
-    (500 5 4 float32 scalable-k-means++ 2)
-    (400 3 5 float32 random 3)
-    (300 4 3 float32 array 4)
-    (300 2 3 float64 k-means++ 5)
-    (500 8 6 float64 scalable-k-means++ 6)
-    (1000 16 8 float32 k-means++ 7)
-    (250 3 2 float64 random 8)))
+  '((300 2 3 float32 k-means++ 1) (500 5 4 float32 scalable-k-means++ 2)
+                                  (400 3 5 float32 random 3)
+                                  (300 4 3 float32 array 4)
+                                  (300 2 3 float64 k-means++ 5)
+                                  (500 8 6 float64 scalable-k-means++ 6)
+                                  (1000 16 8 float32 k-means++ 7)
+                                  (250 3 2 float64 random 8)))
 
 (define (largest-difference ours theirs)
   (for*/fold ([worst 0.0])
@@ -86,4 +85,3 @@
     (check-true (<= worst tolerance) spec)
     (check-equal? (length (filter values theirs)) (length ours) spec))
   (check-equal? (hash-ref (first results) 'version) "26.08.00"))
-

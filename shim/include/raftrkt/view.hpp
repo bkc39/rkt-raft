@@ -151,8 +151,7 @@ void require_index(const std::string& who, int64_t extent) {
 }  // namespace detail
 
 template <typename T, typename Index = int64_t>
-T* vector_data(const rr_view* view, const char* name,
-               int64_t n = any_extent) {
+T* vector_data(const rr_view* view, const char* name, int64_t n = any_extent) {
   const rr_view& v = detail::require_bound(view, name, 1, dtype_code<T>);
   const std::string who(name);
   detail::require_extent(who, "elements", v.shape[0], n);

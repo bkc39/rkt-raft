@@ -30,7 +30,8 @@
                #:dtype [element-type 'float32]
                #:layout [order 'row-major]
                #:resources [resources (current-device-resources)])
-  (define X (device-matrix n-samples n-features #:dtype element-type #:layout order #:resources resources))
+  (define X
+    (device-matrix n-samples n-features #:dtype element-type #:layout order #:resources resources))
   (define labels (device-vector n-samples #:dtype 'int32 #:resources resources))
   (define handle (resources->handle-pointer resources))
   (match-define (list low high) center-box)
@@ -56,7 +57,7 @@
 
 (define (kmeans-fit X
                     #:n-clusters [n-clusters 8]
-                    #:init [init 'scalable-k-means++]
+                    #:init (init 'scalable-k-means++)
                     #:max-iter [max-iter 300]
                     #:tol [tol 1e-4]
                     #:n-init [n-init 'auto]
@@ -96,6 +97,5 @@
   (define handle (resources->handle-pointer resources))
   (define inertia
     (with-array-views ([c centroids] [x X] [w sample-weight] [y labels])
-      (call/kc 'kmeans-predict
-               (lambda () (kc-predict handle c x w (if normalize? 1 0) y)))))
+      (call/kc 'kmeans-predict (lambda () (kc-predict handle c x w (if normalize? 1 0) y)))))
   (values labels inertia))

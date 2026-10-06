@@ -30,10 +30,9 @@ KC_API int kc_fit(void* handle, const rr_view* x, const rr_view* sample_weight,
                   double tol, int32_t n_init, double oversampling_factor,
                   uint64_t seed, double* inertia, int32_t* n_iter);
 
-KC_API int kc_predict(void* handle, const rr_view* centroids,
-                      const rr_view* x, const rr_view* sample_weight,
-                      int32_t normalize_weights, const rr_view* labels,
-                      double* inertia);
+KC_API int kc_predict(void* handle, const rr_view* centroids, const rr_view* x,
+                      const rr_view* sample_weight, int32_t normalize_weights,
+                      const rr_view* labels, double* inertia);
 
 KC_API int kc_make_blobs(void* handle, const rr_view* out,
                          const rr_view* labels, int32_t n_clusters,

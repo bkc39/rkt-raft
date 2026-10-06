@@ -39,13 +39,12 @@
 
 (define ((status-checker last-error last-error-kind #:exn [exn exn:fail:raft]) who thunk)
   (define-values (results message kind)
-    (call-as-atomic
-     (lambda ()
-       (call-with-values thunk
-                         (lambda (status . results)
-                           (if (eqv? status 0)
-                               (values results #f #f)
-                               (values #f (last-error) (last-error-kind))))))))
+    (call-as-atomic (lambda ()
+                      (call-with-values thunk
+                                        (lambda (status . results)
+                                          (if (eqv? status 0)
+                                              (values results #f #f)
+                                              (values #f (last-error) (last-error-kind))))))))
   (unless results
     (raise (exn (format "~a: ~a" who (message->string message))
                 (current-continuation-marks)
