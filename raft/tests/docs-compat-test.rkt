@@ -371,9 +371,9 @@
 (define M (list*->matrix rows))
 (define n (matrix-num-rows M))
 
-(define (covariance-of M)
-  (define means (matrix-scale (matrix* (make-matrix 1 n 1) M) (/ 1.0 n)))
-  (define centered (matrix- M (matrix* (make-matrix n 1 1) means)))
+(define (covariance-of samples)
+  (define means (matrix-scale (matrix* (make-matrix 1 n 1) samples) (/ 1.0 n)))
+  (define centered (matrix- samples (matrix* (make-matrix n 1 1) means)))
   (matrix-scale (matrix* (matrix-transpose centered) centered) (/ 1.0 (sub1 n))))
 
 (test-gpu "moving-data guide: a matrix computed on the host"

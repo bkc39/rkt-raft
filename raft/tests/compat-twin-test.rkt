@@ -84,7 +84,7 @@
       (list snk d order (rows-for-sink snk d))))
   (define cases
     (for/list ([plan (in-list sink-plans)])
-      (match-define (list snk d order rows) plan)
+      (match-define (list _ d order rows) plan)
       (hasheq 'data rows 'dtype (symbol->string d) 'order (hash-ref orders order))))
   (for ([plan (in-list sink-plans)]
         [result (in-list (results cases))])
