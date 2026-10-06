@@ -37,4 +37,19 @@ A test that cannot run prints a line starting with `SKIP:`; a green run with
 SKIP lines has not tested what was skipped. Contributors and agents:
 [`AGENTS.md`](AGENTS.md).
 
-Apache-2.0.
+## Licences
+
+rkt-raft is Apache-2.0 (`LICENSE`). The repository holds only its own code and
+does not redistribute what it builds on:
+
+- RAFT and RMM, from NVIDIA's RAPIDS wheels on PyPI, and `rapids-logger`,
+  which they use: Apache-2.0.
+- CCCL (Thrust, CUB and libcu++), whose headers come inside the RAFT wheel:
+  Apache-2.0, libcu++ with LLVM exceptions, with some parts under other
+  permissive licences.
+- The CUDA toolkit and libraries (the runtime, cuBLAS, cuSOLVER, cuSPARSE
+  and the rest): NVIDIA's CUDA Toolkit End User License Agreement, which is
+  not an open-source licence.
+- The Python twins, used only by the tests: `pylibraft` and `rmm`
+  (Apache-2.0), CuPy (MIT) and NumPy (BSD-3-Clause, with parts under other
+  permissive licences).
