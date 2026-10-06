@@ -123,13 +123,26 @@ plans/scoping-plan.md         the approved plan (revision 5), as Markdown
    rule), with a syntax class on every pattern variable. Never
    `define-syntax-rule` or `syntax-rules`: `scripts/no-syntax-rule.sh` gates
    it.
-7. **Scoped native resources** go through `with-*` forms that expand into
+7. **Scoped native resources** go through `with-*` forms over
    `dynamic-wind` (`raft/private/resource.rkt`), with the finalizer as the
-   backstop. `with-release` acquires once, before the body's extent; every
-   exit from the body releases (a return, a raise, an escape, a generator's
-   `yield`), and control that jumps back in afterwards (a generator resume,
-   a re-entered continuation) raises `exn:fail:raft` (kind `'logic`) instead
-   of acquiring again. A public form passes its own name as `#:who`
+   backstop. The finalizer is the default and is correct on its own; a
+   `with-*` form exists to give a managed object's lifetime a clear
+   timeline, a release at a known point, because a resources object holds
+   GPU and driver state (its CUDA stream, the cuBLAS, cuSOLVER and cuSPARSE
+   handles RAFT creates on first use) that the tracing GC cannot see and
+   would otherwise free only eventually, in no particular order. The manual
+   says so where readers meet it (Concepts, *How memory is reclaimed*).
+   `with-release` expands into a call of the procedure `call-with-release`
+   (owner review of #11), which holds the `dynamic-wind`, the re-entry
+   refusal and the release-once, so each binding expands to one call and one
+   `lambda`: 25 nodes of fully expanded code per binding instead of 116. The
+   acquire is an argument, so it is evaluated once, before the body's
+   extent; the release expression and `#:who` are evaluated with it, once,
+   after the acquire and before the body (`resource-test.rkt` pins the
+   order). Every exit from the body releases (a return, a raise, an escape,
+   a generator's `yield`), and control that jumps back in afterwards (a
+   generator resume, a re-entered continuation) raises `exn:fail:raft`
+   (kind `'logic`) instead of acquiring again. A public form passes its own name as `#:who`
    (`with-device-resources`), which prefixes that message; without it the
    message names nothing internal. No raw `malloc`/`free` outside that module
    and `raft/private/foreign/host.rkt`, which allocates the non-moving host

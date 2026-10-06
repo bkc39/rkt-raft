@@ -14,23 +14,10 @@
 
 @title[#:tag "moving-data"]{Moving data between Racket and the GPU}
 
-Data reaches a GPU program in whatever form the rest of the program keeps it:
-rows read from a text file, a matrix computed with @racketmodname[math/matrix],
-numbers a C library wrote into an @racket[f64vector]. This chapter follows one
-program that gathers its inputs from each of those places and puts them on the
-GPU in the form cuML takes: it reads a table, chooses the element type cuML
-works in, sends a covariance matrix it computed on the host, adds per-sample
-weights from foreign code, lays the features out for a least-squares solver,
-and brings arrays back in the forms the rest of the program uses. The last
-section measures what each form costs.
-
-The cuML calls themselves belong to a separate package built on this library,
-through the interface @secref["downstream"] describes; this chapter covers the
-hand-off, the arrays those calls take.
-
-Every conversion here comes from @racketmodname[raft/compat], which the
-program requires beside @racketmodname[raft], with the Racket libraries it
-reads and writes its data with:
+This chapter follows one program that puts its inputs on the GPU in the form
+cuML takes, from a text file, a @racketmodname[math/matrix] matrix and an
+@racket[f64vector], and brings results back. The cuML calls themselves belong to
+a package built on this one (@secref["downstream"]). The conversions come from @racketmodname[raft/compat]:
 
 @racketblock[
 (require raft raft/compat
@@ -40,9 +27,8 @@ reads and writes its data with:
 
 @section[#:tag "moving-data-rows"]{Rows from a text file}
 
-The measurements are six iris flowers in comma-separated text, four numbers
-and a species name per line. The program reads the lines, splits them, and
-keeps the numbers as a list of rows. Here a string port stands for the file:
+Six iris flowers, four numbers and a species per line; a string port stands
+for the file:
 
 @examples[#:eval ev #:label #f
 (define csv
@@ -63,13 +49,9 @@ keeps the numbers as a list of rows. Here a string port stands for the file:
 X
 ]
 
-@racket[list*->device-array] reads the rank from the nesting: a list of rows,
-lists or vectors, is a matrix, and a list of numbers a vector. Every row must have as many numbers
-as the first, or the conversion names the row that does not.
-
-The species become the labels a classifier is scored against, one
-@racket['int32] per flower, numbered in order of appearance. The labels are
-built as a vector, so they go up with @racket[vector->device-vector]:
+@racket[list*->device-array] reads the rank from the nesting: a list of rows
+is a matrix. The species become @racket['int32] labels, numbered in order of
+appearance:
 
 @examples[#:eval ev #:label #f
 (define species (map last table))
@@ -106,28 +88,20 @@ labels = device_ndarray(codes.astype(np.int32))
 labels.copy_to_host()      # array([0, 0, 1, 1, 2, 2], dtype=int32)
 }|
 
-NumPy parses the text in C and builds the array in one step; the Racket
-program parses with Racket's string functions and hands the rows to the
-conversion. @tt{np.unique} numbers the names in sorted order, which here is
-also their order of appearance.
+NumPy parses and builds the array in one step; Racket parses, then converts.
 
 @section[#:tag "moving-data-dtype"]{Choosing float32 for cuML}
 
-Left to itself, a conversion infers the element type as NumPy does: decimal
-numbers give @racket['float64], and exact integers @racket['int64]:
+Without @racket[#:dtype], the element type is inferred as NumPy infers it:
 
 @examples[#:eval ev #:label #f
 (dtype (list*->device-array rows))
 (dtype (list*->device-array '((1 2) (3 4))))
 ]
 
-cuML's estimators take @racket['float32] or @racket['float64]. A consumer
-GPU such as the RTX 3090 Ti runs @racket['float64] arithmetic at a small
-fraction of its @racket['float32] rate, and a @racket['float32] matrix takes
-half the memory, so the program asked for @racket['float32] with
-@racket[#:dtype]. A
-@racket['float32] cannot hold most decimals exactly, so what comes back is the
-nearest @racket['float32] value, widened to a flonum:
+The program asked for @racket['float32], which consumer GPUs run far faster
+than @racket['float64], in half the memory. Values come back
+as the nearest @racket['float32], widened to a flonum:
 
 @examples[#:eval ev #:label #f
 (first (device-array->list* X))
@@ -140,15 +114,12 @@ X.copy_to_host()[0].tolist()
 # [5.099999904632568, 3.5, 1.399999976158142, 0.20000000298023224]
 }|
 
-The inference and the rounding are NumPy's. NumPy's @tt{loadtxt} took the
-type up front, as @racket[#:dtype] does here.
+The inference and the rounding are NumPy's.
 
 @section[#:tag "moving-data-matrix"]{A matrix computed on the host}
 
-The program also computes the features' covariance on the host with
-@racketmodname[math/matrix]: it is small, four by four, and the program wants
-it as a matrix to inspect as well as on the GPU, where a whitening step can
-use it.
+The features' covariance, computed on the host with
+@racketmodname[math/matrix]:
 
 @examples[#:eval ev #:label #f
 (define M (list*->matrix rows))
@@ -161,9 +132,8 @@ use it.
 C
 ]
 
-Brought back, the matrix is a @racketmodname[math/array] flonum array, so the
-host algebra applies to it directly. Its entries differ from the
-@racket['float64] originals only by the @racket['float32] rounding:
+It comes back as a @racketmodname[math/array] flonum array, off only by the
+@racket['float32] rounding:
 
 @examples[#:eval ev #:label #f
 (define C* (device-matrix->matrix C))
@@ -178,20 +148,13 @@ C = device_ndarray(cov.astype(np.float32))
 np.abs(C.copy_to_host() - cov).max() < 1e-6     # True
 }|
 
-NumPy has @tt{np.cov}; @racketmodname[math/matrix] has the operations it is
-built from. A @racketmodname[math/array] array also carries a cost NumPy's do
-not: it is Typed Racket, and untyped code reads each element through a
-contract. The covariance, a result of @racket[matrix*], is neither a flonum
-array nor a mutable array, so the conversion read its sixteen elements that
-way, about a microsecond each. On the way back the conversion builds a flonum
-array, whose storage a later conversion hands over in one step.
+Unlike a NumPy array, a @racket[matrix*] result is read element by element
+through a Typed Racket contract (@secref["moving-data-speed"]).
 
 @section[#:tag "moving-data-ffi"]{Weights from foreign code}
 
-Each flower gets a weight from a C routine that the program calls through the
-FFI. The program allocates the @racket[f64vector] and passes its storage,
-@racket[(f64vector->cpointer weights)], to the routine, which fills it; a loop
-stands for that call here. cuML wants the weights in the type of the data:
+Per-flower weights come from a C routine that fills an @racket[f64vector]
+through the FFI; a loop stands in for it. cuML wants them in the data's type:
 
 @examples[#:eval ev #:label #f
 (define weights (make-f64vector n))
@@ -209,20 +172,14 @@ fill_weights(weights.ctypes.data_as(ctypes.POINTER(ctypes.c_double)), 6)
 w = device_ndarray(weights.astype(np.float32))
 }|
 
-Here @tt{fill_weights} is the C routine, loaded with @tt{ctypes}. A NumPy
-array is its own foreign buffer, so @tt{ctypes} hands its storage to C
-directly; in Racket the @racket[f64vector] plays that part. Sent as
-@racket['float64], an @racket[f64vector] is copied as it is; narrowing it to
-@racket['float32] converts each element, and a value too large for
-@racket['float32] raises instead of becoming an infinity.
+The @racket[f64vector] plays the NumPy array's part as a foreign buffer.
+Narrowing to @racket['float32] raises on a value too large, where NumPy gives
+an infinity.
 
 @section[#:tag "moving-data-layout"]{A layout for the solver}
 
-The same features also go to a least-squares model, and every solver behind
-cuML's @tt{LinearRegression} reads column-major input. Since the features are still
-on the host, the program packs them column by column on the way up, and no
-transpose runs on the GPU; the matrix from @racketmodname[math/matrix] packs
-the same way:
+cuML's @tt{LinearRegression} reads column-major input, so the features are
+packed by column on the way up, from a list or a matrix:
 
 @examples[#:eval ev #:label #f
 (define F (list*->device-array rows #:dtype 'float32 #:layout 'col-major))
@@ -236,23 +193,20 @@ F = device_ndarray(np.asfortranarray(table))
 F.f_contiguous, F.strides        # (True, (4, 24))
 }|
 
-@tt{np.asfortranarray} makes a column-major copy on the host before the
-transfer, as @racket[#:layout] does. Strides count elements here and bytes in
-NumPy. When the data is already on the device, @racket[contiguous] changes
-the layout there instead (@secref["arrays-layout"]).
+Strides count elements here and bytes in NumPy. On the device,
+@racket[contiguous] changes the layout (@secref["arrays-layout"]).
 
 @section[#:tag "moving-data-back"]{Results back in Racket}
 
-Results come back in whatever form the next step of the program wants. The
-features as a @racketmodname[math/array] array, to compute each column's mean
-on the host:
+Each conversion names the Racket form it makes, and waits for the work queued
+on the array's stream. Column means through @racketmodname[math/array]:
 
 @examples[#:eval ev #:label #f
 (define X* (device-array->array X))
 (array-scale (array-axis-sum X* 0) (/ 1.0 n))
 ]
 
-The labels as a vector, to count the flowers of each species:
+Species counts from a vector:
 
 @examples[#:eval ev #:label #f
 (define counts (make-vector (length names) 0))
@@ -261,8 +215,7 @@ The labels as a vector, to count the flowers of each species:
 counts
 ]
 
-The weights as raw bytes, saved for a later run, which reads them straight
-back:
+Weights saved as raw bytes and read back:
 
 @examples[#:eval ev #:label #f
 (define saved (make-temporary-file))
@@ -284,19 +237,13 @@ w.copy_to_host().tofile(path)
 np.fromfile(path, dtype=np.float32)             # array([2., 2., 1., 1., 1., 1.], dtype=float32)
 }|
 
-@tt{copy_to_host} always gives a NumPy array, which Python code converts
-further if it needs to, and NumPy keeps the means in @tt{float32}, where
-@racketmodname[math/array] computes them in flonums. Here each conversion names the Racket form it makes,
-so the program asks for the one it needs. Every one of them waits for the
-work queued on the array's stream before it copies.
+@tt{copy_to_host} always gives a NumPy array, and keeps the means in
+@tt{float32}.
 
 @section[#:tag "moving-data-speed"]{What each form costs}
 
-A conversion either copies a block of storage as it is or packs the elements
-one at a time. The table measures both directions for every form, at a
-million elements, as the median of five runs after a warm-up; it is
-@tt{bench/conversions.rkt} in the repository, run on the lab host (RTX 3090
-Ti, Racket 9.3 CS) on 2026-10-05. Times are milliseconds.
+Milliseconds per million elements, median of five runs
+(@tt{bench/conversions.rkt}, RTX 3090 Ti, Racket 9.3 CS, 2026-10-05):
 
 @(define speed-rows
    '(("list" "33.5" "32.6" "51.0" "49.6")
@@ -325,39 +272,23 @@ Ti, Racket 9.3 CS) on 2026-10-05. Times are milliseconds.
                      @bold{back from float32})
                speed-rows)]
 
-Every @racketmodname[math/array] array comes back through the same call,
-@racket[device-array->array], so its times are given once, on the flonum
-array rows; a dash marks the same call.
-
-What it says, for a program that moves a lot of data:
+Every @racketmodname[math/array] array comes back through
+@racket[device-array->array]; a dash means the same time as the flonum array.
 
 @itemlist[
- @item{A form whose storage matches the element type crosses in one copy:
-       an @racket[flvector] or a flonum array as @racket['float64], and bytes
-       as anything, in 1 to 4 milliseconds per million elements each way. An
-       @racket[f32vector] as @racket['float32] and an @racket[f64vector] as
-       @racket['float64] take one more copy on the host.}
- @item{Lists and vectors cost about 35 nanoseconds an element going up and
-       35 to 55 coming back. Up to some hundred thousand elements that is
-       negligible next to GPU work; beyond that, build an @racket[flvector]
-       or an @racket[f32vector] in the first place.}
- @item{Changing the element type on the way costs a pass over the elements,
-       30 to 60 milliseconds per million, so keep the data in the type it
-       will be used in: for cuML, an @racket[f32vector], or bytes from a file
-       of @tt{float32}.}
- @item{A @racketmodname[math/array] array that is neither a flonum array nor
-       a mutable array, such as one made by @racket[build-array] or returned
-       by @racketmodname[math/matrix], is read element by element through
-       Typed Racket's contract, about 0.6 microseconds each. The contract
-       comes with the array itself when untyped code builds it, so converting
-       it later, in Typed Racket or not, does not avoid it. What does is
-       building the array in a Typed Racket module and converting it there
-       with @racket[array->flarray], before untyped code sees it: a
-       1000×1000 table built and converted that way takes 80 milliseconds
-       (@tt{bench/typed-arrays.rkt}),
-       against 710 for the same table built by untyped code and read with
-       @racket[array->vector], and 700 for that table handed to
-       @racket[array->flarray] in Typed Racket.}]
+ @item{Storage that matches the element type crosses in one copy, 1 to 4 ms:
+       an @racket[flvector] or flonum array as @racket['float64], bytes as
+       anything; an @racket[f32vector] or @racket[f64vector] in its own type
+       takes one more host copy.}
+ @item{Lists and vectors cost 35 to 55 ns an element; for large data, build
+       an @racket[flvector] or @racket[f32vector] in the first place.}
+ @item{Changing the element type on the way costs 30 to 60 ms, so keep data
+       in the type it is used in: for cuML, @racket['float32].}
+ @item{Any other @racketmodname[math/array] array, such as one from
+       @racket[build-array] or @racketmodname[math/matrix], is read through
+       a Typed Racket contract, about 0.6 µs an element. To avoid it, build
+       the array in Typed Racket and call @racket[array->flarray] there:
+       80 ms for 1000×1000 against 710 (@tt{bench/typed-arrays.rkt}).}]
 
 @python|{
 xs = [i / 2 for i in range(1_000_000)]
@@ -368,7 +299,4 @@ d = device_ndarray(arr)                            # 2.3 ms
 d.copy_to_host().tolist()                          # 37 ms back to a list
 }|
 
-The same split exists in Python, measured the same way on the same host:
-building a NumPy array from a list visits every element, and a NumPy array
-already in the right type crosses in one copy. A list costs about the same on
-either side.
+Python splits the same way; a list costs about the same on either side.

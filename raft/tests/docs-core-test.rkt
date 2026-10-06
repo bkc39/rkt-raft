@@ -271,7 +271,11 @@
     (with-device-resources ([left (device-resources)] [right (device-resources)])
       (values left right)))
   (check-equal? (map printed (list left right)) (make-list 2 "#<device-resources device 0 released>"))
-  (check-raft-error 'logic released-message (lambda () (resources-sync! left))))
+  (check-raft-error 'logic released-message (lambda () (resources-sync! left)))
+  (define unscoped (device-resources))
+  (define scoped (with-device-resources ([r (device-resources)]) r))
+  (check-equal? (map printed (list unscoped scoped))
+                '("#<device-resources device 0>" "#<device-resources device 0 released>")))
 
 (test-gpu "reference: device-count"
   (check-pred exact-positive-integer? (device-count))
