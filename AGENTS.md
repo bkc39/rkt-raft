@@ -677,12 +677,15 @@ the binding census), `racket-review`, `racket-version` (at least 9.3),
   `nix build`, `packages.*`, test-running or rendering instructions. Those
   are maintainer material and live in `README.md` (Development) and here.
 - **The manual shows Racket code only.** No Python blocks, no comparisons
-  with pylibraft, CuPy, NumPy or cuML, and no mention of the twins beyond one
-  clause in the AI disclosure and the Acknowledgements line. Python parity
-  lives in the tests and CI, never in the docs (owner decision, reversing the
-  earlier Python-beside-Racket convention). A fact about Racket semantics
+  with pylibraft, CuPy, NumPy or cuML, and no mention of the twins. Python
+  parity lives in the tests and CI, never in the docs (owner decision,
+  reversing the earlier Python-beside-Racket convention). A fact about Racket semantics
   (strides in elements, per-thread default resources, dtype inference,
   layouts) is stated on its own terms.
+- **Front matter is terse**, as in glmnet: three one-sentence paragraphs led
+  by bold text (License, Acknowledgements, AI Disclosure) on the landing page
+  (`raft.scrbl`), before the table of contents, the same on every leg; not
+  sections. The per-component licences live in `README.md` (Licences).
 - **The owner reviews each leg's docs.** Every leg adds its own guide chapter
   and reference section. A guide chapter is a tutorial on realistic client
   code, evaluated live.
