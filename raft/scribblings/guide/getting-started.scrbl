@@ -5,31 +5,23 @@
 
 @title[#:tag "getting-started"]{Getting started}
 
-From a fresh checkout to a Racket program that has loaded RAFT and checked
-the GPU stack under it.
+From installing the package to a Racket program that has loaded RAFT and
+checked the GPU stack under it.
 
 @section[#:tag "gs-requirements"]{What you need}
 
 @itemlist[
  @item{@bold{Linux on x86-64.} No macOS or Windows build, and no CPU
        fallback.}
- @item{@bold{An NVIDIA GPU.} Development builds target compute capability
-       8.6 and later 8.x devices (RTX 30 and 40 series, A10, A40, L4, L40).}
- @item{@bold{An NVIDIA driver for CUDA 13}, release 580 or newer. Nix
-       supplies the CUDA toolkit.}
- @item{@bold{Nix with flakes enabled.} The flake pins Racket 9.3, CUDA 13.2
-       and the RAPIDS 26.08 release.}]
+ @item{@bold{An NVIDIA GPU of compute capability 8.6 or a later 8.x}: RTX 30
+       and 40 series, A10, A40, L4, L40. The native library is built for 8.6
+       only; RAPIDS itself supports 7.5 and newer.}
+ @item{@bold{An NVIDIA driver for CUDA 13}, release 580 or newer.}
+ @item{@bold{Racket 9.3} or later.}]
 
-@section[#:tag "gs-shell"]{Entering the shell}
+@section[#:tag "gs-installing"]{Installing}
 
-@commandline{git clone https://github.com/bkc39/rkt-raft && cd rkt-raft}
-@commandline{nix develop}
-
-The first entry builds the native library and installs the @tt{raft}
-collection into a Racket user directory of the checkout's own; later entries
-take seconds. The shell also provides a @tt{python3} with @tt{pylibraft},
-@tt{rmm}, CuPy and NumPy from the same RAPIDS release, the Python this manual
-compares against.
+@commandline{raco pkg install raft}
 
 @section[#:tag "gs-first-program"]{A first program}
 
@@ -96,28 +88,19 @@ cp.cuda.runtime.getDeviceProperties(0)["name"]           # b'NVIDIA GeForce RTX 
 Racket's @racket[device-count] and @racket[device-properties] @status{L2}
 arrive with the rest of the core module.
 
-@section[#:tag "gs-tests"]{Running the tests}
-
-@commandline{raco test raft}
-@commandline{scripts/gpu-suite.sh}
-
-The first runs the Racket tests; the second everything that needs the GPU,
-including the parity checks against Python. A test that cannot run prints a
-line starting with @tt{SKIP:}; a green run with SKIP lines has not tested
-what was skipped.
-
 @section[#:tag "gs-examples"]{How the examples in this manual run}
 
 Every Racket example is evaluated when the manual is built, on the GPU, and a
 test pins what each one shows. The Python blocks are not evaluated: they show
-the closest equivalent, with its output in a comment, and the parity tests
+the closest equivalent in @tt{pylibraft}, @tt{rmm}, CuPy and NumPy from the
+same RAPIDS release, with its output in a comment, and the parity tests
 compare the two sides by machine.
 
 @section[#:tag "gs-license"]{License}
 
 This package is distributed under @bold{Apache-2.0} (see @tt{LICENSE} at the
-root of the repository). The repository holds only its own code: the flake
-fetches what it builds on and does not redistribute it.
+root of the repository). The repository holds only its own code and does not
+redistribute what it builds on.
 
 @itemlist[
   @item{RAFT and RMM, from NVIDIA's RAPIDS wheels on PyPI, and
@@ -126,7 +109,7 @@ fetches what it builds on and does not redistribute it.
         wheel: Apache-2.0, libcu++ with LLVM exceptions, with some parts
         under other permissive licences.}
   @item{The CUDA toolkit and libraries (the runtime, cuBLAS, cuSOLVER,
-        cuSPARSE and the rest), from nixpkgs: NVIDIA's CUDA Toolkit End User
+        cuSPARSE and the rest): NVIDIA's CUDA Toolkit End User
         License Agreement, which is not an open-source licence.}
   @item{The Python twins: @tt{pylibraft} and @tt{rmm} (Apache-2.0), CuPy
         (MIT) and NumPy (BSD-3-Clause, with parts under other permissive
