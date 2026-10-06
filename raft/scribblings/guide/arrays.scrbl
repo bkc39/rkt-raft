@@ -5,23 +5,15 @@
 
 @title[#:tag "arrays"]{Device arrays}
 
-A @tech{device array} is a matrix or a vector whose elements live in GPU
-memory. This chapter prepares a small dataset for two cuML algorithms, the way
-a program does before it calls them. It puts the measurements on the GPU,
-checks what it made, allocates the arrays k-means will write its answers
-into, lays the data out in the order a least-squares solver reads it, brings
-values back to Racket, and lets the memory go. Each section adds to the one
-before.
-
-The cuML calls themselves are not part of this library. A cuML binding is a
-separate package built on it, through an interface that arrives later
-@status{L1d}; what this chapter prepares is exactly what those calls take.
+A @tech{device array} is a matrix or a vector in GPU memory. This chapter
+prepares a small dataset for two cuML algorithms, k-means and least squares;
+each section adds to the one before. The cuML calls live in a separate
+package, through an interface that arrives later @status{L1d}.
 
 @section[#:tag "arrays-upload"]{A dataset on the GPU}
 
-The data is six flowers from Fisher's iris measurements: sepal length, sepal
-width, petal length and petal width, in centimetres, two flowers from each
-species. cuML works in @racket['float32], so the program asks for it:
+Six of Fisher's iris flowers, four measurements each, in the
+@racket['float32] cuML works in:
 
 @examples[#:eval ev #:label #f
 (define samples
@@ -35,11 +27,7 @@ species. cuML works in @racket['float32], so the program asks for it:
 X
 ]
 
-@racket[list*->device-matrix] checks that every row has the same length,
-packs the numbers into a host buffer in the element type and order the
-matrix will have, and copies that buffer to the device in one call. Printing
-@racket[X] copies the values back to show them, so it waits for the GPU; the
-header says what the matrix is and where it lives.
+Printing copies the values back, so it waits for the GPU.
 
 @python|{
 import numpy as np
@@ -57,18 +45,11 @@ X = device_ndarray(np.array(samples, dtype=np.float32))
 X        # <pylibraft.common.device_ndarray.device_ndarray object at 0x7f…>
 }|
 
-In Python the packing is NumPy's: @tt{np.array} builds the host buffer and
-@tt{device_ndarray} copies it. The Racket conversion is one step, and it
-takes the element type as @racket[#:dtype]. A @tt{device_ndarray} prints as
-an object; to see its values, copy it back with @tt{X.copy_to_host()} or hand
-it to CuPy with @tt{cp.asarray(X)}.
+A @tt{device_ndarray} prints as an object, not its values.
 
 @section[#:tag "arrays-inspect"]{What the program made}
 
-Before handing @racket[X] to a library, the program checks it. Its
-@racket[shape] is the number of rows and columns, its @racket[dtype] the
-element type, its @racket[layout] the order the elements sit in memory, and
-its @racket[strides] how many elements apart neighbours are along each axis:
+Before handing @racket[X] to a library, the program checks it:
 
 @examples[#:eval ev #:label #f
 (shape X)
@@ -78,8 +59,8 @@ its @racket[strides] how many elements apart neighbours are along each axis:
 (numel X)
 ]
 
-@racket['row-major] means each row is stored contiguously, so the next
-element along a row is 1 away and the next row is 4 away, as the strides say.
+Each row is contiguous: the next element along a row is 1 away, the next
+row 4 away.
 
 @python|{
 X.shape                                       # (6, 4)
@@ -90,19 +71,13 @@ np.array(samples, dtype=np.float32).strides   # (16, 4)
 X.copy_to_host().size                         # 24
 }|
 
-The two sides count strides differently. Racket counts them in elements, as
-RAFT, DLPack and PyTorch do; NumPy and CuPy count bytes, so a
-@racket['float32] row of four is 16 bytes, not 4. And pylibraft reports
-@tt{None} for the strides of a C-contiguous array, which is what
-@tt{__array_interface__} does, rather than computing them. pylibraft has no
-element count of its own; NumPy calls it @tt{size}, and this library calls
-it @racket[numel], as rktorch does.
+Racket strides count elements, NumPy's count bytes, and pylibraft's are
+@tt{None} when C-contiguous.
 
 @section[#:tag "arrays-outputs"]{Room for k-means' answers}
 
-RAFT and cuML do not allocate their results: the caller passes arrays for
-them to write into. k-means with three clusters writes one label per sample,
-an @racket['int32], and three centroids with as many columns as the data:
+RAFT and cuML write into arrays the caller allocates. k-means with three
+clusters writes an @racket['int32] label per sample and three centroids:
 
 @examples[#:eval ev #:label #f
 (define k 3)
@@ -114,11 +89,7 @@ an @racket['int32], and three centroids with as many columns as the data:
 ]
 
 @racket[device-vector] and @racket[device-matrix] allocate without
-initialising, the way @tt{np.empty} does: the elements hold whatever the
-memory held before, so the program reads them only after the algorithm has
-written them. @racket[device-matrix] makes @racket['float32],
-@racket['row-major] matrices unless told otherwise, the layout cuML's k-means
-reads.
+initialising, like @tt{np.empty}.
 
 @python|{
 k = 3
@@ -130,19 +101,13 @@ centroids.shape, centroids.dtype, centroids.c_contiguous
 # ((3, 4), dtype('float32'), True)
 }|
 
-The defaults match: @tt{device_ndarray.empty} also makes @tt{float32} in C
-order unless told otherwise.
+The defaults match.
 
 @section[#:tag "arrays-layout"]{Column-major for the solver}
 
-The second algorithm predicts petal width from the other measurements by
-least squares. Every solver behind cuML's @tt{LinearRegression} reads its
-input in column-major (Fortran) order; cuML's own Python wrapper converts
-with @tt{cp.array(X, order="F")} before it calls them. So before such a call
-the program lays its features out column by column with
-@racket[contiguous]. The features are the first three measurements; taking
-columns of a device matrix arrives later @status{L3}, so the program takes
-them from @racket[samples]:
+Least squares predicts petal width from the first three measurements, and
+cuML's solvers read column-major input. Taking columns of a device matrix
+arrives later @status{L3}, so the features come from @racket[samples]:
 
 @examples[#:eval ev #:label #f
 (define feature-rows (map (lambda (row) (take row 3)) samples))
@@ -155,24 +120,16 @@ F
 (equal? (device-matrix->list* F) (device-matrix->list* features))
 ]
 
-@racket[F] is the same matrix as @racket[features], with the same rows and
-columns; only the order of its elements in memory has changed. Now the next
-element down a column is 1 away and the next column is 6 away. This is why
-layout matters: a library reads memory, not rows and columns, and it assumes
-an order. Handed the row-major buffer, a column-major solver would read the
-wrong numbers into every column, and nothing would raise an error.
-
-The copy runs on the GPU, through RAFT's copy between a row-major and a
-column-major view. @racket[contiguous] copies only when it has to, so a
-program can call it before every solver without paying twice:
+Same matrix, different memory order. A column-major solver handed the
+row-major buffer would silently read wrong numbers. @racket[contiguous]
+copies on the GPU, and only when it has to:
 
 @examples[#:eval ev #:label #f
 (eq? (contiguous F #:layout 'col-major) F)
 (eq? (contiguous X) X)
 ]
 
-When the data starts out in Racket, it can be packed column by column on the
-host instead, and no copy runs on the GPU at all:
+Data from Racket can be packed column-major on the host instead:
 
 @examples[#:eval ev #:label #f
 (define F* (list*->device-matrix feature-rows #:dtype 'float32 #:layout 'col-major))
@@ -193,18 +150,11 @@ F_ = device_ndarray(np.asfortranarray(np.array(feature_rows, dtype=np.float32)))
 F_.f_contiguous, F_.strides             # (True, (4, 24))
 }|
 
-pylibraft cannot change an array's layout on the device; CuPy can, through
-@tt{__cuda_array_interface__}, so the Python side reaches for it.
-@tt{cp.asfortranarray} is @racket[contiguous] with @racket[#:layout
-'col-major], and @tt{cp.ascontiguousarray} is its default,
-@racket['row-major]. Packing on the host is @tt{np.asfortranarray} before the
-copy.
+pylibraft cannot change layout on the device, so Python reaches for CuPy.
 
 @section[#:tag "arrays-back"]{Bringing values back}
 
-The solver's targets are the petal widths, the last column. They are a
-vector, and they come from an @racket[flvector], the form numeric Racket code
-often produces:
+The solver's targets, the petal widths, come from an @racket[flvector]:
 
 @examples[#:eval ev #:label #f
 (define widths
@@ -215,22 +165,15 @@ y
 (device-vector->flvector y)
 ]
 
-Values come back as flonums from @racket['float32] and @racket['float64]
-arrays and as exact integers from @racket['int32] and @racket['int64] ones.
-A @racket['float32] cannot hold 0.2 or 1.9 exactly, so the flonums that come
-back are the nearest @racket['float32] values, widened; the printed vector
-shows the shortest decimal for each, as NumPy does. The features in
-@racket[F] widen the same way. When the exact values matter on the way back,
-keep them in @racket['float64], the type the conversion infers for
-@racket[samples]:
+Float elements come back as flonums, integer elements as exact integers.
+A @racket['float32] cannot hold 0.2 exactly, so what comes back is the
+nearest @racket['float32], widened; keep exact values in
+@racket['float64], the type inferred for @racket[samples]:
 
 @examples[#:eval ev #:label #f
 (first (device-matrix->list* F))
 (first (device-matrix->list* (list*->device-matrix samples)))
 ]
-
-Reading back waits for the work queued on the array's stream to finish,
-polling as @racket[resources-sync!] does, then copies.
 
 @python|{
 y = device_ndarray(np.array([row[-1] for row in samples], dtype=np.float32))
@@ -241,19 +184,13 @@ y.copy_to_host().tolist()
 F.get().tolist()[0]        # [5.099999904632568, 3.5, 1.399999976158142]
 }|
 
-NumPy's @tt{tolist} widens @tt{float32} the same way. Unlike
-@tt{copy_to_host}, which always makes a NumPy array of the array's own type,
-the Racket conversions choose the Racket form: a list, a list of lists or an
-@racket[flvector].
+NumPy's @tt{tolist} widens @tt{float32} the same way.
 
 @section[#:tag "arrays-memory"]{Letting go}
 
-The program never frees an array. When an array becomes unreachable, the
-garbage collector runs its buffer's finalizer, which returns the memory to
-RMM on the stream the array was allocated on. The collector cannot see GPU
-memory, so each buffer also registers its size as @tech{phantom bytes}: a
-4 MiB matrix makes Racket's memory use 4 MiB larger while it is reachable,
-and collections come as often as if that memory were on the host.
+The program never frees an array: when one becomes unreachable, its
+finalizer returns the memory. Each buffer counts its size as @tech{phantom
+bytes}, so GPU memory held brings collections sooner:
 
 @examples[#:eval ev #:label #f
 (collect-garbage)
@@ -270,7 +207,5 @@ scratch = device_ndarray.empty((1024, 1024))
 del scratch                 # CPython frees it now, through the reference count
 }|
 
-CPython frees an array the moment its last reference goes; Racket frees it at
-the next collection that finds it unreachable, and the phantom bytes make
-that collection come sooner the more GPU memory is held. A form that frees an
-array at a known point arrives later @status{L3}.
+CPython frees at the last reference; Racket at the next collection. A form
+that frees an array at a known point arrives later @status{L3}.
