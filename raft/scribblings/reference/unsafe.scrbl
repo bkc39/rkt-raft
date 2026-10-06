@@ -7,37 +7,26 @@
 
 @defmodule[raft/unsafe]
 
-This module is for authors of native bindings that run their own C++ on
-raft's resources and arrays: a cuML binding, a custom kernel, a solver from
-another CUDA library. It hands such a binding the three things a native call
-needs, the @tt{raft::handle_t} to run on, a descriptor for each array, and a
-way to turn the native library's error status into @racket[exn:fail:raft],
-plus the ABI tag the native library checks when it loads.
-@racketmodname[raft] does not re-export it.
+This module is for native bindings that run their own C++ on raft's resources
+and arrays, such as a cuML binding. It provides the @tt{raft::handle_t} to
+run on, a descriptor for each array, a checker that turns a native status
+into @racket[exn:fail:raft], and the ABI tag. @racketmodname[raft] does not
+re-export it.
 
-It is unsafe in the sense of @racketmodname[ffi/unsafe]: these procedures hand
-out raw pointers, and nothing checks that a downstream binding declares its
-foreign functions to match its C code. A binding that passes a view where its
-C function expects a handle crashes the process. The C side checks what memory
-safety needs (the headers in @secref["ref-unsafe-c"] refuse a view of the wrong
-element type, layout or extents), but it cannot check a pointer's type.
+It is unsafe as @racketmodname[ffi/unsafe] is: nothing checks that a
+binding's foreign declarations match its C code, so passing a view where the
+C function expects a handle crashes the process. The C headers check views,
+not pointer types.
 
-The guide chapter @secref["downstream"] builds the k-means canary, a minimal
-cuML binding, on this module step by step. @bold{This interface is frozen}
-at ABI version 1: the four exports below, the C declarations in
-@secref["ref-unsafe-c"] and the three C++ headers. Any change to them bumps
-the version in @racket[raft-abi], and the canary with it.
+@secref["downstream"] builds the k-means canary on this module. The
+interface is frozen at ABI version 1 (@secref["ref-unsafe-c"]).
 
-@bold{Running these examples.} The examples call the canary's native library,
-@tt{libkmeans_canary.so}, the way a downstream binding calls its own.
-@tt{nix develop} builds it (the flake's @tt{packages.kmeans-canary}) and sets
-@tt{RAFT_KMEANS_CANARY} to its path. To render the manual anywhere else, build
-it with @tt{nix build .#kmeans-canary} and set @tt{RAFT_KMEANS_CANARY} to
-@tt{result/lib/libkmeans_canary.so}; without it, rendering these pages fails.
-
-The examples share the bindings a downstream module writes for the canary's
-C functions, which follow the @tt{rr_} conventions: an @tt{int} status, the
-error in a per-thread slot, out-parameters for results.
+The examples call the canary's @tt{libkmeans_canary.so}, which @tt{nix
+develop} builds and points @tt{RAFT_KMEANS_CANARY} at; elsewhere, run
+@tt{nix build .#kmeans-canary} and set it to
+@tt{result/lib/libkmeans_canary.so}, or rendering these pages fails. They
+share these bindings, in which handles and views cross as plain
+@racket[_pointer]s:
 
 @examples[#:eval ev #:label #f
 (define canary (ffi-lib (getenv "RAFT_KMEANS_CANARY")))
@@ -56,9 +45,6 @@ error in a per-thread slot, out-parameters for results.
         -> (status : _int) -> (values status inertia)))
 ]
 
-Handles and views cross as plain @racket[_pointer]s; the C side gives them
-their types.
-
 @section[#:tag "ref-unsafe-status"]{Checking native calls}
 
 @defproc[(status-checker [last-error (-> (or/c bytes? string?))]
@@ -68,40 +54,29 @@ their types.
                                 exn:fail:raft])
          (-> symbol? (-> any) any)]{
 
-Returns a procedure @racket[(check who thunk)] for the calls into one native
-library. @racket[check] calls @racket[thunk], whose first result is the C
-status: @racket[0] (@tt{RR_OK}) on success. On success @racket[check] returns
-the thunk's other results. On any other status it reads the library's error
-message with @racket[last-error] and its kind with @racket[last-error-kind],
-and raises @racket[(exn message marks kind)], where the message is
-@racket[who], a colon and the library's text, and the kind is
-@racket['generic], @racket['out-of-memory], @racket['cuda] or @racket['logic]
-for the codes @tt{RR_ERROR_GENERIC} (0) to @tt{RR_ERROR_LOGIC} (3); any other
-code is @racket['generic]. A message given as a byte string is decoded as
-UTF-8, with @racket[#\uFFFD] for anything that does not decode.
-
-The call and both reads happen in one atomic section
-(@racket[call-as-atomic]). The C side keeps its last error per OS thread, and
-coroutine threads of a place share one OS thread, so without it another
-Racket thread's call could overwrite the message before it is read; inside
-the atomic section no other thread runs and the calling thread does not move
-to another OS thread.
-The atomic section also means the native call holds up the place's other
-Racket threads until it returns, as a non-blocking foreign call does anyway.
+Returns a procedure @racket[(check who thunk)] for one native library's
+calls. @racket[check] calls @racket[thunk], whose first result is the C
+status. On @racket[0] (@tt{RR_OK}) it returns the thunk's other results.
+Otherwise it raises @racket[(exn message marks kind)]: the message is
+@racket[who], a colon and @racket[(last-error)], decoded as UTF-8 with
+@racket[#\uFFFD] for what does not decode; the kind is @racket['generic],
+@racket['out-of-memory], @racket['cuda] or @racket['logic] for
+@racket[(last-error-kind)] 0 to 3, and @racket['generic] for any other code.
 @racket[last-error] and @racket[last-error-kind] are called only after a
 failure.
 
-The usual checker, for the canary's library:
+The call and both reads run in one @racket[call-as-atomic], because the C
+side keeps its last error per OS thread, which the place's Racket threads
+share. The native call therefore holds up the place's other threads until it
+returns.
 
 @examples[#:eval ev
 (define check (status-checker kc-last-error kc-last-error-kind))
 (check 'kmeans-canary (lambda () (kc-check-abi (raft-abi-pointer))))
 ]
 
-A failing call raises with the native library's message, prefixed by the
-name the binding gives. Here k-means is handed integer data, which the canary
-refuses before cuML sees it. The handle here comes from the thread's default
-resources, which the thread keeps reachable; a binding takes it with
+A failure raises with the library's message. The handle here comes from the
+thread's default resources, which the thread holds; a binding uses
 @racket[with-array-views]'s @racket[#:resources] instead
 (@secref["ref-unsafe-handle"]):
 
@@ -118,10 +93,8 @@ resources, which the thread keeps reachable; a binding takes it with
     (check 'kmeans-fit (lambda () (kc-fit handle x #f c 0 300 1e-4 1 0.0 42)))))
 ]
 
-The thunk's other results are the call's outputs: a foreign function that
-returns its status and two out-parameters as three values hands the two
-outputs back. A downstream package can raise its own subtype of
-@racket[exn:fail:raft], so its callers can tell its errors apart:
+With @racket[#:exn], a package raises its own subtype of
+@racket[exn:fail:raft]:
 
 @examples[#:eval ev #:label #f
 (struct exn:fail:canary exn:fail:raft ())
@@ -145,21 +118,12 @@ outputs back. A downstream package can raise its own subtype of
 
 @defproc[(raft-abi-pointer) cpointer?]{
 
-Returns a pointer to @tt{libraftrkt}'s @tt{rr_abi_tag}, the C struct that
-@racket[raft-abi] reads: the facts a downstream native library must share with
-@tt{libraftrkt} to receive its handle and arrays (the RAFT, RMM and CCCL
-releases, the CUDA runtime, the size of @tt{raft::handle_t} and the number of
-RAFT resource types, and the version of the tag). The tag lives in static
-storage, so the pointer stays valid as long as the process runs.
-
-A downstream library passes it to its own native code when it loads, and the
-native code compares it with the tag it computed from the headers it was
-compiled against (@tt{raftrkt::require_abi} in @tt{raftrkt/abi.h}). Doing the
-comparison in C, against the headers themselves, is the point: a Racket-side
-check could only compare what the downstream library recorded about itself.
-
-The first field is the tag's version, the same number @racket[raft-abi]
-reports:
+Returns a pointer to @tt{libraftrkt}'s @tt{rr_abi_tag} in static storage,
+the struct @racket[raft-abi] reads: the tag's version (the first field), the
+RAFT, RMM, CCCL and CUDA runtime releases, the size of @tt{raft::handle_t}
+and the number of RAFT resource types. A downstream library passes it to its
+native code at load, which compares it with the tag of the headers it was
+compiled against (@tt{raftrkt::require_abi}).
 
 @examples[#:eval ev
 (raft-abi-pointer)
@@ -167,17 +131,15 @@ reports:
 (hash-ref (raft-abi) 'abi-version)
 ]
 
-At load, the canary's module runs this check; it returns nothing when the
-headers match:
+The canary's load check returns nothing when the headers match:
 
 @examples[#:eval ev #:label #f
 (check 'kmeans-canary (lambda () (kc-check-abi (raft-abi-pointer))))
 ]
 
-A library built against other headers is refused, naming the first field
-that differs. Here a copy of the tag is edited to look like RAFT 26.10 (the
-third @tt{int32} is the minor version), and then like a handle of another
-size (the seventh @tt{int64} slot), which a version check alone would miss:
+A mismatch is refused, naming the first field that differs. Here a copy of
+the tag is edited to look like RAFT 26.10 (the third @tt{int32}), then like a
+handle of another size (the seventh @tt{int64} slot):
 
 @examples[#:eval ev #:label #f
 (define (forged-tag type index value)
@@ -195,41 +157,32 @@ size (the seventh @tt{int64} slot), which a version check alone would miss:
 
 @defproc[(resources->handle-pointer [resources device-resources?]) cpointer?]{
 
-Returns a pointer to the @tt{raft::handle_t} that @racket[resources] wrap
-(@tt{rr_resources_handle}). It is the handle most of cuML's C++ API takes as
-@tt{const raft::handle_t&}, with the resources' own stream, cuBLAS, cuSOLVER
-and cuSPARSE handles and workspace. A downstream binding passes it as a
-@racket[_pointer] and its C++ casts it back.
+Returns a pointer to the @tt{raft::handle_t} of @racket[resources], with
+their stream, library handles and workspace: what cuML's C++ takes as
+@tt{const raft::handle_t&}. Released resources raise @racket[exn:fail:raft]
+of kind @racket['logic].
 
-The pointer is borrowed, and it does not keep @racket[resources] reachable:
-once the program drops them, their finalizer frees the handle at the next
-collection, whether or not the pointer is still in use. So a binding takes the
-handle with @racket[with-array-views]'s @racket[#:resources] clause, which
-binds this same pointer and keeps the resources reachable until the body
-returns; this procedure on its own suits code that holds the resources some
-other way, as @racket[(current-device-resources)] does for its thread.
-Released resources raise @racket[exn:fail:raft] of kind @racket['logic],
-naming this procedure. This is pylibraft's @tt{DeviceResources.getHandle()},
-which cuML's Cython casts to a @tt{handle_t*} the same way, and which leaves
-keeping the @tt{DeviceResources} alive to its caller too.
+The pointer is borrowed and does not hold @racket[resources]: once they are
+unreachable, their finalizer frees the handle. A binding therefore takes the
+handle with @racket[with-array-views]'s @racket[#:resources]; this procedure
+suits code that holds the resources some other way, as
+@racket[(current-device-resources)] does for its thread. pylibraft's
+equivalent is @tt{DeviceResources.getHandle()}.
 
 @examples[#:eval ev
 (resources->handle-pointer (current-device-resources))
 (ptr-equal? handle (resources->handle-pointer (current-device-resources)))
 ]
 
-Each resources object has its own handle, so work given separate resources is
-queued on separate streams:
+Each resources object has its own handle, and so its own stream:
 
 @examples[#:eval ev #:label #f
 (define other (device-resources))
 (ptr-equal? handle (resources->handle-pointer other))
 ]
 
-A binding allocates its outputs on the resources it runs on, so the handle,
-the arrays and their frees share one stream. Here the canary's
-@tt{make_blobs} fills arrays allocated on @racket[other], with the handle
-taken by @racket[with-array-views], which is the same pointer:
+A binding allocates its outputs on the resources it runs on, so they share
+one stream; @racket[#:resources] binds the same pointer:
 
 @examples[#:eval ev #:label #f
 (define Y (device-matrix 6 2 #:resources other))
@@ -238,11 +191,6 @@ taken by @racket[with-array-views], which is the same pointer:
   (check 'blobs (lambda () (kc-make-blobs on-other y k 2 0.1 0 -1.0 1.0 3)))
   (ptr-equal? on-other (resources->handle-pointer other)))
 (sort (remove-duplicates (device-vector->list classes)) <)
-]
-
-Released resources have no handle:
-
-@examples[#:eval ev #:label #f
 (define finished (with-device-resources ([r (device-resources)]) r))
 (eval:error (resources->handle-pointer finished))
 ]}
@@ -256,45 +204,35 @@ Released resources have no handle:
                       [resources-expr device-resources?])]{
 
 Evaluates @racket[resources-expr], if given, and each @racket[array-expr];
-then binds @racket[handle-id] to the resources' @tt{raft::handle_t} pointer
-(the one @racket[resources->handle-pointer] returns) and each @racket[id] to a
-pointer to an @tt{rr_view} describing its array, and evaluates the
-@racket[body]s, whose results are the form's results. The resources stay
-reachable until the body ends, like the arrays, so their finalizer cannot free
-the handle during the native call; released resources raise
-@racket[exn:fail:raft] naming @racket[with-array-views]. A binding takes its
-handle this way. Unlike the views, the handle pointer is not cleared when the
-body exits, and nothing keeps the resources reachable after it, so it must
-not escape the form: use it only in calls made inside the body. An @racket[array-expr] that evaluates to
-@racket[#f] binds @racket[#f], which a @racket[_pointer] argument passes as
-@tt{NULL}: the way to pass an optional array, such as cuML's sample weights.
+binds @racket[handle-id] to the resources' @tt{raft::handle_t} pointer (as
+from @racket[resources->handle-pointer]) and each @racket[id] to a pointer to
+an @tt{rr_view} of its array, filled by @tt{rr_buffer_view}
+(@secref["ref-unsafe-c"]); and evaluates the @racket[body]s, whose results
+are the form's. An @racket[array-expr] of @racket[#f] binds @racket[#f],
+which a @racket[_pointer] argument passes as @tt{NULL}, for an optional
+array. Released resources or a released array raise @racket[exn:fail:raft]
+before the body runs. Two identical names among the @racket[id]s and
+@racket[handle-id] are a syntax error.
 
-Each view is filled by @tt{rr_buffer_view}, so its @tt{data} pointer is the
-array's first element on the device and its element type, rank, shape and
-strides (in elements) are the array's; see @secref["ref-unsafe-c"] for the
-struct. The view lives in memory the garbage collector does not move, and
-every array stays reachable until the body ends, so the memory a view points
-to cannot be freed by the array's finalizer during the native call.
+The arrays and the resources stay managed by the garbage collector: the form
+frees neither, and their finalizers are the default and correct on their
+own. What the form gives a native call is a clear timeline for what it
+borrows: from the start of the body until it exits, the views are valid and
+the arrays and the resources are held reachable; at exit the views are
+cleared and the form's hold ends, and the arrays return to ordinary
+reclamation. To release the resources themselves at a known point, scope
+them with @racket[with-device-resources] around the form.
 
-Before binding a view, the form waits, by polling, until the work already
-queued on the array's stream has finished, so a native call on any stream
-sees the array's contents. It does not wait after the body: a native call
-that queues work and returns before it finishes must run on the arrays' own
-resources, or synchronise its stream before it returns; the canary
-synchronises on every exit, a raise included.
+Every exit (a return, a raise, an escape, a generator's @racket[yield])
+clears each view: its @tt{data} becomes @tt{NULL} and its device and memory
+@racket[-1], so the C side refuses a view kept past the form. The handle
+pointer is not cleared, so it must not escape the body. Control that jumps
+back into the body raises @racket[exn:fail:raft] of kind @racket['logic].
 
-On every exit from the body (a return, a raise, an escape, a generator's
-@racket[yield]) each view is cleared: its @tt{data} becomes @tt{NULL} and its
-device and memory @racket[-1], so a view kept past the form is refused by the
-C side instead of pointing at memory that may be freed. Control that jumps
-back into the body afterwards raises @racket[exn:fail:raft] of kind
-@racket['logic], naming @racket[with-array-views]; it never binds the views
-again. A released array raises before the body runs. Two @racket[id]s, or
-@racket[handle-id] and an @racket[id], with the same name are a syntax error.
-
-The views are what a native call takes. Here the canary's @tt{predict}
-receives the fitted centroids, the data and an output vector, with no sample
-weights:
+Before binding a view, the form waits, by polling, for the work queued on
+the array's stream. It does not wait after the body: a native call that
+returns with work still queued must run on the arrays' own resources or
+synchronise before it returns.
 
 @examples[#:eval ev
 (define labels (device-vector 300 #:dtype 'int32))
@@ -306,9 +244,8 @@ weights:
 (length (remove-duplicates (device-vector->list labels)))
 ]
 
-A view is the C struct the native side receives. Reading it shows what
-crosses: the element type code (@tt{RR_DTYPE_FLOAT32} is 0), the rank, the
-shape and the strides, at the byte offsets @tt{raftrkt/array.h} fixes:
+A view holds the element type code (@tt{RR_DTYPE_FLOAT32} is 0), the rank,
+the shape and the strides at the offsets of @secref["ref-unsafe-c"]:
 
 @examples[#:eval ev #:label #f
 (define F (contiguous X #:layout 'col-major))
@@ -319,20 +256,13 @@ shape and the strides, at the byte offsets @tt{raftrkt/array.h} fixes:
         (list (ptr-ref f _int64 'abs 88) (ptr-ref f _int64 'abs 96))))
 ]
 
-The C side checks every view against what the call needs: cuML's k-means
-reads row-major data, and the column-major copy is refused with the layout it
-has:
+The C side checks each view against what the call needs, and a cleared view
+is refused:
 
 @examples[#:eval ev #:label #f
 (eval:error
  (with-array-views ([x F] [c (device-matrix 3 2)])
    (check 'kmeans-fit (lambda () (kc-fit handle x #f c 0 300 1e-4 1 0.0 42)))))
-]
-
-A view that escapes the form has been cleared, so passing it later is refused
-rather than reading freed memory:
-
-@examples[#:eval ev #:label #f
 (define stale (with-array-views ([x X]) x))
 (eval:error
  (with-array-views ([c fitted] [y labels])
@@ -341,21 +271,18 @@ rather than reading freed memory:
 
 @section[#:tag "ref-unsafe-c"]{The C interface}
 
-The C side of the interface is three public C headers of @tt{libraftrkt}
-(@tt{core.h}, @tt{array.h}, @tt{memory.h}, gathered by @tt{c_api.h}), the ABI
-header, and two header-only C++ helpers. They ship in the flake's
-@tt{packages.raft-dev}, with a CMake package: @tt{find_package(raftrkt)}
-defines @tt{raftrkt::headers}, which links @tt{raft::raft}. A downstream
-library compiles against @tt{packages.raft-dev} and @tt{packages.rapids}, the
-same RAPIDS package set @tt{libraftrkt} links, and does not link
-@tt{libraftrkt} itself: the handle, the views and the ABI tag reach it from
-Racket.
+The C side is the public C headers of @tt{libraftrkt} (@tt{core.h},
+@tt{array.h}, @tt{memory.h}, gathered by @tt{c_api.h}), the ABI header and
+two header-only C++ helpers, shipped in @tt{packages.raft-dev} with a CMake
+package (@tt{find_package(raftrkt)} defines @tt{raftrkt::headers}, which
+links @tt{raft::raft}). A downstream library compiles against it and
+@tt{packages.rapids} and does not link @tt{libraftrkt}.
 
 @bold{The handle.} @tt{int rr_resources_handle(rr_resources* resources,
-void** out)} stores the @tt{raft::handle_t*} in @racket[out]. Like every entry
-point, it answers @tt{RR_OK} (0) or @tt{RR_ERROR} (1) and leaves the reason
-in @tt{rr_last_error()} and @tt{rr_last_error_kind()}; @racket[out] is set to
-@tt{NULL} first.
+void** out)} sets @racket[out] to @tt{NULL}, then to the
+@tt{raft::handle_t*}. Like every entry point, it answers @tt{RR_OK} (0) or
+@tt{RR_ERROR} (1), with the reason in @tt{rr_last_error()} and
+@tt{rr_last_error_kind()}.
 
 @bold{Views.} An @tt{rr_view} is 152 bytes:
 
@@ -373,23 +300,21 @@ in @tt{rr_last_error()} and @tt{rr_last_error_kind()}; @racket[out] is set to
        (list @tt{int64_t strides[8]} "88" "in elements, NumPy's order"))]
 
 @tt{int rr_buffer_view(const rr_buffer* buffer, uint64_t offset, rr_view*
-view)} is the one way a view gets its pointer: the caller fills
-@tt{dtype}, @tt{rank}, @tt{shape} and @tt{strides}, and the call checks them
-against the buffer and fills @tt{data}, @tt{device} and @tt{memory}. A refused
-call leaves @tt{data} @tt{NULL} and the other two @tt{-1}. @tt{data} is valid
-only while the buffer lives, and only for work ordered on the buffer's stream.
-@racket[with-array-views] makes these calls for Racket code.
+view)} is the one way a view gets its pointer: the caller fills @tt{dtype},
+@tt{rank}, @tt{shape} and @tt{strides}, and the call checks them against the
+buffer and fills @tt{data}, @tt{device} and @tt{memory}, or on refusal
+@tt{NULL}, @tt{-1} and @tt{-1}. @tt{data} is valid only while the buffer
+lives, and only for work ordered on the buffer's stream.
 
 @bold{@tt{raftrkt/abi.h}.} The @tt{rr_abi_tag} struct (56 bytes: twelve
 @tt{int32_t} fields and the @tt{int64_t} handle size), @tt{RR_ABI_VERSION}
-(1), and, for C as well as C++,
-@tt{int rr_abi_compare(const rr_abi_tag* built, const rr_abi_tag* loaded, char*
-why, size_t why_size)}, which answers 0 when the tags agree and otherwise 1,
-writing the first difference into @tt{why}. For C++ it adds
-@tt{raftrkt::compiled_abi()}, the tag of the headers being compiled, and
-@tt{raftrkt::require_abi(loaded)}, which throws @tt{raftrkt::logic_error}
-when they differ. @tt{libraftrkt} builds its own tag with
-@tt{compiled_abi()}, so both sides compute it the same way.
+(1), and, for C and C++, @tt{int rr_abi_compare(const rr_abi_tag* built,
+const rr_abi_tag* loaded, char* why, size_t why_size)}, which answers 0 when
+the tags agree and otherwise 1, writing the first difference into @tt{why}.
+For C++, @tt{raftrkt::compiled_abi()} is the tag of the headers being
+compiled (@tt{libraftrkt} builds its own the same way), and
+@tt{raftrkt::require_abi(loaded)} throws @tt{raftrkt::logic_error} when they
+differ:
 
 @listing["C++"]|{
 extern "C" int kc_check_abi(const rr_abi_tag* loaded) {
@@ -398,23 +323,22 @@ extern "C" int kc_check_abi(const rr_abi_tag* loaded) {
 }
 }|
 
-@bold{@tt{raftrkt/error.hpp}.} The error convention, header-only, so a
-downstream library's errors look like @tt{libraftrkt}'s:
+@bold{@tt{raftrkt/error.hpp}.} The error convention, so a downstream
+library's errors look like @tt{libraftrkt}'s:
 
 @itemlist[
  @item{@tt{raftrkt::error_slot}: a fixed 4 KiB message buffer and a kind. The
-       downstream library owns one per OS thread (@tt{thread_local}) and
-       exports two functions that read it, which @racket[status-checker]
-       calls.}
+       library owns one per OS thread (@tt{thread_local}) and exports the two
+       readers @racket[status-checker] calls.}
  @item{@tt{int raftrkt::translate_exceptions(error_slot& slot, Fn&& fn)}:
        clears the slot, runs @tt{fn}, and answers @tt{RR_OK}; if @tt{fn}
        throws, records the message (truncated at a UTF-8 character boundary,
        without allocating) and its kind, and answers @tt{RR_ERROR}.}
  @item{@tt{raftrkt::classify}: the kind of an exception.
-       @tt{rmm::out_of_memory}, @tt{std::bad_alloc} and any CUDA error whose
-       status is @tt{cudaErrorMemoryAllocation} are @racket['out-of-memory];
-       so are RAFT's cuBLAS, cuSOLVER and cuSPARSE errors whose status is
-       @tt{*_STATUS_ALLOC_FAILED}; other CUDA, RMM and RAFT CUDA, cuBLAS,
+       @tt{rmm::out_of_memory}, @tt{std::bad_alloc}, CUDA errors with status
+       @tt{cudaErrorMemoryAllocation} and RAFT's cuBLAS, cuSOLVER and
+       cuSPARSE errors with status @tt{*_STATUS_ALLOC_FAILED} are
+       @racket['out-of-memory]; other CUDA, RMM and RAFT CUDA, cuBLAS,
        cuSOLVER and cuSPARSE errors are @racket['cuda];
        @tt{std::logic_error} and @tt{raft::logic_error} are @racket['logic];
        anything else is @racket['generic].}
@@ -425,14 +349,13 @@ downstream library's errors look like @tt{libraftrkt}'s:
  @item{@tt{raftrkt::device_scope}: makes a device current for its scope,
        throwing if @tt{cudaSetDevice} fails, and restores the previous one.}
  @item{@tt{raftrkt::sync_guard}: synchronises a stream on every exit from its
-       scope. @tt{finish()} synchronises and throws on failure; if the scope
-       is left by a throw instead, the destructor synchronises and swallows a
-       second error, so the first is the one reported and no array is handed
-       back while work queued on it still runs.}]
+       scope. @tt{finish()} synchronises and throws on failure; on a throw,
+       the destructor synchronises and swallows a second error, so the first
+       is reported.}]
 
-@bold{@tt{raftrkt/view.hpp}.} Views to typed pointers and RAFT views, after
-the checks memory safety needs. Each takes the argument's name for its
-messages, and throws @tt{raftrkt::logic_error}:
+@bold{@tt{raftrkt/view.hpp}.} Views to typed pointers and RAFT views. Each
+takes the argument's name for its messages and throws
+@tt{raftrkt::logic_error}:
 
 @itemlist[
  @item{@tt{T* raftrkt::matrix_data<T, Index>(const rr_view* view, const char*
@@ -440,8 +363,8 @@ messages, and throws @tt{raftrkt::logic_error}:
        any_extent)}: refuses a @tt{NULL} or unbound view, a rank other than 2,
        an element type other than @tt{T}'s (@tt{const T} reads the same
        type), a layout other than @tt{l} (an axis of extent 1 fits either),
-       extents other than those asked for, and extents, or an element count, that do not fit
-       @tt{Index}.}
+       extents other than those asked for, and extents or an element count
+       that do not fit @tt{Index}.}
  @item{@tt{T* raftrkt::vector_data<T, Index>(const rr_view* view, const char*
        name, int64_t n = any_extent)}: the same for a contiguous rank-1
        view.}
@@ -467,12 +390,10 @@ auto m = raftrkt::matrix_view<const float, raft::col_major, int64_t>(a, "A");
 @bold{What is frozen.} @tt{rr_view}, @tt{RR_MAX_RANK} and the dtype and memory
 codes; @tt{rr_buffer_view}; @tt{rr_resources_handle}; @tt{rr_abi_tag},
 @tt{rr_abi} and @tt{RR_ABI_VERSION}; the status codes, error kinds and
-@tt{rr_last_error} convention; the three headers @tt{raftrkt/view.hpp},
-@tt{raftrkt/error.hpp} and @tt{raftrkt/abi.h}; the four exports of this
-module; and the rules a downstream entry point keeps, which the canary's
-entry points show: run inside @tt{translate_exceptions}, select the
-handle's device, refuse arrays on another device, read arrays only through
-@tt{view.hpp}, and synchronise the handle's stream on every exit. Only the
-four element types above are in it: int8, uint8 and half arrays, which cuVS
-takes, need new dtype codes and so ABI version 2 (#8). A change to any of them is a new ABI version, and the k-means canary
-in @tt{downstream/kmeans-canary} changes with it, in the same pull request.
+@tt{rr_last_error} convention; the three headers above; the four exports of
+this module; and the rules a downstream entry point keeps: run inside
+@tt{translate_exceptions}, select the handle's device, refuse arrays on
+another device, read arrays only through @tt{view.hpp}, and synchronise the
+handle's stream on every exit. A change to any of them is a new ABI version,
+with the canary changed in the same pull request. int8, uint8 and half
+arrays, which cuVS takes, need new dtype codes and so ABI version 2 (#8).
