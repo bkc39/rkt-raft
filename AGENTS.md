@@ -622,6 +622,10 @@ the binding census), `racket-review`, `racket-version` (at least 9.3),
   `guide/`) and a reference (one section per module under `reference/`).
   `utils.rkt` holds `make-raft-eval`, the `python` block helper and the
   `status` marker for names that arrive in a later leg.
+- **The manual assumes a catalog install** (`raco pkg install raft`; what
+  that still needs is #24) and mentions no Nix at all: no dev shell, flake,
+  `nix build`, `packages.*`, test-running or rendering instructions. Those
+  are maintainer material and live in `README.md` (Development) and here.
 - **The owner reviews each leg's docs.** Every leg adds its own guide chapter
   and reference section. A guide chapter is a tutorial on realistic client
   code, evaluated live, with the equivalent Python (pylibraft, rmm, CuPy,
