@@ -60,11 +60,11 @@ See also @secref["moving-data"].
                      @racket[device-array->array]))]
 
 @bold{The rules} are those of @secref["ref-array-convert"]. Without
-@racket[#:dtype], the element type is inferred as NumPy infers it: exact
+@racket[#:dtype], the element type is inferred: exact
 integers give @racket['int64], other reals and empty data @racket['float64];
 an @racket[flvector], @racket[f64vector] or flonum array gives
-@racket['float64], an @racket[f32vector] @racket['float32]. Unlike NumPy,
-exact rationals give @racket['float64], and booleans and integers from
+@racket['float64], an @racket[f32vector] @racket['float32]. Exact rationals
+give @racket['float64], and booleans and integers from
 2@superscript{63} to 2@superscript{64}-1 are refused. Integer types truncate
 toward zero. A value the type cannot hold (a complex number, an infinity or
 NaN for an integer type, an out-of-range number) and a ragged row raise
@@ -89,7 +89,7 @@ string are copied as they are; everything else is packed element by element
          device-vector?]{
 
 Returns a vector of the elements of @racket[xs], of @racket[dtype] or the
-inferred type: @tt{device_ndarray(np.asarray(xs, dtype))}.
+inferred type.
 
 @examples[#:eval ev
 (vector->device-vector #(3 1 4 1 5))
@@ -209,8 +209,8 @@ A column-major matrix still comes back as rows:
          device-array?]{
 
 Returns a vector for a list of numbers and a matrix for a list of rows (lists
-or vectors), as @tt{device_ndarray(np.asarray(xs, dtype))}. If the first
-element is a row, every element must be one; a deeper nesting is refused.
+or vectors). If the first element is a row, every element must be one; a
+deeper nesting is refused.
 @racket['()] is an empty vector. @racket[layout] is ignored for a vector.
 
 @examples[#:eval ev
@@ -328,8 +328,7 @@ Sorting the host copy leaves the device array unchanged:
                                                 (current-device-resources)])
          device-vector?]{
 
-Returns a vector of the elements of @racket[xs], of @racket[dtype]:
-@tt{device_ndarray(np.asarray(xs, dtype))} for @tt{np.float32} @tt{xs}.
+Returns a vector of the elements of @racket[xs], of @racket[dtype].
 
 @examples[#:eval ev
 (f32vector->device-vector (f32vector 0.5 1.5 2.5))
@@ -428,7 +427,7 @@ Summed on the host:
          device-vector?]{
 
 Returns a vector whose storage is @racket[bs], read as @racket[dtype] in the
-machine's byte order: @tt{device_ndarray(np.frombuffer(bs, dtype))}. The
+machine's byte order. The
 length of @racket[bs] must be a whole number of elements.
 
 @examples[#:eval ev
@@ -481,7 +480,7 @@ A round trip through a file:
 (delete-file result-file)
 ]
 
-Reinterpreted, as NumPy's @tt{view}:
+Reinterpreted as another element type:
 
 @examples[#:eval ev #:label #f
 (define one (device-vector->bytes (vector->device-vector #(1.0) #:dtype 'float32)))
@@ -503,7 +502,7 @@ mutable arrays of exact integers for integer ones.
          device-matrix?]{
 
 Returns a device matrix holding @racket[m], of @racket[dtype] or the inferred
-type, packed in @racket[layout]: @tt{device_ndarray(np.asarray(m, dtype))}.
+type, packed in @racket[layout].
 
 @examples[#:eval ev
 (matrix->device-matrix (matrix [[1.0 2.0] [3.0 4.0]]))
