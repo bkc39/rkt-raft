@@ -30,24 +30,6 @@ X
 
 Printing copies the values back, so it waits for the GPU.
 
-@python|{
-import numpy as np
-from pylibraft.common import device_ndarray
-
-samples = [
-    [5.1, 3.5, 1.4, 0.2],
-    [4.9, 3.0, 1.4, 0.2],
-    [7.0, 3.2, 4.7, 1.4],
-    [6.4, 3.2, 4.5, 1.5],
-    [6.3, 3.3, 6.0, 2.5],
-    [5.8, 2.7, 5.1, 1.9],
-]
-X = device_ndarray(np.array(samples, dtype=np.float32))
-X        # <pylibraft.common.device_ndarray.device_ndarray object at 0x7f…>
-}|
-
-A @tt{device_ndarray} prints as an object, not its values.
-
 @section[#:tag "arrays-inspect"]{What the program made}
 
 Before handing @racket[X] to a library, the program checks it:
@@ -63,17 +45,7 @@ Before handing @racket[X] to a library, the program checks it:
 Each row is contiguous: the next element along a row is 1 away, the next
 row 4 away.
 
-@python|{
-X.shape                                       # (6, 4)
-X.dtype                                       # dtype('float32')
-X.c_contiguous                                # True
-X.strides                                     # None
-np.array(samples, dtype=np.float32).strides   # (16, 4)
-X.copy_to_host().size                         # 24
-}|
-
-Racket strides count elements, NumPy's count bytes, and pylibraft's are
-@tt{None} when C-contiguous.
+Strides count elements, not bytes.
 
 @section[#:tag "arrays-outputs"]{Room for k-means' answers}
 
@@ -90,19 +62,7 @@ clusters writes an @racket['int32] label per sample and three centroids:
 ]
 
 @racket[device-vector] and @racket[device-matrix] allocate without
-initialising, like @tt{np.empty}.
-
-@python|{
-k = 3
-n, d = X.shape
-labels = device_ndarray.empty((n,), dtype=np.int32)
-centroids = device_ndarray.empty((k, d))
-labels.shape, labels.dtype                       # ((6,), dtype('int32'))
-centroids.shape, centroids.dtype, centroids.c_contiguous
-# ((3, 4), dtype('float32'), True)
-}|
-
-The defaults match.
+initialising.
 
 @section[#:tag "arrays-layout"]{Column-major for the solver}
 
@@ -138,21 +98,6 @@ Data from Racket can be packed column-major on the host instead:
 (equal? (device-matrix->list* F*) (device-matrix->list* F))
 ]
 
-@python|{
-import cupy as cp
-
-feature_rows = [row[:3] for row in samples]
-features = device_ndarray(np.array(feature_rows, dtype=np.float32))
-F = cp.asfortranarray(cp.asarray(features))
-F.flags.f_contiguous, F.strides         # (True, (4, 24))
-cp.asfortranarray(F) is F               # True
-
-F_ = device_ndarray(np.asfortranarray(np.array(feature_rows, dtype=np.float32)))
-F_.f_contiguous, F_.strides             # (True, (4, 24))
-}|
-
-pylibraft cannot change layout on the device, so Python reaches for CuPy.
-
 @section[#:tag "arrays-back"]{Bringing values back}
 
 The solver's targets, the petal widths, come from an @racket[flvector]:
@@ -176,17 +121,6 @@ nearest @racket['float32], widened; keep exact values in
 (first (device-matrix->list* (list*->device-matrix samples)))
 ]
 
-@python|{
-y = device_ndarray(np.array([row[-1] for row in samples], dtype=np.float32))
-y.copy_to_host()           # array([0.2, 0.2, 1.4, 1.5, 2.5, 1.9], dtype=float32)
-y.copy_to_host().tolist()
-# [0.20000000298023224, 0.20000000298023224, 1.399999976158142, 1.5, 2.5,
-#  1.899999976158142]
-F.get().tolist()[0]        # [5.099999904632568, 3.5, 1.399999976158142]
-}|
-
-NumPy's @tt{tolist} widens @tt{float32} the same way.
-
 @section[#:tag "arrays-memory"]{Letting go}
 
 The program never frees an array: when one becomes unreachable, its
@@ -203,10 +137,5 @@ bytes}, so GPU memory held brings collections sooner:
 (< (- (current-memory-use) before) (* 1024 1024))
 ]
 
-@python|{
-scratch = device_ndarray.empty((1024, 1024))
-del scratch                 # CPython frees it now, through the reference count
-}|
-
-CPython frees at the last reference; Racket at the next collection. A form
-that frees an array at a known point arrives later @status{L3}.
+The memory comes back at a collection after the last use. A form that frees
+an array at a known point arrives later @status{L3}.

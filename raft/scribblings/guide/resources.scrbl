@@ -25,20 +25,7 @@ program hands workers out over them round robin:
 (eval:error (device-resources #:device 4))
 ]
 
-@python|{
-import cupy as cp
-
-cp.cuda.runtime.getDeviceCount()            # 1
-
-def device_for_worker(i):
-    return i % cp.cuda.runtime.getDeviceCount()
-
-[device_for_worker(i) for i in range(4)]    # [0, 0, 0, 0]
-cp.cuda.Device(4).use()
-# CUDARuntimeError: cudaErrorInvalidDevice: invalid device ordinal
-}|
-
-CuPy passes on CUDA's error; Racket raises @racket[exn:fail:raft] of kind
+A device the driver does not report raises @racket[exn:fail:raft] of kind
 @racket['logic], named after the procedure you called.
 
 @section[#:tag "res-default"]{Each worker's resources}
@@ -61,20 +48,8 @@ the array constructors and conversions fall back to without
 Owning its resources lets a worker release them without taking the default
 from other code on its thread.
 
-@python|{
-from pylibraft.common import DeviceResources
-
-def worker_resources(device):
-    with cp.cuda.Device(device):
-        return DeviceResources()
-
-handle = worker_resources(device_for_worker(0))
-}|
-
-pylibraft has no default (a call without @tt{handle=} makes and syncs a
-@tt{DeviceResources} of its own) and queues on CUDA's per-thread stream;
-Racket keeps a default per thread and device, and each resources object owns
-its stream.
+The default is per thread and device, and each resources object owns its
+stream.
 
 @section[#:tag "res-sync"]{Timing a batch}
 
@@ -96,27 +71,8 @@ queueing:
 (timed r (lambda () (process-batch '((1.0 2.0) (3.0 4.0)))))
 ]
 
-@python|{
-import time
-
-def process_batch(rows):
-    for row in rows:
-        if len(row) != 2:
-            raise ValueError(f"row {row} has {len(row)} columns")
-    return len(rows)
-
-def timed(handle, f):
-    start = time.perf_counter()
-    result = f()
-    handle.sync()
-    return result, (time.perf_counter() - start) * 1000
-
-timed(handle, lambda: process_batch([[1.0, 2.0], [3.0, 4.0]]))
-# (2, 0.0153)
-}|
-
-@tt{handle.sync()} blocks its OS thread; @racket[resources-sync!] polls, so
-other threads keep running and a break ends the wait.
+@racket[resources-sync!] polls rather than blocking its OS thread, so other
+threads keep running and a break ends the wait.
 
 @section[#:tag "res-batch"]{A worker}
 
@@ -131,17 +87,6 @@ each batch on them:
       (list n ms))))
 (run-worker 0 (list '((1.0 2.0) (3.0 4.0)) '((5.0 6.0))))
 ]
-
-@python|{
-def run_worker(device, batches):
-    handle = worker_resources(device)
-    return [timed(handle, lambda: process_batch(rows)) for rows in batches]
-
-run_worker(0, [[[1.0, 2.0], [3.0, 4.0]], [[5.0, 6.0]]])
-# [(2, 0.0153), (1, 0.0017)]
-}|
-
-CPython frees the handle by reference counting when @tt{run_worker} returns.
 
 The finalizer alone would be correct: it releases resources once they are
 unreachable. @racket[with-device-resources] gives their lifetime a clear
@@ -193,36 +138,8 @@ watches for a thread that dies without answering:
 (report (run-workers run-worker jobs))
 ]
 
-@python|{
-from concurrent.futures import ThreadPoolExecutor
-
-def run_workers(worker, jobs):
-    with ThreadPoolExecutor() as pool:
-        futures = [pool.submit(worker, device, batches)
-                   for device, batches in jobs]
-        return [f.result() for f in futures]
-
-def report(results):
-    for i, batches in enumerate(results):
-        for n, ms in batches:
-            print(f"worker {i}: {n} rows in {ms:.2f} ms")
-
-all_batches = [
-    [[[1.0, 2.0], [3.0, 4.0]], [[5.0, 6.0]]],
-    [[[7.0, 8.0]]],
-    [[[9.0, 10.0], [11.0, 12.0]]],
-]
-jobs = [(device_for_worker(i), batches)
-        for i, batches in enumerate(all_batches)]
-report(run_workers(run_worker, jobs))
-# worker 0: 2 rows in 0.07 ms
-# worker 0: 1 rows in 0.00 ms
-# worker 1: 1 rows in 0.00 ms
-# worker 2: 2 rows in 0.00 ms
-}|
-
-@tt{f.result()} re-raises for you; in Racket the channel carries the
-exception.
+The channel carries an exception back as a thunk, and calling the thunk
+re-raises it.
 
 @section[#:tag "res-memory"]{Where device memory comes from}
 
@@ -232,16 +149,8 @@ made on a device replace RMM's default (@tt{cudaMalloc}, which synchronizes
 the device) with a stream-ordered @tt{cudaMallocAsync} pool. Choosing another
 resource from Racket arrives later @status{L2}.
 
-@python|{
-import rmm
-
-rmm.mr.get_current_device_resource()      # CudaMemoryResource, RMM's default
-rmm.mr.set_current_device_resource(rmm.mr.CudaAsyncMemoryResource())
-rmm.mr.get_current_device_resource()      # CudaAsyncMemoryResource
-}|
-
 A resource installed by anything else is left alone, except a plain
-@tt{CudaMemoryResource}, which looks like the default; see
+@tt{rmm::mr::cuda_memory_resource}, which looks like the default; see
 @secref["ref-core-memory"].
 
 @section[#:tag "res-errors"]{Reporting failed workers}
@@ -266,24 +175,4 @@ return it as its result; here the second job names a missing GPU:
 (failures results)
 ]
 
-@python|{
-from cupy.cuda.runtime import CUDARuntimeError
-
-def run_worker_caught(device, batches):
-    try:
-        return run_worker(device, batches)
-    except CUDARuntimeError as e:
-        return e
-
-def failures(results):
-    return [(i, str(r)) for i, r in enumerate(results)
-            if isinstance(r, Exception)]
-
-results = run_workers(run_worker_caught,
-                      [(0, all_batches[0]), (4, all_batches[1])])
-failures(results)
-# [(1, 'cudaErrorInvalidDevice: invalid device ordinal')]
-}|
-
-Python raises a different type per layer; Racket has one, with the kind as a
-field.
+One exception type covers every layer, with the kind as a field.

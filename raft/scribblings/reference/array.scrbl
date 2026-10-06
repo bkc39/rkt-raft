@@ -30,8 +30,8 @@ The examples below share these values:
 size counts as @tech{phantom bytes}.
 
 @bold{Printing.} An array prints its dtype, shape, layout and device, then
-its values as NumPy does (summarised beyond 1000 elements), waiting for its
-stream. Printing never raises; unreadable values print as
+its values (summarised beyond 1000 elements), waiting for its stream.
+Printing never raises; unreadable values print as
 @tt{<values unavailable: ...>}.
 
 @bold{Errors.} An unknown dtype or layout, or a negative extent, raises
@@ -49,8 +49,7 @@ so an argument of the wrong kind may raise a different error.
          device-matrix?]{
 
 Allocates a @racket[rows]-by-@racket[cols] matrix of @racket[dtype] in
-@racket[layout], uninitialised, like
-@tt{device_ndarray.empty((rows, cols), dtype, order)}.
+@racket[layout], uninitialised.
 
 @examples[#:eval ev
 (define out (device-matrix 1000 128))
@@ -88,8 +87,8 @@ An unsupported element type raises:
                                      (current-device-resources)])
          device-vector?]{
 
-Allocates an uninitialised vector of @racket[n] elements of @racket[dtype],
-like @tt{device_ndarray.empty((n,), dtype)}. Its stride is 1, or 0 when
+Allocates an uninitialised vector of @racket[n] elements of @racket[dtype].
+Its stride is 1, or 0 when
 empty, and it is in both layouts.
 
 @examples[#:eval ev
@@ -282,7 +281,7 @@ A log line per input:
 @defproc[(strides [a device-array?]) (listof exact-nonnegative-integer?)]{
 
 Returns, for each axis of @racket[a], how many elements apart neighbours
-along it are in memory (NumPy counts bytes). An empty matrix has strides 0.
+along it are in memory, not bytes apart. An empty matrix has strides 0.
 
 @examples[#:eval ev
 (strides X)
@@ -299,7 +298,7 @@ Where element (i, j) sits:
 (element-index (contiguous X #:layout 'col-major) 2 1)
 ]
 
-NumPy's byte strides:
+Strides in bytes, for an interface that counts bytes:
 
 @examples[#:eval ev #:label #f
 (define (byte-strides a)
@@ -310,7 +309,7 @@ NumPy's byte strides:
 
 @defproc[(numel [a device-array?]) exact-nonnegative-integer?]{
 
-Returns the number of elements of @racket[a] (NumPy's @tt{size}).
+Returns the number of elements of @racket[a].
 
 @examples[#:eval ev
 (numel X)
@@ -379,8 +378,7 @@ Refusing the wrong order:
 
 Returns @racket[a] in @racket[layout]: @racket[a] itself if
 @racket[(contiguous? a #:layout layout)], otherwise a copy made on the GPU
-on @racket[a]'s stream and resources. It is @tt{cp.ascontiguousarray} or
-@tt{cp.asfortranarray}.
+on @racket[a]'s stream and resources.
 
 @examples[#:eval ev
 (define Xf (contiguous X #:layout 'col-major))
@@ -411,7 +409,7 @@ Integer matrices:
 
 @section[#:tag "ref-array-convert"]{Converting Racket data}
 
-Without @racket[#:dtype], the element type is inferred as NumPy does: all
+Without @racket[#:dtype], the element type is inferred: all
 exact integers give @racket['int64], anything else (or an empty list)
 @racket['float64]. An integer type truncates toward zero. A value the type
 cannot hold (a complex number, an out-of-range integer, a non-finite value

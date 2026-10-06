@@ -76,7 +76,6 @@
          listing
          make-downstream-eval
          make-raft-eval
-         python
          status)
 
 (define (make-raft-eval)
@@ -116,9 +115,6 @@
   (unless span
     (error 'excerpt "~a has no line ~s after ~s" file to from))
   (listing language (string-join (take (drop lines start) (+ before span 1)) "\n")))
-
-(define (python . lines)
-  (apply listing "Python" lines))
 
 (define (status leg)
   (elem #:style (style #f (list (color-property "gray"))) leg))

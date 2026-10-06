@@ -36,24 +36,6 @@ clusters in @racket[truth]; @racket[kmeans-fit] returns the centroids, the
 inertia and the iteration count; @racket[kmeans-predict] labels each point.
 The results are ordinary raft arrays on @racket[(current-device-resources)].
 
-@python|{
-import cupy as cp
-from cuml.cluster import KMeans
-from cuml.datasets import make_blobs
-
-X, truth = make_blobs(n_samples=300, n_features=2, centers=3,
-                      cluster_std=0.6, random_state=7)
-X.shape, X.dtype, X.flags.f_contiguous   # ((300, 2), dtype('float32'), True)
-km = KMeans(n_clusters=3, random_state=42).fit(X)
-km.cluster_centers_.shape                # (3, 2)
-round(float(km.inertia_), 2), km.n_iter_ # (236.38, 2)
-labels = km.predict(X)
-cp.bincount(labels).tolist()             # [111, 96, 93]
-}|
-
-The numbers differ because Python's @tt{make_blobs} has its own generator; on
-the same data, init and seed, the canary's twin test finds the two agree.
-
 @section[#:tag "downstream-cpp"]{The native library}
 
 The C API is @tt{include/kmeans_canary.h}. Every function takes the handle
@@ -97,8 +79,7 @@ Racket procedure's name:
 (eval:error (kmeans-fit X #:n-clusters 301))
 ]
 
-cuML's Python copies or casts such input; the canary leaves that to its
-caller.
+The canary does not copy or cast such input; that is left to its caller.
 
 @section[#:tag "downstream-build"]{The build}
 
@@ -162,19 +143,6 @@ weights change nothing:
 (< (abs (- weighted inertia)) (* 1e-4 inertia))
 ]
 
-@python|{
-# cuml/cluster/kmeans.pyx, KMeans.fit, abridged
-handle = self.handle if self._multi_gpu else get_handle()
-cdef handle_t* handle_ = <handle_t *><size_t>handle.getHandle()
-cdef lib.KMeansParams params
-_kmeans_init_params(self, params)
-n_iter = _kmeans_fit(handle_[0], params, X, sample_weight, centers)
-# _kmeans_fit passes <float *>X.data.ptr and <int>n_rows to lib.fit
-}|
-
-cuML's Cython passes raw pointers after checking in Python; a Racket binding
-passes a descriptor that the C++ checks.
-
 @section[#:tag "downstream-lifetimes"]{Lifetimes and streams}
 
 A native call borrows three things from Racket.
@@ -222,14 +190,6 @@ This needs RMM's per-device registry to be one symbol shared by
 @tt{libkmeans_canary.so} and @tt{libcuml.so}, which the canary's tests check
 (#10).
 
-@python|{
-import rmm
-rmm.mr.get_current_device_resource()
-# <rmm.pylibrmm.memory_resource._memory_resource.CudaMemoryResource ...>
-}|
-
-In Python, cuML uses plain @tt{cudaMalloc} until the program sets a resource.
-
 @section[#:tag "downstream-abi"]{Versions in lockstep}
 
 RAFT has no versioned C++ namespace, and @tt{raft::handle_t}'s layout changes
@@ -252,9 +212,6 @@ A mismatch stops @racket[(require kmeans-canary)], naming the first field
 that differs. The tag compares release numbers and the handle's size, and
 says nothing of the RAFT that @tt{libcuml.so} was built with; hence the rule
 is one set of RAPIDS libraries and headers, not merely matching tags.
-
-Python has no such check: pip enforces each wheel's pinned versions at
-install time.
 
 @section[#:tag "downstream-next"]{What is frozen, and what comes next}
 

@@ -63,36 +63,10 @@ appearance:
 labels
 ]
 
-@python|{
-import io
-
-import numpy as np
-from pylibraft.common import device_ndarray
-
-csv = (
-    "sepal_length,sepal_width,petal_length,petal_width,species\n"
-    "5.1,3.5,1.4,0.2,setosa\n"
-    "4.9,3.0,1.4,0.2,setosa\n"
-    "7.0,3.2,4.7,1.4,versicolor\n"
-    "6.4,3.2,4.5,1.5,versicolor\n"
-    "6.3,3.3,6.0,2.5,virginica\n"
-    "5.8,2.7,5.1,1.9,virginica\n"
-)
-table = np.loadtxt(io.StringIO(csv), delimiter=",", skiprows=1,
-                   usecols=range(4), dtype=np.float32)
-X = device_ndarray(table)
-species = np.loadtxt(io.StringIO(csv), delimiter=",", skiprows=1,
-                     usecols=4, dtype=str)
-names, codes = np.unique(species, return_inverse=True)
-labels = device_ndarray(codes.astype(np.int32))
-labels.copy_to_host()      # array([0, 0, 1, 1, 2, 2], dtype=int32)
-}|
-
-NumPy parses and builds the array in one step; Racket parses, then converts.
-
 @section[#:tag "moving-data-dtype"]{Choosing float32 for cuML}
 
-Without @racket[#:dtype], the element type is inferred as NumPy infers it:
+Without @racket[#:dtype], the element type is inferred: @racket['int64] for
+exact integers, @racket['float64] otherwise:
 
 @examples[#:eval ev #:label #f
 (dtype (list*->device-array rows))
@@ -106,15 +80,6 @@ as the nearest @racket['float32], widened to a flonum:
 @examples[#:eval ev #:label #f
 (first (device-array->list* X))
 ]
-
-@python|{
-np.asarray([[5.1, 3.5], [4.9, 3.0]]).dtype    # dtype('float64')
-np.asarray([[1, 2], [3, 4]]).dtype            # dtype('int64')
-X.copy_to_host()[0].tolist()
-# [5.099999904632568, 3.5, 1.399999976158142, 0.20000000298023224]
-}|
-
-The inference and the rounding are NumPy's.
 
 @section[#:tag "moving-data-matrix"]{A matrix computed on the host}
 
@@ -141,15 +106,7 @@ It comes back as a @racketmodname[math/array] flonum array, off only by the
 (< (array-all-max (array-abs (array- C* covariance))) 1e-6)
 ]
 
-@python|{
-cov = np.cov(np.loadtxt(io.StringIO(csv), delimiter=",", skiprows=1,
-                        usecols=range(4)), rowvar=False)
-C = device_ndarray(cov.astype(np.float32))
-np.abs(C.copy_to_host() - cov).max() < 1e-6     # True
-}|
-
-Unlike a NumPy array, a @racket[matrix*] result is read element by element
-through a Typed Racket contract (@secref["moving-data-speed"]).
+A @racket[matrix*] result is read element by element through a Typed Racket contract (@secref["moving-data-speed"]).
 
 @section[#:tag "moving-data-ffi"]{Weights from foreign code}
 
@@ -164,16 +121,7 @@ through the FFI; a loop stands in for it. cuML wants them in the data's type:
 w
 ]
 
-@python|{
-import ctypes
-
-weights = np.empty(6)
-fill_weights(weights.ctypes.data_as(ctypes.POINTER(ctypes.c_double)), 6)
-w = device_ndarray(weights.astype(np.float32))
-}|
-
-The @racket[f64vector] plays the NumPy array's part as a foreign buffer.
-Narrowing to @racket['float32] raises on a value too large, where NumPy gives
+Narrowing to @racket['float32] raises on a value too large rather than giving
 an infinity.
 
 @section[#:tag "moving-data-layout"]{A layout for the solver}
@@ -188,12 +136,7 @@ packed by column on the way up, from a list or a matrix:
 (equal? (device-array->list* F) (device-array->list* F*))
 ]
 
-@python|{
-F = device_ndarray(np.asfortranarray(table))
-F.f_contiguous, F.strides        # (True, (4, 24))
-}|
-
-Strides count elements here and bytes in NumPy. On the device,
+Strides count elements. On the device,
 @racket[contiguous] changes the layout (@secref["arrays-layout"]).
 
 @section[#:tag "moving-data-back"]{Results back in Racket}
@@ -227,18 +170,6 @@ Weights saved as raw bytes and read back:
 @examples[#:eval ev #:hidden
 (delete-file saved)
 ]
-
-@python|{
-X.copy_to_host().mean(axis=0)
-# array([5.9166665, 3.1499999, 3.8500001, 1.2833334], dtype=float32)
-np.bincount(labels.copy_to_host())              # array([2, 2, 2])
-path = "weights.bin"
-w.copy_to_host().tofile(path)
-np.fromfile(path, dtype=np.float32)             # array([2., 2., 1., 1., 1., 1.], dtype=float32)
-}|
-
-@tt{copy_to_host} always gives a NumPy array, and keeps the means in
-@tt{float32}.
 
 @section[#:tag "moving-data-speed"]{What each form costs}
 
@@ -289,14 +220,3 @@ Every @racketmodname[math/array] array comes back through
        a Typed Racket contract, about 0.6 µs an element. To avoid it, build
        the array in Typed Racket and call @racket[array->flarray] there:
        80 ms for 1000×1000 against 710 (@tt{bench/typed-arrays.rkt}).}]
-
-@python|{
-xs = [i / 2 for i in range(1_000_000)]
-device_ndarray(np.asarray(xs))                     # 35 ms, nearly all np.asarray
-device_ndarray(np.asarray(xs, dtype=np.float32))   # 28 ms
-arr = np.asarray(xs)
-d = device_ndarray(arr)                            # 2.3 ms
-d.copy_to_host().tolist()                          # 37 ms back to a list
-}|
-
-Python splits the same way; a list costs about the same on either side.

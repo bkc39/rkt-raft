@@ -163,8 +163,7 @@ The pointer is borrowed and does not hold @racket[resources]: once they are
 unreachable, their finalizer frees the handle. A binding therefore takes the
 handle with @racket[with-array-views]'s @racket[#:resources]; this procedure
 suits code that holds the resources some other way, as
-@racket[(current-device-resources)] does for its thread. pylibraft's
-equivalent is @tt{DeviceResources.getHandle()}.
+@racket[(current-device-resources)] does for its thread.
 
 @examples[#:eval ev
 (resources->handle-pointer (current-device-resources))
@@ -295,7 +294,7 @@ void** out)} sets @racket[out] to @tt{NULL}, then to the
        (list @tt{int32_t device} "16" "the CUDA device")
        (list @tt{int32_t rank} "20" @elem{0 to @tt{RR_MAX_RANK} (8)})
        (list @tt{int64_t shape[8]} "24" "the extents; entries past the rank are 0")
-       (list @tt{int64_t strides[8]} "88" "in elements, NumPy's order"))]
+       (list @tt{int64_t strides[8]} "88" "in elements, axis 0 first"))]
 
 @tt{int rr_buffer_view(const rr_buffer* buffer, uint64_t offset, rr_view*
 view)} is the one way a view gets its pointer: the caller fills @tt{dtype},
