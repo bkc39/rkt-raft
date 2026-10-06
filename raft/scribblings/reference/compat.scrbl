@@ -17,14 +17,12 @@
 
 @defmodule[raft/compat]
 
-This module converts between @tech{device arrays} and the data Racket programs
-already hold. It holds the whole conversion table in one place: it re-exports
-the list and @racket[flvector] conversions of @racketmodname[raft/array] and
-adds vectors, nested vectors, @racket[f32vector]s, @racket[f64vector]s, byte
-strings, and @racketmodname[math/matrix] and @racketmodname[math/array]
-values. It is the only module of the library that requires @tt{math-lib}, so
-@racketmodname[raft] does not re-export it and @racket[(require raft)] stays
-light. The guide chapter @secref["moving-data"] uses it in one program.
+Conversions between @tech{device arrays} and Racket data: the list and
+@racket[flvector] conversions of @racketmodname[raft/array], plus vectors,
+@racket[f32vector]s, @racket[f64vector]s, byte strings, and
+@racketmodname[math/matrix] and @racketmodname[math/array] values.
+@racketmodname[raft] does not re-export it, since it requires @tt{math-lib}.
+See also @secref["moving-data"].
 
 @tabular[#:style 'boxed
          #:sep @hspace[2]
@@ -61,40 +59,26 @@ light. The guide chapter @secref["moving-data"] uses it in one program.
                      @racket[array->device-array]
                      @racket[device-array->array]))]
 
-@bold{The rules.} Every conversion here follows the rules of
-@secref["ref-array-convert"], through the same packer. Going to the device,
-the element type is inferred as NumPy infers it unless @racket[#:dtype] gives
-one: all exact integers give @racket['int64], any other real numbers
-@racket['float64], and no elements at all @racket['float64]. An
-@racket[flvector], an @racket[f64vector] and a flonum array hold flonums, so
-they give @racket['float64]; an @racket[f32vector] gives @racket['float32].
-Exact rationals become floats, and an integer type truncates toward zero.
-Inference differs from NumPy's in three places, all values NumPy has a type
-for and this library does not: exact rationals give @racket['float64], where
-NumPy, given @tt{Fraction}s, makes an @tt{object} array; booleans are refused,
-where NumPy makes @tt{bool} (or @tt{int64} mixed with integers); and an exact
-integer from 2@superscript{63} to 2@superscript{64}-1 is refused as out of
-range, where NumPy makes @tt{uint64}. A
-value the element type cannot hold, such as a complex number, an infinity or
-NaN for an integer type, or a number out of the type's range, raises
-@racket[exn:fail:raft] naming the procedure. A matrix's @racket[#:layout]
-decides the order its values are packed in on the host, so no copy runs on
-the GPU to change it. Nested data must be rectangular: a ragged row raises
-@racket[exn:fail:raft] naming the row. Coming back, the conversions wait for
-the work queued on the array's stream, then copy; floating-point elements
-become flonums and integer elements exact integers.
+@bold{The rules} are those of @secref["ref-array-convert"]. Without
+@racket[#:dtype], the element type is inferred as NumPy infers it: exact
+integers give @racket['int64], other reals and empty data @racket['float64];
+an @racket[flvector], @racket[f64vector] or flonum array gives
+@racket['float64], an @racket[f32vector] @racket['float32]. Unlike NumPy,
+exact rationals give @racket['float64], and booleans and integers from
+2@superscript{63} to 2@superscript{64}-1 are refused. Integer types truncate
+toward zero. A value the type cannot hold (a complex number, an infinity or
+NaN for an integer type, an out-of-range number) and a ragged row raise
+@racket[exn:fail:raft]. @racket[#:layout] sets the packing order on the host.
+Coming back, a conversion waits for the work queued on the array's stream;
+floating-point elements become flonums, integers exact integers.
 
-@bold{Rank.} Device arrays have one or two axes for now. A conversion that
-infers the rank, from a nesting or from a @racketmodname[math/array] array,
-refuses any other rank with @racket[exn:fail:raft]; arrays of any rank arrive
-later @status{L3}.
+@bold{Rank.} Device arrays have one or two axes; any other inferred rank
+raises @racket[exn:fail:raft]. Higher ranks arrive later @status{L3}.
 
-@bold{Speed.} Packing goes element by element. An @racket[flvector] or a
-flonum array sent as @racket['float64] and a byte string skip it: their
-storage is copied to the device as it is. An @racket[f32vector] sent as
-@racket['float32] and an @racket[f64vector] sent as @racket['float64] skip
-it too, after one copy of their storage on the host.
-@secref["moving-data-speed"] measures every representation.
+@bold{Speed.} An @racket[flvector], flonum array or @racket[f64vector] sent as
+@racket['float64], an @racket[f32vector] sent as @racket['float32], and a byte
+string are copied as they are; everything else is packed element by element
+(@secref["moving-data-speed"]).
 
 @section[#:tag "ref-compat-nested"]{Vectors and nested data}
 
@@ -104,16 +88,15 @@ it too, after one copy of their storage on the host.
                                              (current-device-resources)])
          device-vector?]{
 
-Returns a vector holding the elements of @racket[xs], of @racket[dtype], or of
-the inferred type when @racket[dtype] is @racket[#f]. It is
-@tt{device_ndarray(np.asarray(xs, dtype))}.
+Returns a vector of the elements of @racket[xs], of @racket[dtype] or the
+inferred type: @tt{device_ndarray(np.asarray(xs, dtype))}.
 
 @examples[#:eval ev
 (vector->device-vector #(3 1 4 1 5))
 (vector->device-vector #(0.5 1.5 2.5) #:dtype 'float32)
 ]
 
-Weights computed by Racket code, sent in the type cuML takes:
+Weights in the type cuML takes:
 
 @examples[#:eval ev #:label #f
 (define weights
@@ -122,7 +105,7 @@ Weights computed by Racket code, sent in the type cuML takes:
 (vector->device-vector weights #:dtype 'float32)
 ]
 
-One column of a table whose rows are vectors:
+One column of a table of vector rows:
 
 @examples[#:eval ev #:label #f
 (define flowers
@@ -133,7 +116,7 @@ One column of a table whose rows are vectors:
 (device-vector->list (vector->device-vector lengths))
 ]
 
-A string is refused, and the error names it:
+A string is refused:
 
 @examples[#:eval ev #:label #f
 (eval:error (vector->device-vector (vector-map (lambda (row) (vector-ref row 0)) flowers)))
@@ -141,15 +124,14 @@ A string is refused, and the error names it:
 
 @defproc[(device-vector->vector [v device-vector?]) (vectorof real?)]{
 
-Returns the elements of @racket[v] as a new mutable vector. The nearest
-Python is @tt{v.copy_to_host().tolist()}; a vector also indexes in constant
-time.
+Returns the elements of @racket[v] as a new mutable vector:
+@tt{v.copy_to_host().tolist()}.
 
 @examples[#:eval ev
 (device-vector->vector (vector->device-vector #(2 7 1 8)))
 ]
 
-Counting how many samples fall in each cluster from a vector of labels:
+Cluster sizes from labels:
 
 @examples[#:eval ev #:label #f
 (define labels (vector->device-vector #(0 2 1 2 2 0) #:dtype 'int32))
@@ -159,7 +141,7 @@ Counting how many samples fall in each cluster from a vector of labels:
 counts
 ]
 
-The best score and where it is, read on the host:
+The best score and its index:
 
 @examples[#:eval ev #:label #f
 (define scores (device-vector->vector (vector->device-vector #(0.2 0.9 0.4))))
@@ -174,16 +156,13 @@ The best score and where it is, read on the host:
                                               (current-device-resources)])
          device-matrix?]{
 
-Returns a matrix whose rows are the vectors in @racket[rows], of
-@racket[dtype] or the inferred type, packed in @racket[layout]. Every row must
-have the same length. It is @racket[list*->device-matrix] for vectors.
+Like @racket[list*->device-matrix], for a vector of vector rows.
 
 @examples[#:eval ev
 (vector*->device-matrix #(#(1 2 3) #(4 5 6)))
 ]
 
-A grid built by @racket[for/vector], laid out by column for a solver that
-reads Fortran order:
+A grid laid out by column:
 
 @examples[#:eval ev #:label #f
 (define grid
@@ -194,7 +173,7 @@ reads Fortran order:
 (list (shape G) (contiguous? G #:layout 'col-major) (strides G))
 ]
 
-A ragged row is named, as a vector:
+A ragged row is refused:
 
 @examples[#:eval ev #:label #f
 (eval:error (vector*->device-matrix #(#(1.0 2.0) #(3.0))))
@@ -208,7 +187,7 @@ Returns the rows of @racket[m] as a vector of vectors, whatever its layout.
 (device-matrix->vector* (vector*->device-matrix #(#(1 2) #(3 4))))
 ]
 
-Looking up one centroid of several:
+One centroid of several:
 
 @examples[#:eval ev #:label #f
 (define centroids (vector*->device-matrix #(#(5.0 3.4) #(6.6 3.0) #(5.9 2.8))))
@@ -229,20 +208,17 @@ A column-major matrix still comes back as rows:
                                            (current-device-resources)])
          device-array?]{
 
-Returns a vector if @racket[xs] is a list of numbers and a matrix if it is a
-list of rows, each a list or a vector, as
-@tt{device_ndarray(np.asarray(xs, dtype))} does with lists and tuples. The
-rank is read from the nesting: if the first element of @racket[xs] is a row,
-every element must be one. The empty list is an empty vector, as
-@tt{np.asarray([])} is. A deeper nesting is refused; @racket[layout] applies to
-a matrix and is ignored for a vector.
+Returns a vector for a list of numbers and a matrix for a list of rows (lists
+or vectors), as @tt{device_ndarray(np.asarray(xs, dtype))}. If the first
+element is a row, every element must be one; a deeper nesting is refused.
+@racket['()] is an empty vector. @racket[layout] is ignored for a vector.
 
 @examples[#:eval ev
 (list*->device-array '(1.0 2.0 3.0))
 (list*->device-array '((1 2) (3 4)))
 ]
 
-A loader that takes one series or a table of them, with the same call:
+One call for a series or a table:
 
 @examples[#:eval ev #:label #f
 (define (upload data)
@@ -250,13 +226,11 @@ A loader that takes one series or a table of them, with the same call:
 (map shape (list (upload '(0.5 1.5)) (upload '((0.5 1.5) (2.5 3.5) (4.5 5.5)))))
 ]
 
-The empty list is an empty vector:
-
 @examples[#:eval ev #:label #f
 (shape (list*->device-array '()))
 ]
 
-A nesting that is not one or two deep, or that mixes depths, is refused:
+Other nestings are refused:
 
 @examples[#:eval ev #:label #f
 (eval:error (list*->device-array '(((1 2) (3 4)))))
@@ -271,22 +245,22 @@ A nesting that is not one or two deep, or that mixes depths, is refused:
                                              (current-device-resources)])
          device-array?]{
 
-Like @racket[list*->device-array], for a vector of numbers or a vector of
-rows; the rows may be vectors or lists.
+Like @racket[list*->device-array], for a vector of numbers or of rows (vectors
+or lists).
 
 @examples[#:eval ev
 (vector*->device-array #(1 2 3))
 (vector*->device-array #(#(1 2) #(3 4)))
 ]
 
-Data saved as a Racket literal and read back with @racket[read]:
+Data read back from a Racket literal:
 
 @examples[#:eval ev #:label #f
 (define saved (read (open-input-string "#(#(0.1 0.2) #(0.3 0.4) #(0.5 0.6))")))
 (shape (vector*->device-array saved #:dtype 'float32))
 ]
 
-A row that is not a vector is named:
+A non-row element is refused:
 
 @examples[#:eval ev #:label #f
 (eval:error (vector*->device-array (vector #(1 2) 3)))
@@ -295,15 +269,15 @@ A row that is not a vector is named:
 @defproc[(device-array->list* [a device-array?])
          (or/c (listof real?) (listof (listof real?)))]{
 
-Returns the elements of @racket[a] as a list for a vector and as a list of
-rows for a matrix: @tt{a.copy_to_host().tolist()} for either rank.
+Returns the elements of @racket[a] as a list, or a list of rows for a matrix:
+@tt{a.copy_to_host().tolist()}.
 
 @examples[#:eval ev
 (device-array->list* (list*->device-array '(1 2 3)))
 (device-array->list* (list*->device-array '((1 2) (3 4)) #:layout 'col-major))
 ]
 
-Results sent to a web client as JSON, whatever their rank:
+Results as JSON, whatever their rank:
 
 @examples[#:eval ev #:label #f
 (define (results->json a)
@@ -312,7 +286,7 @@ Results sent to a web client as JSON, whatever their rank:
 (results->json (vector->device-vector #(0.5 0.25)))
 ]
 
-A summary that works on both ranks, by flattening the rows:
+A sum over either rank:
 
 @examples[#:eval ev #:label #f
 (define (total a)
@@ -331,14 +305,14 @@ Like @racket[device-array->list*], building vectors.
 (device-array->vector* (vector*->device-array #(#(1 2) #(3 4))))
 ]
 
-Indexing an element of a result directly:
+Indexing a result:
 
 @examples[#:eval ev #:label #f
 (define table (device-array->vector* centroids))
 (vector-ref (vector-ref table 2) 0)
 ]
 
-Sorting a copy of a result on the host, leaving the device array as it was:
+Sorting the host copy leaves the device array unchanged:
 
 @examples[#:eval ev #:label #f
 (define distances (vector->device-vector #(2.5 0.5 1.5)))
@@ -354,17 +328,14 @@ Sorting a copy of a result on the host, leaving the device array as it was:
                                                 (current-device-resources)])
          device-vector?]{
 
-Returns a vector holding the elements of @racket[xs], of @racket[dtype]. For
-@racket['float32] the storage is copied as it is, with no packing; other types
-are converted element by element. It is
-@tt{device_ndarray(np.asarray(xs, dtype))} for an @tt{xs} of type
-@tt{np.float32}.
+Returns a vector of the elements of @racket[xs], of @racket[dtype]:
+@tt{device_ndarray(np.asarray(xs, dtype))} for @tt{np.float32} @tt{xs}.
 
 @examples[#:eval ev
 (f32vector->device-vector (f32vector 0.5 1.5 2.5))
 ]
 
-Samples from an audio decoder, which hands back single-precision floats:
+Single-precision samples from an audio decoder:
 
 @examples[#:eval ev #:label #f
 (define samples (make-f32vector 4 0.25))
@@ -373,7 +344,7 @@ Samples from an audio decoder, which hands back single-precision floats:
 (list (dtype on-gpu) (device-vector->list on-gpu))
 ]
 
-Widened to double precision or truncated to integers on the way:
+Widened, or truncated to integers:
 
 @examples[#:eval ev #:label #f
 (device-vector->list (f32vector->device-vector (f32vector 0.1 2.7) #:dtype 'float64))
@@ -386,23 +357,21 @@ Widened to double precision or truncated to integers on the way:
                                                 (current-device-resources)])
          device-vector?]{
 
-Returns a vector holding the elements of @racket[xs], of @racket[dtype]. For
-@racket['float64] the storage is copied as it is; other types are converted
-element by element, and a value too large for @racket['float32] is refused.
+Returns a vector of the elements of @racket[xs], of @racket[dtype]. A value
+too large for @racket['float32] raises @racket[exn:fail:raft].
 
 @examples[#:eval ev
 (f64vector->device-vector (f64vector 1.0 2.0 3.0))
 ]
 
-Readings in an @racket[f64vector], the form a C library fills through the
-FFI, narrowed to @racket['float32] for cuML:
+Readings a C library filled, narrowed for cuML:
 
 @examples[#:eval ev #:label #f
 (define readings (list->f64vector '(21.5 21.75 22.0 22.5)))
 (f64vector->device-vector readings #:dtype 'float32)
 ]
 
-Counts that arrived as doubles, sent as integers:
+Doubles sent as integers:
 
 @examples[#:eval ev #:label #f
 (dtype (f64vector->device-vector (f64vector 3.0 0.0 12.0) #:dtype 'int64))
@@ -411,14 +380,14 @@ Counts that arrived as doubles, sent as integers:
 @defproc[(device-vector->f32vector [v device-vector?]) f32vector?]{
 
 Returns the elements of @racket[v] as a new @racket[f32vector]. A
-@racket['float32] vector is copied as it is; other types are converted, and a
-@racket['float64] value too large for @racket['float32] is refused.
+@racket['float64] value too large for @racket['float32] raises
+@racket[exn:fail:raft].
 
 @examples[#:eval ev
 (f32vector->list (device-vector->f32vector (f32vector->device-vector (f32vector 0.5 1.5))))
 ]
 
-Results narrowed for a C library that takes @tt{float*}:
+For a C library that takes @tt{float*}:
 
 @examples[#:eval ev #:label #f
 (define out (device-vector->f32vector (vector->device-vector #(0.1 0.2))))
@@ -433,20 +402,19 @@ Integer labels as floats:
 
 @defproc[(device-vector->f64vector [v device-vector?]) f64vector?]{
 
-Returns the elements of @racket[v] as a new @racket[f64vector]. A
-@racket['float64] vector is copied as it is; other types are widened.
+Returns the elements of @racket[v] as a new @racket[f64vector].
 
 @examples[#:eval ev
 (f64vector->list (device-vector->f64vector (f64vector->device-vector readings)))
 ]
 
-A @racket['float32] vector widens to the nearest doubles:
+A @racket['float32] vector widens:
 
 @examples[#:eval ev #:label #f
 (f64vector->list (device-vector->f64vector (vector->device-vector #(0.1) #:dtype 'float32)))
 ]
 
-A result handed to code that takes a @tt{double*}, here summed in Racket:
+Summed on the host:
 
 @examples[#:eval ev #:label #f
 (define totals (device-vector->f64vector (vector->device-vector #(1.5 2.5 3.0))))
@@ -459,11 +427,9 @@ A result handed to code that takes a @tt{double*}, here summed in Racket:
                                             (current-device-resources)])
          device-vector?]{
 
-Returns a vector whose storage is the bytes of @racket[bs], read as elements of
-@racket[dtype] in the machine's byte order (little-endian on x86-64), with no
-conversion. The element type must be given, since bytes do not carry one, and
-the length of @racket[bs] must be a whole number of elements. It is
-@tt{device_ndarray(np.frombuffer(bs, dtype))}.
+Returns a vector whose storage is @racket[bs], read as @racket[dtype] in the
+machine's byte order: @tt{device_ndarray(np.frombuffer(bs, dtype))}. The
+length of @racket[bs] must be a whole number of elements.
 
 @examples[#:eval ev
 (define raw (bytes-append (real->floating-point-bytes 0.5 4)
@@ -471,7 +437,7 @@ the length of @racket[bs] must be a whole number of elements. It is
 (bytes->device-vector raw #:dtype 'float32)
 ]
 
-Labels stored as 32-bit integers in a binary file:
+Labels from a binary file:
 
 @examples[#:eval ev #:label #f
 (define label-file (make-temporary-file))
@@ -486,7 +452,7 @@ Labels stored as 32-bit integers in a binary file:
 (delete-file label-file)
 ]
 
-A length that is not a whole number of elements is refused:
+A partial element is refused:
 
 @examples[#:eval ev #:label #f
 (eval:error (bytes->device-vector (make-bytes 6) #:dtype 'float32))
@@ -494,15 +460,14 @@ A length that is not a whole number of elements is refused:
 
 @defproc[(device-vector->bytes [v device-vector?]) bytes?]{
 
-Returns the storage of @racket[v] as a new byte string, in the machine's byte
-order: @racket[numel] times the element size bytes. It is
-@tt{v.copy_to_host().tobytes()}.
+Returns the storage of @racket[v] as a new byte string in the machine's byte
+order: @tt{v.copy_to_host().tobytes()}.
 
 @examples[#:eval ev
 (device-vector->bytes (vector->device-vector #(1 2) #:dtype 'int32))
 ]
 
-Saving a result to a binary file and reading it back:
+A round trip through a file:
 
 @examples[#:eval ev #:label #f
 (define result-file (make-temporary-file))
@@ -516,7 +481,7 @@ Saving a result to a binary file and reading it back:
 (delete-file result-file)
 ]
 
-The same bytes read as another element type, as @tt{view} does in NumPy:
+Reinterpreted, as NumPy's @tt{view}:
 
 @examples[#:eval ev #:label #f
 (define one (device-vector->bytes (vector->device-vector #(1.0) #:dtype 'float32)))
@@ -525,14 +490,10 @@ The same bytes read as another element type, as @tt{view} does in NumPy:
 
 @section[#:tag "ref-compat-math"]{@racketmodname[math/matrix] and @racketmodname[math/array]}
 
-@racketmodname[math/array] is written in Typed Racket, and every array that
-reaches untyped code carries a contract that checks each element as it is
-read. These conversions read an array's elements once: a flonum array hands
-over its @racket[flvector] in one step (@racket[flarray-data]), a mutable
-array its vector (@racket[mutable-array-data]), and any other array is read by
-@racket[array->vector], which pays that check on every element. Arrays come
-back as flonum arrays (@racket[FlArray]) from @racket['float32] and
-@racket['float64] device arrays and as mutable arrays from integer ones.
+A flonum array or mutable array hands over its storage in one step; any
+other array is read through a Typed Racket contract per element. Results come
+back as flonum arrays (@racket[FlArray]) for floating-point device arrays and
+mutable arrays of exact integers for integer ones.
 
 @defproc[(matrix->device-matrix [m matrix?]
                                 [#:dtype dtype (or/c #f 'float32 'float64 'int32 'int64) #f]
@@ -541,16 +502,14 @@ back as flonum arrays (@racket[FlArray]) from @racket['float32] and
                                              (current-device-resources)])
          device-matrix?]{
 
-Returns a device matrix holding @racket[m], a matrix of real numbers, of
-@racket[dtype] or the inferred type, packed in @racket[layout]. Like any @racketmodname[math/matrix] value,
-@racket[m] is an array with two axes. It is
-@tt{device_ndarray(np.asarray(m, dtype))}.
+Returns a device matrix holding @racket[m], of @racket[dtype] or the inferred
+type, packed in @racket[layout]: @tt{device_ndarray(np.asarray(m, dtype))}.
 
 @examples[#:eval ev
 (matrix->device-matrix (matrix [[1.0 2.0] [3.0 4.0]]))
 ]
 
-A Gram matrix computed on the host, sent in single precision:
+A Gram matrix in single precision:
 
 @examples[#:eval ev #:label #f
 (define A (matrix [[1.0 2.0] [3.0 4.0] [5.0 6.0]]))
@@ -558,8 +517,7 @@ A Gram matrix computed on the host, sent in single precision:
 (matrix->device-matrix gram #:dtype 'float32)
 ]
 
-@racket[identity-matrix] has exact entries, so the inferred type is
-@racket['int64]; ask for the type the consumer needs, and the layout:
+Exact entries infer @racket['int64]; ask for the type you need:
 
 @examples[#:eval ev #:label #f
 (dtype (matrix->device-matrix (identity-matrix 3)))
@@ -569,25 +527,22 @@ A Gram matrix computed on the host, sent in single precision:
 
 @defproc[(device-matrix->matrix [m device-matrix?]) array?]{
 
-Returns the rows and columns of @racket[m] as a @racketmodname[math/array]
-array with two axes, whatever its layout: a flonum array for a floating-point
-matrix, a mutable array of exact integers for an integer one. A matrix with an
-extent of 0 comes back as an empty array, which @racket[matrix?] does not
-accept.
+Returns @racket[m] as a two-axis @racketmodname[math/array] array, whatever
+its layout. A matrix with an extent of 0 gives an empty array, which
+@racket[matrix?] rejects.
 
 @examples[#:eval ev
 (device-matrix->matrix (matrix->device-matrix (matrix [[1.0 2.0] [3.0 4.0]])))
 ]
 
-The result is a @racketmodname[math/matrix] matrix, ready for the host-side
-algebra:
+Host algebra on the result:
 
 @examples[#:eval ev #:label #f
 (define back (device-matrix->matrix (matrix->device-matrix gram)))
 (list (matrix-trace back) (matrix-determinant back))
 ]
 
-Integer matrices come back exact, so the algebra stays exact:
+Integer matrices stay exact:
 
 @examples[#:eval ev #:label #f
 (define counts-matrix (device-matrix->matrix (list*->device-matrix '((2 1) (1 3)) #:dtype 'int32)))
@@ -600,23 +555,20 @@ Integer matrices come back exact, so the algebra stays exact:
                                              (current-device-resources)])
          device-vector?]{
 
-Returns a device vector holding the elements of @racket[m], a row matrix
-(one row) or a column matrix (one column). Any other shape raises
-@racket[exn:fail:raft].
+Returns a device vector of the elements of @racket[m], a row or column
+matrix; any other shape raises @racket[exn:fail:raft].
 
 @examples[#:eval ev
 (matrix->device-vector (col-matrix [1 2 3]))
 (matrix->device-vector (row-matrix [0.5 1.5]))
 ]
 
-The solution of a linear system, computed on the host and sent as a vector:
+A host-solved linear system:
 
 @examples[#:eval ev #:label #f
 (define x (matrix-solve (matrix [[2.0 1.0] [1.0 3.0]]) (col-matrix [3.0 5.0])))
 (matrix->device-vector x #:dtype 'float32)
 ]
-
-A matrix with several rows and columns is not a vector:
 
 @examples[#:eval ev #:label #f
 (eval:error (matrix->device-vector gram))
@@ -624,21 +576,20 @@ A matrix with several rows and columns is not a vector:
 
 @defproc[(device-vector->col-matrix [v device-vector?]) array?]{
 
-Returns the elements of @racket[v] as a column matrix, an array of shape
-@racket[(vector n 1)].
+Returns @racket[v] as a column matrix, of shape @racket[(vector n 1)].
 
 @examples[#:eval ev
 (device-vector->col-matrix (vector->device-vector #(1.0 2.0 3.0)))
 ]
 
-Checking a GPU result on the host, by multiplying @racket[A] by it:
+Checking a result on the host:
 
 @examples[#:eval ev #:label #f
 (define coefficients (vector->device-vector #(1.0 -1.0)))
 (matrix* A (device-vector->col-matrix coefficients))
 ]
 
-The Euclidean norm of a result vector, by @racketmodname[math/matrix]:
+A Euclidean norm:
 
 @examples[#:eval ev #:label #f
 (matrix-norm (device-vector->col-matrix (vector->device-vector #(3.0 4.0))))
@@ -646,21 +597,20 @@ The Euclidean norm of a result vector, by @racketmodname[math/matrix]:
 
 @defproc[(device-vector->row-matrix [v device-vector?]) array?]{
 
-Returns the elements of @racket[v] as a row matrix, an array of shape
-@racket[(vector 1 n)].
+Returns @racket[v] as a row matrix, of shape @racket[(vector 1 n)].
 
 @examples[#:eval ev
 (device-vector->row-matrix (vector->device-vector #(1 2 3)))
 ]
 
-Stacking several result vectors into one host matrix, one row each:
+Stacking results into one matrix:
 
 @examples[#:eval ev #:label #f
 (define runs (list (vector->device-vector #(0.25 0.5)) (vector->device-vector #(0.75 1.0))))
 (matrix-stack (map device-vector->row-matrix runs))
 ]
 
-A dot product on the host, as a row times a column:
+A dot product as row times column:
 
 @examples[#:eval ev #:label #f
 (define u (vector->device-vector #(1.0 2.0)))
@@ -674,19 +624,16 @@ A dot product on the host, as a row times a column:
                                            (current-device-resources)])
          device-array?]{
 
-Returns a device vector for an array of real numbers with one axis and a
-device matrix for an array with two, of @racket[dtype] or the inferred type; @racket[layout] applies
-to a matrix. Another rank is refused. A flonum array sent as
-@racket['float64] in row-major order is copied straight from its
-@racket[flvector].
+Returns a device vector for a one-axis array and a device matrix for a
+two-axis one, of @racket[dtype] or the inferred type; @racket[layout] applies
+to a matrix. Another rank raises @racket[exn:fail:raft].
 
 @examples[#:eval ev
 (array->device-array (flarray #[#[1.0 2.0] #[3.0 4.0]]))
 (array->device-array (array #[1 2 3]))
 ]
 
-A table computed by @racket[build-array], which is neither a flonum array nor
-a mutable array, so its elements are read one by one:
+A @racket[build-array] table, read element by element:
 
 @examples[#:eval ev #:label #f
 (define distances-table
@@ -694,8 +641,8 @@ a mutable array, so its elements are read one by one:
 (array->device-array distances-table #:dtype 'float32)
 ]
 
-Selecting columns on the host before sending, since device arrays cannot be
-sliced yet @status{L3}:
+Columns sliced on the host first, since device arrays cannot be sliced yet
+@status{L3}:
 
 @examples[#:eval ev #:label #f
 (define measurements (flarray #[#[5.1 3.5 1.4] #[7.0 3.2 4.7] #[6.3 3.3 6.0]]))
@@ -703,31 +650,26 @@ sliced yet @status{L3}:
 (device-array->list* (array->device-array first-two))
 ]
 
-An array with three axes is refused:
-
 @examples[#:eval ev #:label #f
 (eval:error (array->device-array (array #[#[#[1 2]]])))
 ]}
 
 @defproc[(device-array->array [a device-array?]) array?]{
 
-Returns the elements of @racket[a] as a @racketmodname[math/array] array of
-the same shape: a flonum array for a floating-point device array, and a
-mutable array of exact integers for an integer one. A @racket['float64]
-row-major array is read straight into the result's @racket[flvector].
+Returns @racket[a] as a @racketmodname[math/array] array of the same shape.
 
 @examples[#:eval ev
 (device-array->array (vector->device-vector #(1.5 2.5)))
 (device-array->array (list*->device-matrix '((1 2) (3 4)) #:dtype 'int32))
 ]
 
-Summing a result with @racketmodname[math/array]:
+Summing a result:
 
 @examples[#:eval ev #:label #f
 (array-all-sum (device-array->array (vector->device-vector #(0.5 1.5 2.0))))
 ]
 
-Element-wise arithmetic on the host, and the result sent back:
+Host arithmetic, sent back:
 
 @examples[#:eval ev #:label #f
 (define scaled (array-scale (device-array->array (vector->device-vector #(1.0 2.0 3.0))) 10.0))
@@ -736,9 +678,7 @@ Element-wise arithmetic on the host, and the result sent back:
 
 @section[#:tag "ref-compat-reexports"]{From @racketmodname[raft/array]}
 
-These are @racketmodname[raft/array]'s conversions, re-exported so that the
-whole table above can be required from one module. Each is documented in
-@secref["ref-array-convert"].
+Re-exported from @secref["ref-array-convert"]:
 
 @itemlist[
  @item{@racket[list->device-vector] and @racket[device-vector->list]}
