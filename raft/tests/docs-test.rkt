@@ -9,18 +9,13 @@
 
 (test-case "getting started: the first program and the stack report"
   (check-equal? (raft-version) "26.08.00")
-  (define abi (raft-abi))
-  (check-equal? (hash-ref abi 'raft) "26.08.00")
-  (check-equal? (hash-ref abi 'rmm) "26.08.00")
-  (check-equal? (hash-ref abi 'cuda-runtime) "13.2")
-  (check-equal?
-   (with-output-to-string (lambda ()
-                            (for ([part (in-list '(raft rmm cccl cuda-runtime))])
-                              (printf "~a ~a\n" (~a part #:min-width 13) (hash-ref abi part)))))
-   (string-append "raft          26.08.00\n"
-                  "rmm           26.08.00\n"
-                  "cccl          3.4.3\n"
-                  "cuda-runtime  13.2\n")))
+  (check-true (> (hash-count (raft-abi)) 4))
+  (match-define (hash-table ('raft raft) ('rmm rmm) ('cccl cccl) ('cuda-runtime cuda-runtime))
+    (raft-abi))
+  (check-equal? (with-output-to-string
+                 (lambda ()
+                   (printf "raft ~a\nrmm ~a\ncccl ~a\ncuda-runtime ~a\n" raft rmm cccl cuda-runtime)))
+                "raft 26.08.00\nrmm 26.08.00\ncccl 3.4.3\ncuda-runtime 13.2\n"))
 
 (test-case "concepts: row-major and column-major order"
   (define m '((1 2 3) (4 5 6)))
