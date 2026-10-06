@@ -167,10 +167,26 @@ before collecting. Each buffer therefore reports its size to the collector as
 can, so that holding a lot of device memory triggers collections just as
 holding a lot of host memory does.
 
-When release has to happen at a known point, a @tt{with-} form releases on
-exit, whether the body returns, raises or escapes, and the finalizer stays as
-a backstop: @racket[with-device-resources] for resources, and a
-form for arrays @status{L3}.
+The finalizer is the default, and it is correct on its own: an object you
+never release by hand is still released, exactly once, after its last use.
+What the collector does not give is a timeline. It runs a finalizer at some
+collection after the object became unreachable, not when its last use ended,
+and it runs the finalizers it finds in no particular order. Phantom bytes
+make collections come sooner for buffers, but a resources object also holds
+state that no byte count describes: its CUDA stream, and the cuBLAS,
+cuSOLVER and cuSPARSE handles RAFT creates on first use, which belong to the
+driver. Dropped resources keep that state until a collection happens to find
+them.
+
+The @tt{with-} forms exist to give a managed object's lifetime a clear
+timeline. Each releases what it bound at a known point, when the body exits,
+whether it returns, raises, escapes or yields from a generator, and control
+that jumps back into the body afterwards raises an error instead of reaching
+a released object. The object stays managed: releasing it twice does
+nothing, and the finalizer remains the backstop for an exit no form can see,
+a thread killed inside the body. @racket[with-device-resources] scopes
+resources (@secref["res-batch"] shows a worker that does), and a form for
+arrays arrives in @status{L3}.
 
 @python|{
 X = device_ndarray.empty((1000, 128), dtype=np.float32)
@@ -180,7 +196,8 @@ del X          # CPython frees it now, through the reference count
 CPython frees an array the moment its last reference goes; Racket frees it at
 the next collection that finds it unreachable. Code that allocates in a loop
 does not need to care, because the phantom bytes make collections come sooner;
-code that wants memory back at an exact point uses a @tt{with-} form.
+code that needs a clear timeline, memory or driver state back at a known
+point, uses a @tt{with-} form.
 
 @section[#:tag "concepts-errors"]{Errors}
 
