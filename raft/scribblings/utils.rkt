@@ -1,11 +1,30 @@
 #lang racket/base
 
-(require (for-label ffi/vector
+(require (for-label (only-in ffi/unsafe
+                             _bytes/nul-terminated
+                             _double
+                             _fun
+                             _int
+                             _int32
+                             _int64
+                             _pointer
+                             _ptr
+                             _uint64
+                             cpointer?
+                             ffi-lib
+                             memcpy
+                             ptr-equal?
+                             ptr-ref
+                             ptr-set!)
+                    ffi/unsafe/define
+                    ffi/unsafe/define/conventions
+                    ffi/vector
                     json
                     math/array
                     math/matrix
                     raft
                     raft/compat
+                    raft/unsafe
                     racket/base
                     racket/file
                     racket/flonum
@@ -29,12 +48,16 @@
 
 (provide (all-from-out scribble/example)
          (all-from-out scribble/manual)
-         (for-label (all-from-out ffi/vector
+         (for-label (all-from-out ffi/unsafe
+                                  ffi/unsafe/define
+                                  ffi/unsafe/define/conventions
+                                  ffi/vector
                                   json
                                   math/array
                                   math/matrix
                                   raft
                                   raft/compat
+                                  raft/unsafe
                                   racket/base
                                   racket/file
                                   racket/flonum
@@ -44,6 +67,8 @@
                                   racket/port
                                   racket/string
                                   racket/vector))
+         listing
+         make-downstream-eval
          make-raft-eval
          python
          status)
@@ -62,8 +87,16 @@
                               racket/match
                               racket/string))))
 
+(define (make-downstream-eval)
+  (define ev (make-raft-eval))
+  (ev '(require ffi/unsafe ffi/unsafe/define ffi/unsafe/define/conventions raft/unsafe))
+  ev)
+
+(define (listing language . lines)
+  (nested #:style 'code-inset (para (italic language)) (apply verbatim lines)))
+
 (define (python . lines)
-  (nested #:style 'code-inset (para (italic "Python")) (apply verbatim lines)))
+  (apply listing "Python" lines))
 
 (define (status leg)
   (elem #:style (style #f (list (color-property "gray"))) leg))

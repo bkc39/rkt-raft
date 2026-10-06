@@ -12,3 +12,4 @@ built.
 @include-section["reference/core.scrbl"]
 @include-section["reference/array.scrbl"]
 @include-section["reference/compat.scrbl"]
+@include-section["reference/unsafe.scrbl"]
