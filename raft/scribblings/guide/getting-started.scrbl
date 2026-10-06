@@ -37,13 +37,7 @@ Put this in @filepath{hello.rkt} and run it with @exec{racket hello.rkt}:
 (raft-version)
 ]
 
-@python|{
-import pylibraft
-pylibraft.__version__        # '26.08.00'
-}|
-
-Both load the same RAFT build. In Racket the version is a function, as
-@racket[version] is.
+The version is a function, as @racket[version] is.
 
 @section[#:tag "gs-checking"]{Checking the stack}
 
@@ -63,16 +57,8 @@ report:
   (printf "~a ~a\n" (~a part #:min-width 13) (hash-ref abi part)))
 ]
 
-@python|{
-import cupy as cp, pylibraft, rmm
-print("raft", pylibraft.__version__)                       # raft 26.08.00
-print("rmm", rmm.__version__)                               # rmm 26.08.00
-print("cuda-runtime", cp.cuda.runtime.runtimeGetVersion())  # cuda-runtime 13020
-}|
-
-CuPy reports the runtime it runs on; @racket['cuda-runtime] is the one this
-library was compiled with. Python has no single tag; Racket has one because a
-native binding built on this one, such as cuML's, must check at load that its
+@racket['cuda-runtime] is the CUDA runtime the library was compiled with. A
+native binding built on this one, such as cuML's, checks at load that its
 headers match (@racket[raft-abi]).
 
 Last, @racket[device-count] checks that the driver sees a GPU:
@@ -80,12 +66,6 @@ Last, @racket[device-count] checks that the driver sees a GPU:
 @examples[#:eval ev #:label #f
 (device-count)
 ]
-
-@python|{
-import cupy as cp
-cp.cuda.runtime.getDeviceCount()                         # 1
-cp.cuda.runtime.getDeviceProperties(0)["name"]           # b'NVIDIA GeForce RTX 3090 Ti'
-}|
 
 If it raises @racket[exn:fail:raft] instead (no driver, too old a driver, or
 no device), nothing else in this manual will run. Until
@@ -96,10 +76,7 @@ no device), nothing else in this manual will run. Until
 @section[#:tag "gs-examples"]{How the examples in this manual run}
 
 Every Racket example is evaluated when the manual is built, on the GPU, and a
-test pins what each one shows. The Python blocks are not evaluated: they show
-the closest equivalent in @tt{pylibraft}, @tt{rmm}, CuPy and NumPy from the
-same RAPIDS release, with its output in a comment, and the parity tests
-compare the two sides by machine.
+test pins what each one shows.
 
 @section[#:tag "gs-license"]{License}
 
@@ -116,16 +93,13 @@ redistribute what it builds on.
   @item{The CUDA toolkit and libraries (the runtime, cuBLAS, cuSOLVER,
         cuSPARSE and the rest): NVIDIA's CUDA Toolkit End User
         License Agreement, which is not an open-source licence.}
-  @item{The Python twins: @tt{pylibraft} and @tt{rmm} (Apache-2.0), CuPy
-        (MIT) and NumPy (BSD-3-Clause, with parts under other permissive
-        licences).}
 ]
 
 @section[#:tag "gs-acknowledgements"]{Acknowledgements}
 
 This library is a thin layer over the work of NVIDIA's RAPIDS teams: RAFT,
-RMM, cuML and cuVS. The Python twins and this manual's Python examples rely
-on @tt{pylibraft}, CuPy and NumPy.
+RMM, cuML and cuVS. Its tests check results against @tt{pylibraft} and
+CuPy.
 
 @section[#:tag "gs-ai-disclosure"]{AI disclosure}
 
@@ -136,5 +110,5 @@ history credit Claude as a co-author.
 
 Every change goes through a pull request, reviewed by independent AI reviewer
 agents, and the maintainer decides what is merged. The numbers do not rest
-on the agents' word: the GPU suite checks them against Python twins built
-from the same RAPIDS release.
+on the agents' word: automated tests check them against @tt{pylibraft} and
+CuPy built from the same RAPIDS release.

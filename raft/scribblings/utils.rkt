@@ -27,7 +27,6 @@
                                   racket/match
                                   racket/string))
          make-raft-eval
-         python
          status)
 
 (define (make-raft-eval)
@@ -42,9 +41,6 @@
                               racket/list
                               racket/match
                               racket/string))))
-
-(define (python . lines)
-  (nested #:style 'code-inset (para (italic "Python")) (apply verbatim lines)))
 
 (define (status leg)
   (elem #:style (style #f (list (color-property "gray"))) leg))

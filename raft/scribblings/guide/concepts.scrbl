@@ -19,48 +19,28 @@ A conversion such as @racket[list->device-vector] or
 @racket[device-vector->list] @status{L1b} is always a copy, and nothing else
 is.
 
-@python|{
-import numpy as np
-from pylibraft.common import device_ndarray
-
-device_ndarray(np.array([1.5, -2.25, 0.0])).copy_to_host()   # array([ 1.5 , -2.25,  0.  ])
-}|
-
-Racket will spell it @racket[(device-vector->list (list->device-vector xs))]
-@status{L1b}, and the conversion takes @racket[#:dtype] where Python picks
-the type when it builds the NumPy array.
+A round trip is @racket[(device-vector->list (list->device-vector xs))]
+@status{L1b}; @racket[#:dtype] chooses the element type on the device.
 
 @section[#:tag "concepts-resources"]{Resources and streams}
 
 Every RAFT operation takes a @deftech{resources} object, the C++
-@tt{raft::handle_t} (pylibraft's @tt{DeviceResources}): the device, the CUDA
-stream the work is queued on, the cuBLAS, cuSOLVER and cuSPARSE handles
-(created on first use) and scratch memory. cuML takes the same object.
+@tt{raft::handle_t}: the device, the CUDA stream the work is queued on, the
+cuBLAS, cuSOLVER and cuSPARSE handles (created on first use) and scratch
+memory. cuML takes the same object.
 
 A @deftech{stream} is an ordered queue of GPU work. Each resources object owns
 one, so everything done with it runs in order. Operations return once queued;
 the program waits only when a value reaches the host or on
-@racket[resources-sync!], where pylibraft syncs after every call
-made without an explicit handle.
+@racket[resources-sync!].
 
 @racket[current-device-resources] keeps one resources object per
 Racket thread and device, and operations on arrays @status{L1b} will take
-@racket[#:resources] to override it, as pylibraft takes @tt{handle=}.
+@racket[#:resources] to override it.
 @secref["resources"] shows them in client code.
 
-@python|{
-from pylibraft.common import DeviceResources, Stream
-
-stream = Stream()                           # keep it: the handle does not
-handle = DeviceResources(stream=stream)     # its own stream and library handles
-...                                         # pass handle=handle to each call
-handle.sync()                               # wait for everything queued on it
-}|
-
-Without @tt{stream}, @tt{DeviceResources()} shares CUDA's per-thread default
-stream, and it does not keep its @tt{Stream} alive. A Racket resources object
-always owns its stream, and every buffer allocated through it keeps that
-stream alive.
+A resources object always owns its stream, and every buffer allocated through
+it keeps that stream alive.
 
 @section[#:tag "concepts-arrays"]{Arrays}
 
@@ -77,13 +57,13 @@ copy. @racket[(device-matrix 1000 128)] @status{L1b} is a new, uninitialised
 
 Each array has one element type, its @deftech{dtype}: @racket['float32],
 @racket['float64], @racket['int32] or @racket['int64]. Conversions infer it
-as NumPy does (exact integers give @racket['int64], other reals
-@racket['float64]), and @racket[#:dtype] overrides it. cuML mostly runs in
+(exact integers give @racket['int64], other reals @racket['float64]), and
+@racket[#:dtype] overrides it. cuML mostly runs in
 @racket['float32]: half the memory, and far faster on consumer GPUs.
 
 @subsection[#:tag "concepts-layout"]{Row-major and column-major layout}
 
-@deftech{Row-major} order stores each row contiguously, as C and NumPy do;
+@deftech{Row-major} order stores each row contiguously, as C does;
 @deftech{column-major} order stores each column contiguously, as Fortran and
 BLAS do:
 
@@ -98,15 +78,7 @@ BLAS do:
 
 An array records its layout as @deftech{strides}, the step along each axis:
 @racket['(3 1)] row-major, @racket['(1 2)] column-major. Racket counts
-strides in elements, as RAFT and DLPack do; NumPy and CuPy count bytes.
-
-@python|{
-import numpy as np
-m = np.array([[1, 2, 3], [4, 5, 6]], dtype=np.float64)
-m.ravel(order="K").tolist()                     # [1.0, 2.0, 3.0, 4.0, 5.0, 6.0]
-np.asfortranarray(m).ravel(order="K").tolist()  # [1.0, 4.0, 2.0, 5.0, 3.0, 6.0]
-m.strides, np.asfortranarray(m).strides         # ((24, 8), (8, 16)), in bytes
-}|
+strides in elements, not bytes, as RAFT and DLPack do.
 
 RAFT's kernels and cuML's entry points expect a particular layout (k-means
 reads row-major, the least-squares solvers column-major), and the binding
@@ -137,14 +109,6 @@ backstop, for a thread killed inside the body. @racket[with-device-resources]
 scopes resources (@secref["res-batch"]); a form for arrays arrives in
 @status{L3}.
 
-@python|{
-X = device_ndarray.empty((1000, 128), dtype=np.float32)
-del X          # CPython frees it now, through the reference count
-}|
-
-CPython frees an array when its last reference goes; Racket frees it at a
-later collection, unless a @tt{with-} form releases it first.
-
 @section[#:tag "concepts-errors"]{Errors}
 
 Every failure in RAFT, RMM, CUDA or the native library raises
@@ -159,7 +123,7 @@ before the GPU is touched: copying 16 bytes into an 8-byte buffer raises
 @tt{copy: 16 bytes do not fit a buffer of 8 bytes}. A failed CUDA call is
 named, as in @tt{cudaGetDeviceCount: ...}.
 
-@section[#:tag "concepts-mapping"]{Racket, RAFT C++ and pylibraft}
+@section[#:tag "concepts-mapping"]{Racket and RAFT C++}
 
 The names line up as follows. The status column says when each Racket name
 arrives.
@@ -167,72 +131,55 @@ arrives.
 @tabular[#:sep @hspace[2]
          #:style 'boxed
          #:row-properties '(bottom-border ())
- (list (list @bold{Racket} @bold{RAFT C++} @bold{Python} @bold{Status})
+ (list (list @bold{Racket} @bold{RAFT C++} @bold{Status})
        (list @racket[raft-version]
              @elem{@tt{RAFT_VERSION_MAJOR}, @tt{_MINOR}, @tt{_PATCH}}
-             @tt{pylibraft.__version__}
              "here")
        (list @racket[raft-abi]
              @elem{@tt{rr_abi()}, ours}
-             "no counterpart"
              "here")
        (list @racket[device-count]
              @tt{cudaGetDeviceCount}
-             @tt{cp.cuda.runtime.getDeviceCount()}
              "here")
        (list @racket[device-resources]
              @tt{raft::handle_t}
-             @tt{pylibraft.common.DeviceResources}
              "here")
        (list @racket[current-device-resources]
              @tt{raft::device_resources_manager}
-             @tt{handle=None}
              "here")
        (list @racket[with-device-resources]
              "no counterpart"
-             @elem{@tt{del handle}}
              "here")
        (list @racket[resources-sync!]
              @tt{raft::resource::sync_stream}
-             @tt{DeviceResources.sync()}
              "here")
        (list "the default memory resource"
              @tt{rmm::mr::set_per_device_resource}
-             @tt{rmm.mr.set_current_device_resource}
              "here, installed on first use")
        (list @racket[cuda-async-memory-resource]
              @tt{rmm::mr::cuda_async_memory_resource}
-             @tt{rmm.mr.CudaAsyncMemoryResource()}
              @status{L2})
        (list @racket[exn:fail:raft]
              @elem{@tt{raft::exception}, @tt{rmm::bad_alloc}}
-             @elem{@tt{RuntimeError}, @tt{MemoryError}}
              "here")
        (list @racket[device-matrix]
              @tt{raft::make_device_matrix}
-             @tt{device_ndarray.empty((r, c))}
              @status{L1b})
        (list @racket[device-vector]
              @tt{raft::make_device_vector}
-             @tt{device_ndarray.empty((n,))}
              @status{L1b})
        (list @elem{@racket[shape], @racket[dtype], @racket[layout]}
              @elem{@tt{extents()}, @tt{value_type}, the layout policy}
-             @elem{@tt{.shape}, @tt{.dtype}, @tt{order=}}
              @status{L1b})
        (list @racket[contiguous]
              @tt{raft::linalg::transpose}
-             @elem{@tt{cp.ascontiguousarray}, @tt{np.asfortranarray}}
              @status{L1b})
        (list @elem{@racket[list->device-vector], @racket[device-vector->list]}
              @elem{@tt{raft::copy} from and to the host}
-             @elem{@tt{device_ndarray(np.array(xs))}, @tt{.copy_to_host().tolist()}}
              @status{L1b})
        (list @racket[device-array->list*]
              @elem{@tt{raft::copy} to the host}
-             @tt{.copy_to_host().tolist()}
              @status{L1b})
        (list @racket[matrix->device-matrix]
              @elem{a host copy, then @tt{raft::copy}}
-             @tt{device_ndarray(np.array(A))}
              @status{L1c}))]

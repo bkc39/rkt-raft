@@ -17,9 +17,8 @@ version and ABI tag. @racketmodname[raft] re-exports all of it; see
          device-resources?]{
 
 Creates new @tech{resources} on @racket[device], with a CUDA @tech{stream} of
-their own; library handles are created when first needed. Like
-@tt{pylibraft.common.DeviceResources()}, but the stream is not CUDA's
-per-thread default. The first resources on a device install the default
+their own, not CUDA's per-thread default stream; library handles are created
+when first needed. The first resources on a device install the default
 memory resource (@secref["ref-core-memory"]). A @racket[device] the driver
 does not report raises @racket[exn:fail:raft] of kind @racket['logic].
 
@@ -223,8 +222,7 @@ Several bindings, released together:
 
 @defproc[(device-count) exact-positive-integer?]{
 
-Returns the number of visible CUDA devices, numbered from 0;
-@tt{cp.cuda.runtime.getDeviceCount()}. With no device or no working driver it
+Returns the number of visible CUDA devices, numbered from 0. With no device or no working driver it
 raises @racket[exn:fail:raft] of kind @racket['cuda].
 
 @examples[#:eval ev
@@ -253,10 +251,9 @@ Resources for every device:
 RMM's current memory resource is per device and shared by every library in
 the process. The first resources made on a device replace RMM's default
 (@tt{cudaMalloc}, which synchronizes the device) with its CUDA async memory
-resource, a stream-ordered @tt{cudaMallocAsync} pool, as
-@tt{rmm.mr.set_current_device_resource(rmm.mr.CudaAsyncMemoryResource())}
-does in Python. Any other resource, installed before or after, is left alone;
-a plain @tt{CudaMemoryResource} set beforehand looks like the default and is
+resource, a stream-ordered @tt{cudaMallocAsync} pool. Any other resource,
+installed before or after, is left alone; a plain
+@tt{rmm::mr::cuda_memory_resource} set beforehand looks like the default and is
 replaced. A device without memory-pool support keeps the default. Choosing a
 resource from Racket arrives later @status{L2}.
 
@@ -316,8 +313,8 @@ Recovering the procedure name from the message:
 
 @defproc[(raft-version) string?]{
 
-Returns the RAFT release the native library was built against, as
-@tt{pylibraft.__version__} spells it: @racket["26.08.00"] is August 2026.
+Returns the RAFT release the native library was built against, as year, month
+and patch: @racket["26.08.00"] is August 2026.
 
 @examples[#:eval ev
 (raft-version)
