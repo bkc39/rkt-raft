@@ -36,7 +36,8 @@ RR_API int rr_buffer_alloc(rr_resources* resources, size_t bytes,
                            rr_buffer** out);
 
 /* view->data is valid only while buffer lives, and only for work ordered
-   on buffer's stream. */
+   on buffer's stream. A refused call leaves data NULL and device and memory
+   -1. */
 RR_API int rr_buffer_view(const rr_buffer* buffer, uint64_t offset,
                           rr_view* view);
 

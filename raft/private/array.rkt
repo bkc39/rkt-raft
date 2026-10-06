@@ -27,8 +27,10 @@
          array-device
          array-rank
          bound-view
+         buffer->device-array ;; noqa
          canonical-strides
          contiguous-array
+         device-array-buffer
          device-array-dtype
          device-array-shape
          device-array-strides

@@ -71,6 +71,9 @@ int rr_copy_d2h(void* dst, const rr_buffer* src, size_t bytes) {
 int rr_buffer_view(const rr_buffer* buffer, uint64_t offset, rr_view* view) {
   return rr::translate_exceptions([&] {
     auto& filled = *rr::require(view, "view");
+    filled.data = nullptr;
+    filled.device = -1;
+    filled.memory = -1;
     const rr_view bound =
         rr::bind(*rr::require(buffer, "buffer"), offset, filled);
     filled = bound;

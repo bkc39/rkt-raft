@@ -242,6 +242,18 @@ TEST_F(Refusals, BufferViewBindsADescriptorToItsBuffer) {
   EXPECT_EQ(row.memory, RR_MEMORY_DEVICE);
   expect_refusal(rr_buffer_view(buffer_, 4 * sizeof(float), &row),
                  "12 bytes at byte offset 16 do not fit a buffer of 24 bytes");
+  EXPECT_EQ(row.data, nullptr);
+  EXPECT_EQ(row.device, -1);
+  EXPECT_EQ(row.memory, -1);
+  ASSERT_EQ(rr_buffer_view(buffer_, 0, &row), RR_OK) << rr_last_error();
+  row.rank = 2;
+  row.shape[0] = 3;
+  row.shape[1] = 3;
+  row.strides[0] = 3;
+  row.strides[1] = 1;
+  expect_refusal(rr_buffer_view(buffer_, 0, &row),
+                 "36 bytes at byte offset 0 do not fit a buffer of 24 bytes");
+  EXPECT_EQ(row.data, nullptr);
   expect_refusal(rr_buffer_view(buffer_, 1, &row),
                  "byte offset 1 is not a multiple of the element size 4");
   expect_refusal(rr_buffer_view(nullptr, 0, &row), "buffer is NULL");
