@@ -4,8 +4,10 @@
          (only-in "../private/pack.rkt"
                   element-converter
                   infer-dtype
+                  infer-rows-dtype
                   matrix-shape
                   pack-matrix
+                  pack-row-major
                   pack-vector
                   unpack-matrix
                   unpack-vector)
@@ -72,3 +74,40 @@
   (check-raft-error 'logic
                     "f: \"x\" is not a real number"
                     (lambda () ((element-converter 'f 'int32) "x"))))
+
+(test-case "inference reads vectors, flvectors and nested rows by the same rule"
+  (check-equal? (infer-dtype 'f #(1 2)) 'int64)
+  (check-equal? (infer-dtype 'f #(1 2.5)) 'float64)
+  (check-equal? (infer-dtype 'f #()) 'float64)
+  (check-equal? (infer-rows-dtype 'f '((1 2) (3 4))) 'int64)
+  (check-equal? (infer-rows-dtype 'f #(#(1 2) #(3 1/2))) 'float64)
+  (check-equal? (infer-rows-dtype 'f '(() ())) 'float64)
+  (check-raft-error 'logic
+                    "f: cannot infer a dtype: 1+2i is not a real number"
+                    (lambda () (infer-rows-dtype 'f #(#(1) #(1+2i))))))
+
+(test-case "nested vectors have a shape, and a ragged vector row is named"
+  (check-equal? (matrix-shape 'f #(#(1 2 3) #(4 5 6))) '(2 3))
+  (check-equal? (matrix-shape 'f #()) '(0 0))
+  (check-raft-error 'logic
+                    "f: row 1 has 1 element, but row 0 has 2: '#(3)"
+                    (lambda () (matrix-shape 'f #(#(1 2) #(3))))))
+
+(test-case "nested vectors pack as nested lists do"
+  (define rows '((1 2 3) (4 5 6)))
+  (define vectors #(#(1 2 3) #(4 5 6)))
+  (check-equal? (unpack-vector 'int32 6 (pack-matrix 'f 'int32 '(2 3) '(1 2) vectors))
+                (unpack-vector 'int32 6 (pack-matrix 'f 'int32 '(2 3) '(1 2) rows))))
+
+(test-case "row-major data packs by the strides it is given"
+  (check-equal? (unpack-vector 'int64 6 (pack-row-major 'f 'int64 '(2 3) '(1 2) #(1 2 3 4 5 6)))
+                '(1 4 2 5 3 6))
+  (check-equal? (unpack-vector 'float64 6 (pack-row-major 'f 'float64 '(2 3) '(3 1) '(1 2 3 4 5 6)))
+                '(1.0 2.0 3.0 4.0 5.0 6.0))
+  (check-equal? (unpack-vector 'int32 3 (pack-row-major 'f 'int32 '(3) '(1) #(7 8 9))) '(7 8 9)))
+
+(test-case "unpacking can build vectors"
+  (define host (pack-matrix 'f 'int64 '(2 2) '(2 1) '((1 2) (3 4))))
+  (check-equal? (unpack-matrix 'int64 '(2 2) '(2 1) host #:into 'vector) #(#(1 2) #(3 4)))
+  (check-equal? (unpack-matrix 'int64 '(2 2) '(1 2) host #:into 'vector) #(#(1 3) #(2 4)))
+  (check-equal? (unpack-vector 'int64 4 host #:into 'vector) #(1 2 3 4)))

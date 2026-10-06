@@ -1,7 +1,7 @@
 #lang racket/base
 
 (require (only-in racket/match match match-define)
-         (only-in rackunit check-equal? check-pred check-true test-case)
+         (only-in rackunit check-equal? check-false check-pred check-true test-case)
          (only-in "../main.rkt" raft-abi raft-version))
 
 (define public-names
@@ -36,6 +36,34 @@
                shape
                strides))
 
+(define compat-names
+  '(array->device-array bytes->device-vector
+                        device-array->array
+                        device-array->list*
+                        device-array->vector*
+                        device-matrix->list*
+                        device-matrix->matrix
+                        device-matrix->vector*
+                        device-vector->bytes
+                        device-vector->col-matrix
+                        device-vector->f32vector
+                        device-vector->f64vector
+                        device-vector->flvector
+                        device-vector->list
+                        device-vector->row-matrix
+                        device-vector->vector
+                        f32vector->device-vector
+                        f64vector->device-vector
+                        flvector->device-vector
+                        list*->device-array
+                        list*->device-matrix
+                        list->device-vector
+                        matrix->device-matrix
+                        matrix->device-vector
+                        vector*->device-array
+                        vector*->device-matrix
+                        vector->device-vector))
+
 (define (phase-0-exports mod)
   (module-declared? mod #t)
   (define-values (variables syntax) (module->exports mod))
@@ -47,10 +75,21 @@
           name)
         symbol<?))
 
-(test-case "raft/core, raft/array and raft export exactly the documented names"
+(test-case "raft/core, raft/array, raft/compat and raft export exactly the documented names"
   (check-equal? (phase-0-exports 'raft/core) public-names)
   (check-equal? (phase-0-exports 'raft/array) array-names)
+  (check-equal? (phase-0-exports 'raft/compat) compat-names)
   (check-equal? (phase-0-exports 'raft) (sort (append public-names array-names) symbol<?)))
+
+(test-case "raft does not load math-lib; raft/compat does"
+  (define (loads-math? mod)
+    (dynamic-require mod #f)
+    (define source (current-namespace))
+    (parameterize ([current-namespace (make-base-empty-namespace)])
+      (namespace-attach-module source mod)
+      (module-declared? 'math/array #f)))
+  (check-false (loads-math? 'raft))
+  (check-true (loads-math? 'raft/compat)))
 
 (test-case "raft-version names the pinned RAFT release"
   (check-equal? (raft-version) "26.08.00"))
