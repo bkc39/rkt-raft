@@ -7,15 +7,12 @@
 
 @defmodule[raft]
 
-@racket[(require raft)] provides the whole library. Today that is the version
-of RAFT the native library was built against and its ABI tag.
+@racket[(require raft)] provides the whole library.
 
 @defproc[(raft-version) string?]{
 
-Returns the RAFT release that @tt{libraftrkt} was compiled against, spelled as
-RAFT spells it: two digits each for the year, the month and the patch, so
-@racket["26.08.00"] is the August 2026 release. It is the same string
-@tt{pylibraft.__version__} gives for the same release.
+Returns the RAFT release the library was compiled against, as
+@tt{pylibraft.__version__} spells it: @racket["26.08.00"] is August 2026.
 
 @examples[#:eval ev
 (raft-version)
@@ -43,13 +40,10 @@ A program that depends on one release can refuse to start on another:
 
 @defproc[(raft-abi) hash?]{
 
-Returns the ABI tag of @tt{libraftrkt}: an immutable hash, keyed by symbols, of
-the facts a second native library has to share with it to exchange RAFT
-handles and arrays safely. RAFT has no versioned C++ namespace and the layout
-of its handle changes between releases, so a native library that receives a
-@tt{raft::handle_t} from this one (a cuML binding, for example) must have been
-compiled against identical RAFT, RMM and CCCL headers. Such a library records
-the tag it was built against and compares it with this one when it loads.
+Returns the library's ABI tag, an immutable hash of what a second native
+library, such as a cuML binding, must share with it to exchange RAFT handles
+and arrays: it must be compiled against identical RAFT, RMM and CCCL headers,
+and compares its tag with this one when it loads.
 
 @tabular[#:sep @hspace[2]
          #:style 'boxed
@@ -71,10 +65,8 @@ the tag it was built against and compares it with this one when it loads.
 (raft-abi)
 ]
 
-A downstream library checks the tag before it loads its own native code. Here
-the expected tag is the current one, then the tag of a library built against
-RAFT 26.10, then one built against headers whose @tt{raft::handle_t} has a
-different layout, which a version check alone would miss:
+A tag from RAFT 26.10, or from headers whose handle has another layout,
+differs from this one:
 
 @examples[#:eval ev #:label #f
 (define (abi-mismatches built-against)
@@ -86,7 +78,7 @@ different layout, which a version check alone would miss:
 (abi-mismatches (hash-update (raft-abi) 'handle-size add1))
 ]
 
-The tag also makes a one-line support report:
+A one-line support report:
 
 @examples[#:eval ev #:label #f
 (string-join (for/list ([key (in-list '(raft rmm cccl cuda-runtime))])
