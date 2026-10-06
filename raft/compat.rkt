@@ -121,7 +121,8 @@
        #:when (not (nested? x))
        depth]
       [(or (vector) '()) (add1 depth)]
-      [(or (vector head _ ...) (cons head _)) (loop head (add1 depth))])))
+      [(cons head _) (loop head (add1 depth))]
+      [(? vector?) (loop (vector-ref x 0) (add1 depth))])))
 
 (define (nested-rank who xs nested? noun)
   (define rank (nesting-depth xs nested?))
