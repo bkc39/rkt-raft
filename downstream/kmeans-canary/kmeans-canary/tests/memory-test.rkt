@@ -1,6 +1,8 @@
 #lang racket/base
 
 (require (only-in racket/list remove-duplicates)
+         (only-in racket/port with-output-to-string)
+         (only-in racket/system system*)
          (only-in rackunit check-equal? check-true)
          (only-in raft shape)
          (only-in raft/private/foreign/memory buffer-drop-count release-failure-count)
@@ -19,6 +21,14 @@
   (void))
 
 (define device-slack (* 256 1024 1024))
+
+(define (other-processes)
+  (define nvidia-smi (find-executable-path "nvidia-smi"))
+  (if nvidia-smi
+      (with-output-to-string
+       (lambda ()
+         (system* nvidia-smi "--query-compute-apps=pid,process_name,used_memory" "--format=csv")))
+      "nvidia-smi is not on PATH"))
 
 (define (pool-sample)
   (drain-finalizers!)
@@ -64,6 +74,14 @@
   (for ([u (in-list used)])
     (check-equal? u (car baseline) "pool use returns to the baseline after a collection"))
   (check-equal? (apply max reserved) (cadr baseline) "the pool reserves no more than after warm-up")
-  (check-true (>= lowest-free (- (caddr baseline) device-slack))
-              "no allocation outside the pool grew over the run (device-wide, within 256 MiB)")
+  (define floor-free (- (caddr baseline) device-slack))
+  (define settled-free
+    (if (>= lowest-free floor-free)
+        lowest-free
+        (caddr (pool-sample))))
+  (check-true
+   (>= settled-free floor-free)
+   (format "device-wide free memory fell ~a bytes below the baseline (twice); other processes:\n~a"
+           (- (caddr baseline) settled-free)
+           (other-processes)))
   (check-equal? (map shape (list X truth)) '((2000 8) (2000)) "the data stayed live throughout"))

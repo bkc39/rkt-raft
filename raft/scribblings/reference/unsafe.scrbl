@@ -263,7 +263,9 @@ pointer to an @tt{rr_view} describing its array, and evaluates the
 reachable until the body ends, like the arrays, so their finalizer cannot free
 the handle during the native call; released resources raise
 @racket[exn:fail:raft] naming @racket[with-array-views]. A binding takes its
-handle this way. An @racket[array-expr] that evaluates to
+handle this way. Unlike the views, the handle pointer is not cleared when the
+body exits, and nothing keeps the resources reachable after it, so it must
+not escape the form: use it only in calls made inside the body. An @racket[array-expr] that evaluates to
 @racket[#f] binds @racket[#f], which a @racket[_pointer] argument passes as
 @tt{NULL}: the way to pass an optional array, such as cuML's sample weights.
 

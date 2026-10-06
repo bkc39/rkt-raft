@@ -71,24 +71,39 @@ rr::error_kind kind_of_call(Fn&& fn) {
   return rr::last_error_kind();
 }
 
-TEST(Classify, RaftLibraryErrorsAreCudaOrOutOfMemory) {
-  EXPECT_EQ(kind_of_call([] { RAFT_CUBLAS_TRY(CUBLAS_STATUS_ALLOC_FAILED); }),
+template <typename Status>
+Status status_of(Status status) {
+  return status;
+}
+
+TEST(Classify, RaftCublasErrorsAreCudaOrOutOfMemory) {
+  const cublasStatus_t alloc = CUBLAS_STATUS_ALLOC_FAILED;
+  const cublasStatus_t failed = CUBLAS_STATUS_EXECUTION_FAILED;
+  EXPECT_EQ(kind_of_call([&] { RAFT_CUBLAS_TRY(status_of(alloc)); }),
             rr::error_kind::oom);
-  EXPECT_EQ(
-      kind_of_call([] { RAFT_CUBLAS_TRY(CUBLAS_STATUS_EXECUTION_FAILED); }),
-      rr::error_kind::cuda);
-  EXPECT_EQ(
-      kind_of_call([] { RAFT_CUSOLVER_TRY(CUSOLVER_STATUS_ALLOC_FAILED); }),
-      rr::error_kind::oom);
-  EXPECT_EQ(
-      kind_of_call([] { RAFT_CUSOLVER_TRY(CUSOLVER_STATUS_INVALID_VALUE); }),
-      rr::error_kind::cuda);
-  EXPECT_EQ(
-      kind_of_call([] { RAFT_CUSPARSE_TRY(CUSPARSE_STATUS_ALLOC_FAILED); }),
-      rr::error_kind::oom);
-  EXPECT_EQ(
-      kind_of_call([] { RAFT_CUSPARSE_TRY(CUSPARSE_STATUS_INTERNAL_ERROR); }),
-      rr::error_kind::cuda);
+  EXPECT_EQ(kind_of_call([&] { RAFT_CUBLAS_TRY(status_of(failed)); }),
+            rr::error_kind::cuda);
+}
+
+TEST(Classify, RaftCusolverErrorsAreCudaOrOutOfMemory) {
+  const cusolverStatus_t alloc = CUSOLVER_STATUS_ALLOC_FAILED;
+  const cusolverStatus_t invalid = CUSOLVER_STATUS_INVALID_VALUE;
+  EXPECT_EQ(kind_of_call([&] { RAFT_CUSOLVER_TRY(status_of(alloc)); }),
+            rr::error_kind::oom);
+  EXPECT_EQ(kind_of_call([&] { RAFT_CUSOLVER_TRY(status_of(invalid)); }),
+            rr::error_kind::cuda);
+}
+
+TEST(Classify, RaftCusparseErrorsAreCudaOrOutOfMemory) {
+  const cusparseStatus_t alloc = CUSPARSE_STATUS_ALLOC_FAILED;
+  const cusparseStatus_t internal = CUSPARSE_STATUS_INTERNAL_ERROR;
+  EXPECT_EQ(kind_of_call([&] { RAFT_CUSPARSE_TRY(status_of(alloc)); }),
+            rr::error_kind::oom);
+  EXPECT_NE(std::string(rr::last_error()).find("out of memory"),
+            std::string::npos)
+      << rr::last_error();
+  EXPECT_EQ(kind_of_call([&] { RAFT_CUSPARSE_TRY(status_of(internal)); }),
+            rr::error_kind::cuda);
 }
 
 TEST(Classify, AnythingElseIsGeneric) {

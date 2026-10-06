@@ -104,9 +104,17 @@ inline bool names_oom(const std::exception& e) noexcept {
          std::string_view::npos;
 }
 
-inline bool names_alloc_failed(const std::exception& e) noexcept {
-  return std::string_view(e.what()).find("_STATUS_ALLOC_FAILED") !=
+inline bool names_status(const std::exception& e, int status) noexcept {
+  constexpr std::size_t reason_capacity = 24;
+  std::array<char, reason_capacity> reason{};
+  std::snprintf(reason.data(), reason.size(), "Reason=%d:", status);
+  return std::string_view(e.what()).find(reason.data()) !=
          std::string_view::npos;
+}
+
+inline error_kind library_kind(const std::exception& e,
+                               int alloc_failed) noexcept {
+  return names_status(e, alloc_failed) ? error_kind::oom : error_kind::cuda;
 }
 
 }  // namespace detail
@@ -187,10 +195,14 @@ inline error_kind classify(const std::exception& e) noexcept {
       dynamic_cast<const raft::cuda_error*>(&e) != nullptr) {
     return detail::names_oom(e) ? error_kind::oom : error_kind::cuda;
   }
-  if (dynamic_cast<const raft::cublas_error*>(&e) != nullptr ||
-      dynamic_cast<const raft::cusolver_error*>(&e) != nullptr ||
-      dynamic_cast<const raft::cusparse_error*>(&e) != nullptr) {
-    return detail::names_alloc_failed(e) ? error_kind::oom : error_kind::cuda;
+  if (dynamic_cast<const raft::cublas_error*>(&e) != nullptr) {
+    return detail::library_kind(e, CUBLAS_STATUS_ALLOC_FAILED);
+  }
+  if (dynamic_cast<const raft::cusolver_error*>(&e) != nullptr) {
+    return detail::library_kind(e, CUSOLVER_STATUS_ALLOC_FAILED);
+  }
+  if (dynamic_cast<const raft::cusparse_error*>(&e) != nullptr) {
+    return detail::library_kind(e, CUSPARSE_STATUS_ALLOC_FAILED);
   }
   if (dynamic_cast<const std::bad_alloc*>(&e) != nullptr) {
     return error_kind::oom;

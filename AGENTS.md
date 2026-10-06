@@ -955,7 +955,9 @@ the stream API (#13) gives it events. Internal entry points
   its resources reachable (the review of #20 reproduced the handle being
   freed while the pointer was held: `with-array-views`'s wait yields to the
   finalizer thread), so **`with-array-views` takes `#:resources [handle r]`**
-  and keeps `r` reachable for the body, as it keeps the arrays. One form,
+  and keeps `r` reachable for the body, as it keeps the arrays. The bound
+  handle is a plain cpointer, not cleared on exit, so it must not escape the
+  form (documented). One form,
   not a separate `with-resources-handle`: every downstream call needs the
   handle and its arrays together, on the same resources (L1b's stream rule),
   so one form acquires both, in one extent, and a binding cannot take one
@@ -967,7 +969,8 @@ the stream API (#13) gives it events. Internal entry points
   `handle_of`, `device_of` and `require_on_device` moved from the canary into
   the frozen headers, and `classify` knows RAFT's cuBLAS, cuSOLVER and
   cuSPARSE errors (`'cuda`, or `'out-of-memory` for
-  `*_STATUS_ALLOC_FAILED`, read from RAFT's message). The frozen rule is
+  `*_STATUS_ALLOC_FAILED`, read as `Reason=<code>:` from RAFT's message,
+since cuSPARSE's error string for it is only "out of memory"). The frozen rule is
   "synchronise on every exit".
 - **One implementation of each header.** `rr::translate_exceptions` is
   `raftrkt::translate_exceptions` over the shim's slot, `rr_abi`'s tag is
@@ -1048,6 +1051,11 @@ the stream API (#13) gives it events. Internal entry points
   besides the eight separated ones, and checks the iteration count against
   cuML's as well as ARI, inertia and centroids; on the overlapping cases the
   seed changes the result, so a dropped seed or init would show.
+- **Follow-ups from the re-verification:** outputs sized only by the call
+  (HDBSCAN's condensed tree) need an additive entry point that adopts a native
+  buffer as a raft array (#22); `excerpt` in `scribblings/utils.rkt` reads
+  repository files, which a catalog install lacks (#23), so fix it before
+  any catalog release.
 - **The ffi2 port (#15).** The frozen Racket exports hand out
   `ffi/unsafe` cpointers (a handle, cstruct pointers), and downstream
   bindings pass them as `_pointer`. A port to ffi2 must keep these exports
