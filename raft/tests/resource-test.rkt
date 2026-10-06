@@ -54,6 +54,19 @@
   (check-equal? (with-release ([a 'a release!] [b (list a 'b) release!]) b) '(a b))
   (check-equal? released '(a (a b))))
 
+(test-case "each release expression is evaluated once, after its acquisition"
+  (fresh!)
+  (define order '())
+  (define (note! tag v)
+    (set! order (cons tag order))
+    v)
+  (check-equal? (with-release ([a (note! 'acquire-a 'a) (note! 'release-a release!)]
+                               [b (note! 'acquire-b 'b) (note! 'release-b release!)])
+                  (note! 'body (list a b)))
+                '(a b))
+  (check-equal? (reverse order) '(acquire-a release-a acquire-b release-b body))
+  (check-equal? released '(a b)))
+
 (test-case "an acquisition answering #f is not released"
   (fresh!)
   (check-equal? (with-release ([a #f release!] [b 'b release!])
