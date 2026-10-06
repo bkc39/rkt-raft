@@ -7,37 +7,21 @@
 
 @defmodule[raft/core]
 
-The core module holds what every other module builds on: the
-@tech{resources} object an operation runs with, the devices it can run on, the
-one exception type, and the version and ABI tag of the native library.
-@racketmodname[raft] re-exports all of it. The guide chapter
-@secref["resources"] shows these names working together.
+@tech{Resources}, devices, the exception type, and the native library's
+version and ABI tag. @racketmodname[raft] re-exports all of it; see
+@secref["resources"] for a tutorial.
 
 @section[#:tag "ref-core-resources"]{Device resources}
 
 @defproc[(device-resources [#:device device exact-nonnegative-integer? 0])
          device-resources?]{
 
-Creates new @tech{resources} on @racket[device]: a C++ @tt{raft::handle_t}
-with a CUDA @tech{stream} of its own, which every operation given these
-resources is queued on. The library handles it holds (cuBLAS, cuSOLVER,
-cuSPARSE) are created the first time an operation needs them. This is
-@tt{pylibraft.common.DeviceResources()}, except that the stream belongs to the
-resources object instead of being CUDA's per-thread default stream.
-
-Most code never calls this: @racket[current-device-resources] keeps one per
-thread and device. Make your own when a piece of work needs a stream that
-nothing else queues on, and scope it with @racket[with-device-resources] when
-it should be released at a known point. Otherwise the garbage collector
-releases it once it is unreachable.
-
-The first resources made on a device, in the whole process, also install RMM's
-CUDA async memory resource (a @tt{cudaMallocAsync} pool) as that device's
-current memory resource, unless RMM's default has already been replaced; see
-@secref["ref-core-memory"].
-
-A @racket[device] the driver does not report raises @racket[exn:fail:raft]
-with kind @racket['logic].
+Creates new @tech{resources} on @racket[device], with a CUDA @tech{stream} of
+their own; library handles are created when first needed. Like
+@tt{pylibraft.common.DeviceResources()}, but the stream is not CUDA's
+per-thread default. The first resources on a device install the default
+memory resource (@secref["ref-core-memory"]). A @racket[device] the driver
+does not report raises @racket[exn:fail:raft] of kind @racket['logic].
 
 @examples[#:eval ev
 (define r (device-resources))
@@ -45,8 +29,7 @@ r
 (resources-device r)
 ]
 
-Two calls make two independent resources, each with its own stream, so work
-queued on one need not wait for the other:
+Each call makes independent resources with their own stream:
 
 @examples[#:eval ev #:label #f
 (define loader (device-resources))
@@ -55,8 +38,7 @@ queued on one need not wait for the other:
 (map resources-device (list loader trainer))
 ]
 
-Devices are numbered from 0, so @racket[(device-count)] is the first
-number that is not a device:
+@racket[(device-count)] is the first number that is not a device:
 
 @examples[#:eval ev #:label #f
 (device-count)
@@ -65,17 +47,14 @@ number that is not a device:
 
 @defproc[(device-resources? [v any/c]) boolean?]{
 
-Returns @racket[#t] if @racket[v] is a resources object, whether made by
-@racket[device-resources] or handed out by @racket[current-device-resources],
-and @racket[#f] otherwise. Released resources are still resources objects.
+Returns @racket[#t] if @racket[v] is a resources object, released or not.
 
 @examples[#:eval ev
 (device-resources? (current-device-resources))
 (device-resources? 0)
 ]
 
-A procedure can take either a device number or resources, the way CuPy takes
-a device or its number, and turn either into resources:
+Accepting either a device number or resources:
 
 @examples[#:eval ev #:label #f
 (define (as-resources where)
@@ -86,7 +65,7 @@ a device or its number, and turn either into resources:
 (eq? (as-resources loader) loader)
 ]
 
-Released resources are still resources objects; using them is what fails:
+Released resources still satisfy it:
 
 @examples[#:eval ev #:label #f
 (define finished (with-device-resources ([r (device-resources)]) r))
@@ -96,22 +75,19 @@ Released resources are still resources objects; using them is what fails:
 @defproc[(resources-device [resources device-resources?])
          exact-nonnegative-integer?]{
 
-Returns the device @racket[resources] belong to. Every operation on them runs
-on that device, whichever OS thread happens to make the call. The answer stays
-available after the resources have been released.
+Returns the device @racket[resources] run on, even after release.
 
 @examples[#:eval ev
 (resources-device (current-device-resources))
 ]
 
-Naming the device in a log line, as CUDA tools do:
+Naming the device in a log line:
 
 @examples[#:eval ev #:label #f
 (printf "training on cuda:~a\n" (resources-device trainer))
 ]
 
-An operation that combines arrays needs them on one device, so code that
-mixes resources checks before it queues anything:
+Checking that two resources share a device:
 
 @examples[#:eval ev #:label #f
 (define (same-device? a b)
@@ -122,28 +98,16 @@ mixes resources checks before it queues anything:
 
 @defproc[(resources-sync! [resources device-resources?]) void?]{
 
-Waits until every operation queued on @racket[resources]' stream has finished,
-then returns. It is @tt{DeviceResources.sync()}.
-
-Operations return as soon as they are queued, so call this before stopping a
-clock, before handing results to code outside the library, or before releasing
-memory another stream is still reading. Converting an array back to Racket
-data, with @racket[device-matrix->list*] for example, waits for its own
-stream by itself.
-
-The wait is a poll, not a blocking call: the stream is queried, and between
-queries the thread sleeps for a few microseconds to a millisecond, so other
-Racket threads keep running, the garbage collector never waits on the GPU,
-and a break (@exec{Ctrl-C}, or @racket[break-thread]) ends the wait with
-@racket[exn:break]. Using released resources raises @racket[exn:fail:raft]
-naming @racket[resources-sync!].
+Waits until every operation queued on @racket[resources]' stream has
+finished; @tt{DeviceResources.sync()}. The wait polls, so other Racket threads
+keep running, and a break ends it with @racket[exn:break]. Released resources
+raise @racket[exn:fail:raft] of kind @racket['logic].
 
 @examples[#:eval ev
 (resources-sync! (current-device-resources))
 ]
 
-Timing GPU work means syncing before reading the clock; otherwise the time
-measured is only the time it took to queue the work:
+Timing GPU work, which returns once queued:
 
 @examples[#:eval ev #:label #f
 (define (milliseconds-on r thunk)
@@ -154,7 +118,7 @@ measured is only the time it took to queue the work:
 (milliseconds-on trainer void)
 ]
 
-The wait can happen in a thread of its own, joined when the result is needed:
+Waiting in a thread of its own:
 
 @examples[#:eval ev #:label #f
 (thread-wait
@@ -162,8 +126,6 @@ The wait can happen in a thread of its own, joined when the result is needed:
            (resources-sync! trainer)
            (displayln "the trainer's stream has drained"))))
 ]
-
-Released resources cannot be synced:
 
 @examples[#:eval ev #:label #f
 (eval:error (resources-sync! finished))
@@ -173,23 +135,17 @@ Released resources cannot be synced:
          device-resources?]{
 
 Returns the calling thread's default resources for @racket[device], creating
-them on first use. The array constructors and conversions of
-@racketmodname[raft/array] use this when they are given no
-@racket[#:resources], the way pylibraft's functions take @tt{handle=}.
-
-The default is kept per Racket thread, in a thread cell rather than a
-parameter, so a new thread starts without one and makes its own on first use:
-two threads never share a stream by accident. pylibraft instead creates a
-fresh @tt{DeviceResources} for each call made without a handle. If the
-default has been released, for example by @racket[with-device-resources], the
-next call makes a new one.
+them on first use, or again after they are released. The array constructors
+and conversions of @racketmodname[raft/array] use it when given no
+@racket[#:resources]. Each Racket thread has its own, so
+threads never share a stream by accident.
 
 @examples[#:eval ev
 (eq? (current-device-resources) (current-device-resources))
 (eq? (current-device-resources) (current-device-resources 0))
 ]
 
-Each worker thread gets its own resources, and so its own stream:
+Each thread gets its own:
 
 @examples[#:eval ev #:label #f
 (define (worker-resources)
@@ -201,7 +157,7 @@ Each worker thread gets its own resources, and so its own stream:
 (list (eq? a b) (eq? a (current-device-resources)))
 ]
 
-Releasing the default is allowed; the thread simply gets a new one:
+Releasing the default makes the next call create a new one:
 
 @examples[#:eval ev #:label #f
 (define before (current-device-resources))
@@ -214,32 +170,18 @@ before
 @defform[(with-device-resources ([id resources-expr] ...) body ...+)
          #:contracts ([resources-expr device-resources?])]{
 
-Binds each @racket[id] to the value of its @racket[resources-expr], evaluates
-the @racket[body]s, and releases every bound resources object when control
-leaves the form, whether the body returns, raises or escapes. Releasing is
-idempotent, and the finalizer stays as a backstop for anything not released
-here. The @racket[resources-expr]s are evaluated in order, as by
-@racket[let*]: each one sees the @racket[id]s bound before it, but not its
-own, so @racket[(with-device-resources ([r r]) ....)] scopes an existing
-@racket[r].
+Binds each @racket[id] as by @racket[let*], evaluates the @racket[body]s, and
+releases every bound resources object when control leaves the form by return,
+raise or escape. Release is idempotent; re-entering the body by a
+continuation raises @racket[exn:fail:raft] of kind @racket['logic]. A
+@tech{device array} allocated with the resources keeps the stream and
+handles alive until it is freed.
 
-Every jump out of the body releases, a generator's @racket[yield] included.
-Control that jumps back in afterwards, such as a generator resumed after that
-@racket[yield], raises @racket[exn:fail:raft] of kind @racket['logic]
-instead of acquiring the resources again.
-
-Release drops this object's hold on its @tt{raft::handle_t}. A
-@tech{device array} allocated with these resources holds the handle too,
-stream and library handles included, so they are freed when the last such
-array is.
-
-Resources need no form to be released: their finalizer does it, once, at
-some collection after they become unreachable, and that default is correct.
-The form exists to give their lifetime a clear timeline. A resources object
-holds GPU and driver state the collector cannot see, its CUDA stream and the
-cuBLAS, cuSOLVER and cuSPARSE handles created the first time an operation
-needs them, which the collector would otherwise release only eventually, in
-no particular order. Scoped, they are released when the body exits:
+The finalizer alone is correct: it releases unreachable resources at some
+collection. The form gives their lifetime a clear timeline, a release at a
+known point, because resources hold GPU and driver state the collector cannot
+see: a CUDA stream and lazily created cuBLAS, cuSOLVER and cuSPARSE handles.
+Scoped, they are released when the body exits:
 
 @examples[#:eval ev #:label #f
 (define unscoped (device-resources))
@@ -253,8 +195,7 @@ no particular order. Scoped, they are released when the body exits:
   (resources-device r))
 ]
 
-A batch job gets resources of its own, released as soon as the batch is done,
-even if it fails part way:
+Released even when the body fails:
 
 @examples[#:eval ev #:label #f
 (define (run-batch items)
@@ -268,8 +209,7 @@ even if it fails part way:
 (eval:error (run-batch '(1 -2 3)))
 ]
 
-Several bindings are released together, and the bound objects are unusable
-afterwards:
+Several bindings, released together:
 
 @examples[#:eval ev #:label #f
 (define-values (left right)
@@ -284,17 +224,15 @@ afterwards:
 
 @defproc[(device-count) exact-positive-integer?]{
 
-Returns the number of CUDA devices the driver makes visible to this process,
-after @tt{CUDA_VISIBLE_DEVICES}. Devices are numbered from 0. It is CuPy's
-@tt{cp.cuda.runtime.getDeviceCount()}, and like it, it never answers 0: with
-no device, or no working driver, it raises @racket[exn:fail:raft] with kind
-@racket['cuda].
+Returns the number of visible CUDA devices, numbered from 0;
+@tt{cp.cuda.runtime.getDeviceCount()}. With no device or no working driver it
+raises @racket[exn:fail:raft] of kind @racket['cuda].
 
 @examples[#:eval ev
 (device-count)
 ]
 
-Spreading workers over every GPU, round robin:
+Spreading workers round robin:
 
 @examples[#:eval ev #:label #f
 (define (device-for-worker i)
@@ -302,8 +240,7 @@ Spreading workers over every GPU, round robin:
 (map device-for-worker '(0 1 2 3))
 ]
 
-Resources for every device, made once at start-up, for those workers to
-use:
+Resources for every device:
 
 @examples[#:eval ev #:label #f
 (define per-device
@@ -314,36 +251,24 @@ use:
 
 @section[#:tag "ref-core-memory"]{The default memory resource}
 
-Device memory comes from RMM, which keeps one current memory resource per
-device for the whole process, shared by every library that links it: this
-one, cuML, and anything else built on RAPIDS. RMM's own default allocates with
-@tt{cudaMalloc} and frees with @tt{cudaFree}, both of which synchronize the
-device.
-
-The first time this library makes resources on a device, it replaces that
-default with RMM's CUDA async memory resource,
-@tt{rmm::mr::cuda_async_memory_resource}: a @tt{cudaMallocAsync} pool, whose
-allocations and frees are ordered on a stream and need not wait for the rest
-of the device, and
-which can be trimmed after an out-of-memory error. It is what
+RMM's current memory resource is per device and shared by every library in
+the process. The first resources made on a device replace RMM's default
+(@tt{cudaMalloc}, which synchronizes the device) with its CUDA async memory
+resource, a stream-ordered @tt{cudaMallocAsync} pool, as
 @tt{rmm.mr.set_current_device_resource(rmm.mr.CudaAsyncMemoryResource())}
-does in Python. A resource that something else installed before that point is
-left alone, as is any change made after it. The exception is a plain
-@tt{cuda_memory_resource} set on purpose beforehand: it cannot be told from
-RMM's default, so it is replaced. A device whose driver reports no support
-for memory pools (@tt{cudaDevAttrMemoryPoolsSupported}) keeps RMM's default
-too, and its resources are made as usual. Choosing a resource from Racket
-arrives with the rest of the core module @status{L2}.
+does in Python. Any other resource, installed before or after, is left alone;
+a plain @tt{CudaMemoryResource} set beforehand looks like the default and is
+replaced. A device without memory-pool support keeps the default. Choosing a
+resource from Racket arrives later @status{L2}.
 
 @section[#:tag "ref-core-errors"]{Errors}
 
 @defstruct*[(exn:fail:raft exn:fail)
             ([kind (or/c 'out-of-memory 'cuda 'logic 'generic)])]{
 
-The one exception type the library raises for a failure inside RAFT, RMM,
-CUDA or the native library. The message starts with the name of the Racket
-procedure that was called, followed by the cause in RAFT's, RMM's or the
-native library's words. The @racket[kind] says what failed:
+Raised for every failure in RAFT, RMM, CUDA or the native library. The
+message starts with the Racket procedure that was called, then the cause. The
+@racket[kind] says what failed:
 
 @itemlist[
  @item{@racket['out-of-memory]: an allocation failed;}
@@ -361,7 +286,7 @@ native library's words. The @racket[kind] says what failed:
 (exn:fail:raft-kind missing)
 ]
 
-Dispatching on the kind, to retry only what a retry can fix:
+Dispatching on the kind:
 
 @examples[#:eval ev #:label #f
 (define (describe-failure thunk)
@@ -377,8 +302,7 @@ Dispatching on the kind, to retry only what a retry can fix:
 (describe-failure (lambda () (device-resources #:device 99)))
 ]
 
-The message names the procedure the caller used, so a log line says where it
-came from:
+Recovering the procedure name from the message:
 
 @examples[#:eval ev #:label #f
 (with-handlers ([exn:fail:raft?
@@ -393,16 +317,14 @@ came from:
 
 @defproc[(raft-version) string?]{
 
-Returns the RAFT release that @tt{libraftrkt} was compiled against, spelled as
-RAFT spells it: two digits each for the year, the month and the patch, so
-@racket["26.08.00"] is the August 2026 release. It is the same string
-@tt{pylibraft.__version__} gives for the same release.
+Returns the RAFT release the native library was built against, as
+@tt{pylibraft.__version__} spells it: @racket["26.08.00"] is August 2026.
 
 @examples[#:eval ev
 (raft-version)
 ]
 
-Split it to compare releases numerically:
+Comparing releases numerically:
 
 @examples[#:eval ev #:label #f
 (match-define (list year month _)
@@ -411,7 +333,7 @@ Split it to compare releases numerically:
 (>= (+ (* 100 year) month) 2608)
 ]
 
-A program that depends on one release can refuse to start on another:
+Refusing to start on another release:
 
 @examples[#:eval ev #:label #f
 (define (require-raft-release! wanted)
@@ -424,13 +346,10 @@ A program that depends on one release can refuse to start on another:
 
 @defproc[(raft-abi) hash?]{
 
-Returns the ABI tag of @tt{libraftrkt}: an immutable hash, keyed by symbols, of
-the facts a second native library has to share with it to exchange RAFT
-handles and arrays safely. RAFT has no versioned C++ namespace and the layout
-of its handle changes between releases, so a native library that receives a
-@tt{raft::handle_t} from this one (a cuML binding, for example) must have been
-compiled against identical RAFT, RMM and CCCL headers. Such a library records
-the tag it was built against and compares it with this one when it loads.
+Returns the ABI tag of the native library: an immutable hash of what a second
+native library, such as a cuML binding, must match to share RAFT handles and
+arrays with it. Such a library records the tag it was built against and
+compares it at load time.
 
 @tabular[#:sep @hspace[2]
          #:style 'boxed
@@ -453,10 +372,8 @@ the tag it was built against and compares it with this one when it loads.
 (raft-abi)
 ]
 
-A downstream library checks the tag before it loads its own native code. Here
-the expected tag is the current one, then the tag of a library built against
-RAFT 26.10, then one built against headers whose @tt{raft::handle_t} has a
-different layout, which a version check alone would miss:
+Checking a recorded tag: a match, a different RAFT release, and a handle
+layout change a version check would miss:
 
 @examples[#:eval ev #:label #f
 (define (abi-mismatches built-against)
@@ -468,7 +385,7 @@ different layout, which a version check alone would miss:
 (abi-mismatches (hash-update (raft-abi) 'handle-size add1))
 ]
 
-The tag also makes a one-line support report:
+A one-line support report:
 
 @examples[#:eval ev #:label #f
 (string-join (for/list ([key (in-list '(raft rmm cccl cuda-runtime))])
