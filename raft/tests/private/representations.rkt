@@ -109,8 +109,8 @@
 (define (flonum-array rows cols)
   (array->flarray (mutable-array rows cols)))
 
-(define (ignoring-cols f)
-  (lambda (rows _cols) (f rows)))
+(define ((ignoring-cols f) rows _cols)
+  (f rows))
 
 (define (rank-1-array xs)
   (vector->array (vector (length xs)) (list->vector xs)))
@@ -131,11 +131,11 @@
 (define (single x)
   (flsingle (real->double-flonum x)))
 
-(define (send-matrix make-value send)
-  (lambda (rows cols dtype layout) (send (make-value rows cols) #:dtype dtype #:layout layout)))
+(define ((send-matrix make-value send) rows cols dtype layout)
+  (send (make-value rows cols) #:dtype dtype #:layout layout))
 
-(define (send-vector make-value send)
-  (lambda (rows _cols dtype _layout) (send (make-value (car rows)) #:dtype dtype)))
+(define ((send-vector make-value send) rows _cols dtype _layout)
+  (send (make-value (car rows)) #:dtype dtype))
 
 (define (send-bytes rows _cols dtype _layout)
   (define xs
@@ -167,11 +167,11 @@
    (source 'col-matrix 1 values (send-vector col-matrix matrix->device-vector))
    (source 'bytes 1 values send-bytes)))
 
-(define (one-row f)
-  (lambda (v _dtype) (list (f v))))
+(define ((one-row f) v _dtype)
+  (list (f v)))
 
-(define (ignoring-dtype f)
-  (lambda (v _dtype) (f v)))
+(define ((ignoring-dtype f) v _dtype)
+  (f v))
 
 (define sinks
   (list
