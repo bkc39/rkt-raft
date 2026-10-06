@@ -6,7 +6,7 @@
 
 This library binds @hyperlink["https://github.com/rapidsai/raft"]{NVIDIA
 RAFT} and provides a low-level interface for working with arrays on the GPU.
-It needs Linux, an NVIDIA GPU and Nix (@secref["getting-started"]).
+It needs Linux, an NVIDIA GPU and Racket 9.3 (@secref["getting-started"]).
 
 The manual has two parts: the @secref["guide"] works through the library by
 example, with the equivalent Python beside the Racket, and the
