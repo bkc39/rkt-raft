@@ -63,8 +63,8 @@ keeps the numbers as a list of rows. Here a string port stands for the file:
 X
 ]
 
-@racket[list*->device-array] reads the rank from the nesting: a list of lists
-is a matrix, a list of numbers a vector. Every row must have as many numbers
+@racket[list*->device-array] reads the rank from the nesting: a list of rows,
+lists or vectors, is a matrix, and a list of numbers a vector. Every row must have as many numbers
 as the first, or the conversion names the row that does not.
 
 The species become the labels a classifier is scored against, one
@@ -299,19 +299,20 @@ million elements, as the median of five runs after a warm-up; it is
 Ti, Racket 9.3 CS) on 2026-10-05. Times are milliseconds.
 
 @(define speed-rows
-   '(("list" "34.9" "34.0" "54.2" "52.3")
-     ("vector" "33.9" "32.9" "35.8" "31.8")
-     ("flvector" "1.0" "38.2" "4.1" "63.4")
-     ("f64vector" "4.3" "47.4" "13.0" "54.9")
-     ("f32vector" "46.6" "2.0" "54.2" "3.6")
-     ("bytes" "0.8" "0.4" "3.9" "2.0")
-     ("math FlArray" "1.1" "32.1" "4.3" "59.1")
-     ("math mutable array" "34.0" "32.6" "4.1" "59.0")
-     ("math array from build-array" "604.4" "594.2" "4.2" "58.2")
-     ("nested list, 1000×1000" "49.8" "51.0" "52.9" "55.4")
-     ("nested vector, 1000×1000" "36.0" "38.7" "44.2" "42.6")
-     ("math FlArray, 1000×1000" "1.2" "31.6" "4.1" "59.9")
-     ("math mutable array, 1000×1000" "35.2" "36.8" "4.1" "61.7")))
+   '(("list" "33.5" "32.6" "51.0" "49.6")
+     ("list, by list*->device-array" "38.2" "35.4" "48.4" "50.7")
+     ("vector" "32.2" "30.6" "35.1" "30.1")
+     ("flvector" "0.8" "35.9" "3.8" "63.2")
+     ("f64vector" "4.0" "44.3" "12.2" "52.2")
+     ("f32vector" "44.3" "1.8" "51.3" "3.3")
+     ("bytes" "0.8" "0.4" "3.8" "1.9")
+     ("math FlArray" "1.1" "31.3" "4.1" "55.9")
+     ("math mutable array" "32.4" "30.7" "—" "—")
+     ("math array from build-array" "558.8" "567.2" "—" "—")
+     ("nested list, 1000×1000" "49.3" "50.0" "52.7" "52.7")
+     ("nested vector, 1000×1000" "36.1" "38.2" "42.5" "41.1")
+     ("math FlArray, 1000×1000" "1.0" "31.0" "3.9" "57.1")
+     ("math mutable array, 1000×1000" "33.6" "35.1" "—" "—")))
 
 @tabular[#:style 'boxed
          #:sep @hspace[2]
@@ -323,6 +324,10 @@ Ti, Racket 9.3 CS) on 2026-10-05. Times are milliseconds.
                      @bold{back from float64}
                      @bold{back from float32})
                speed-rows)]
+
+Every @racketmodname[math/array] array comes back through the same call,
+@racket[device-array->array], so its times are given once, on the flonum
+array rows; a dash marks the same call.
 
 What it says, for a program that moves a lot of data:
 
@@ -343,9 +348,16 @@ What it says, for a program that moves a lot of data:
  @item{A @racketmodname[math/array] array that is neither a flonum array nor
        a mutable array, such as one made by @racket[build-array] or returned
        by @racketmodname[math/matrix], is read element by element through
-       Typed Racket's contract, about 0.6 microseconds each. Convert it with
-       @racket[array->flarray] inside Typed Racket code, where no contract
-       applies, or keep data that will go to the GPU in flonum arrays.}]
+       Typed Racket's contract, about 0.6 microseconds each. The contract
+       comes with the array itself when untyped code builds it, so converting
+       it later, in Typed Racket or not, does not avoid it. What does is
+       building the array in a Typed Racket module and converting it there
+       with @racket[array->flarray], before untyped code sees it: a
+       1000×1000 table built and converted that way takes 80 milliseconds
+       (@tt{bench/typed-arrays.rkt}),
+       against 710 for the same table built by untyped code and read with
+       @racket[array->vector], and 700 for that table handed to
+       @racket[array->flarray] in Typed Racket.}]
 
 @python|{
 xs = [i / 2 for i in range(1_000_000)]

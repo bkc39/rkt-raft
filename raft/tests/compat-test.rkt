@@ -3,15 +3,17 @@
 (require (only-in ffi/vector f32vector f32vector->list f64vector f64vector->list)
          (only-in math/array
                   array
+                  array->fcarray
                   array->list*
                   array-shape
                   array?
+                  build-array
                   flarray
                   flarray-data
                   mutable-array?)
          (only-in math/matrix col-matrix? matrix matrix? row-matrix?)
          (only-in racket/flonum in-flvector)
-         (only-in rackunit check-equal? check-false check-pred check-true)
+         (only-in rackunit check-equal? check-exn check-false check-pred check-true)
          (only-in "../compat.rkt"
                   array->device-array
                   bytes->device-vector
@@ -93,7 +95,7 @@
                     "vector*->device-matrix: row 1 has 1 element, but row 0 has 2: '#(3)"
                     (lambda () (vector*->device-matrix #(#(1 2) #(3)))))
   (check-raft-error 'logic
-                    "vector*->device-array: row 1 is not a vector, but row 0 is: 3"
+                    "vector*->device-array: row 1 is not a list or vector, but row 0 is: 3"
                     (lambda () (vector*->device-array #(#(1 2) 3))))
   (check-raft-error 'logic
                     "list*->device-array: element 1 is a list, but element 0 is not: '(2 3)"
@@ -264,3 +266,39 @@
                 '(+inf.0 -inf.0))
   (check-equal? (device-vector->list (f64vector->device-vector (f64vector +inf.0) #:dtype 'float32))
                 '(+inf.0)))
+
+(test-gpu "nested data may mix list and vector rows, as NumPy takes lists and tuples"
+  (check-equal? (device-array->list* (list*->device-array (list #(1 2) '(3 4)))) '((1 2) (3 4)))
+  (check-equal? (device-array->list* (list*->device-array (list #(1.5 2.5)) #:layout 'col-major))
+                '((1.5 2.5)))
+  (check-equal? (device-array->vector* (vector*->device-array (vector '(1 2) '(3 4))))
+                #(#(1 2) #(3 4)))
+  (check-raft-error 'logic
+                    "list*->device-array: element 1 is a vector, but element 0 is not: '#(2 3)"
+                    (lambda () (list*->device-array (list 1 #(2 3)))))
+  (check-raft-error 'logic
+                    "list*->device-array: row 1 has 3 elements, but row 0 has 2: '#(3 4 5)"
+                    (lambda () (list*->device-array (list '(1 2) #(3 4 5))))))
+
+(test-gpu "device-matrix->matrix refuses a device vector, as the other matrix exits do"
+  (check-exn exn:fail? (lambda () (device-matrix->matrix (vector->device-vector #(1.0 2.0))))))
+
+(test-gpu "a large complex array is refused quickly, without printing it"
+  (define complex
+    (array->fcarray (build-array #(1000 1000)
+                                 (lambda (js) (make-rectangular (vector-ref js 0) 1.0)))))
+  (define start (current-inexact-milliseconds))
+  (check-raft-error 'logic
+                    "array->device-array: cannot infer a dtype: 0.0+1.0i is not a real number"
+                    (lambda () (array->device-array complex)))
+  (define elapsed (- (current-inexact-milliseconds) start))
+  (check-true (< elapsed 3000.0) (format "refused in ~a ms" elapsed)))
+
+(test-gpu "where inference differs from NumPy's: rationals, booleans and 2^63"
+  (check-equal? (dtype (vector->device-vector #(1/2 3))) 'float64)
+  (check-raft-error 'logic
+                    "vector->device-vector: cannot infer a dtype: #t is not a real number"
+                    (lambda () (vector->device-vector #(#t #f))))
+  (check-raft-error 'logic
+                    "list*->device-array: 9223372036854775808 does not fit int64"
+                    (lambda () (list*->device-array (list (expt 2 63))))))
