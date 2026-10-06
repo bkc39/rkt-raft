@@ -1,17 +1,23 @@
 #lang racket/base
 
-(require (only-in racket/format ~a)
-         (only-in racket/match match-define)
+(require (only-in racket/match match match-define match-let)
          (only-in racket/port with-output-to-string)
-         (only-in racket/string string-join string-split)
-         (only-in rackunit check-equal? check-exn check-pred check-true test-case)
-         (only-in "../main.rkt" raft-abi raft-version))
+         (only-in racket/string string-split)
+         (only-in rackunit check-equal? check-exn check-false check-pred check-true test-case)
+         (only-in "../main.rkt"
+                  raft-abi
+                  raft-abi-cccl
+                  raft-abi-cuda-runtime
+                  raft-abi-handle-size
+                  raft-abi-raft
+                  raft-abi-rmm
+                  raft-abi-version
+                  raft-abi?
+                  raft-version))
 
 (test-case "getting started: the first program and the stack report"
   (check-equal? (raft-version) "26.08.00")
-  (check-true (> (hash-count (raft-abi)) 4))
-  (match-define (hash-table ('raft raft) ('rmm rmm) ('cccl cccl) ('cuda-runtime cuda-runtime))
-    (raft-abi))
+  (match-define (raft-abi #:raft raft #:rmm rmm #:cccl cccl #:cuda-runtime cuda-runtime) (raft-abi))
   (check-equal? (with-output-to-string
                  (lambda ()
                    (printf "raft ~a\nrmm ~a\ncccl ~a\ncuda-runtime ~a\n" raft rmm cccl cuda-runtime)))
@@ -38,22 +44,36 @@
              (lambda () (require-raft-release! "26.10.00"))))
 
 (test-case "reference: raft-abi"
-  (check-equal? (raft-abi)
-                (hasheq 'abi-version 1
-                        'cccl "3.4.3"
-                        'cuda-runtime "13.2"
-                        'handle-size 32
-                        'raft "26.08.00"
-                        'resource-types 22
-                        'rmm "26.08.00"))
+  (check-equal? (format "~a" (raft-abi))
+                (string-append "#<raft-abi raft 26.08.00 rmm 26.08.00 cccl 3.4.3 cuda-runtime 13.2"
+                               " version 1 resource-types 22 handle-size 32>"))
+  (match-define (raft-abi #:raft raft #:cuda-runtime cuda-runtime) (raft-abi))
+  (check-equal? (list raft cuda-runtime) '("26.08.00" "13.2"))
+  (define (support-status abi)
+    (match abi
+      [(raft-abi #:raft "26.08.00") 'supported]
+      [(raft-abi #:raft other) (list 'untested other)]))
+  (check-equal? (support-status (raft-abi)) 'supported)
+  (check-equal? (support-status (struct-copy raft-abi (raft-abi) [raft "26.10.00"]))
+                '(untested "26.10.00"))
   (define (abi-mismatches built-against)
-    (for/list ([(key value) (in-hash built-against)]
-               #:unless (equal? value (hash-ref (raft-abi) key #f)))
-      key))
+    (for/list ([field (in-list (list raft-abi-version
+                                     raft-abi-raft
+                                     raft-abi-rmm
+                                     raft-abi-cccl
+                                     raft-abi-handle-size))]
+               [name (in-list '(version raft rmm cccl handle-size))]
+               #:unless (equal? (field built-against) (field (raft-abi))))
+      name))
   (check-equal? (abi-mismatches (raft-abi)) '())
-  (check-equal? (abi-mismatches (hash-set (raft-abi) 'raft "26.10.00")) '(raft))
-  (check-equal? (abi-mismatches (hash-update (raft-abi) 'handle-size add1)) '(handle-size))
-  (check-equal? (string-join (for/list ([key (in-list '(raft rmm cccl cuda-runtime))])
-                               (~a key "=" (hash-ref (raft-abi) key)))
-                             " ")
-                "raft=26.08.00 rmm=26.08.00 cccl=3.4.3 cuda-runtime=13.2"))
+  (check-equal? (abi-mismatches (struct-copy raft-abi (raft-abi) [raft "26.10.00"])) '(raft))
+  (check-equal? (abi-mismatches (struct-copy raft-abi (raft-abi) [handle-size 40])) '(handle-size))
+  (check-equal? (match-let ([(raft-abi #:raft raft #:rmm rmm #:cccl cccl) (raft-abi)])
+                  (format "raft=~a rmm=~a cccl=~a" raft rmm cccl))
+                "raft=26.08.00 rmm=26.08.00 cccl=3.4.3")
+  (define abi (raft-abi))
+  (check-pred raft-abi? abi)
+  (check-equal? (raft-abi-version abi) 1)
+  (check-equal? (raft-abi-cuda-runtime abi) "13.2")
+  (check-true (equal? abi (raft-abi)))
+  (check-false (equal? abi (struct-copy raft-abi abi [rmm "26.10.00"]))))

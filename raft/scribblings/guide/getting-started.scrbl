@@ -46,12 +46,12 @@ CCCL and the CUDA runtime. A short report is a good first line in a bug
 report:
 
 @examples[#:eval ev #:label #f
-(match-define (hash-table ('raft raft) ('rmm rmm) ('cccl cccl) ('cuda-runtime cuda-runtime))
+(match-define (raft-abi #:raft raft #:rmm rmm #:cccl cccl #:cuda-runtime cuda-runtime)
   (raft-abi))
 (printf "raft ~a\nrmm ~a\ncccl ~a\ncuda-runtime ~a\n" raft rmm cccl cuda-runtime)
 ]
 
-The pattern ignores the tag's other keys.
+The pattern names only the fields it needs.
 
 @racket['cuda-runtime] is the CUDA runtime the library was compiled with. A
 native binding built on this one, such as cuML's, checks at load that its
