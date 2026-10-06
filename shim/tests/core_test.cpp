@@ -4,6 +4,7 @@
 #include <string>
 
 #include "gpu.hpp"
+#include "detail/handles.hpp"
 #include "raftrkt/c_api.h"
 
 namespace {
@@ -87,6 +88,29 @@ TEST(Resources, CreateSyncFree) {
   EXPECT_EQ(rr_resources_sync(r), RR_OK) << rr_last_error();
   rr_resources_free(r);
   EXPECT_EQ(rr_resources_drop_count(), before + 1);
+}
+
+TEST(Resources, HandleIsTheRaftHandle) {
+  RR_REQUIRE_GPU();
+  rr_resources* r = nullptr;
+  ASSERT_EQ(rr_resources_create(0, &r), RR_OK) << rr_last_error();
+  void* handle = nullptr;
+  ASSERT_EQ(rr_resources_handle(r, &handle), RR_OK) << rr_last_error();
+  EXPECT_EQ(handle, static_cast<void*>(r->handle.get()));
+  void* again = nullptr;
+  ASSERT_EQ(rr_resources_handle(r, &again), RR_OK);
+  EXPECT_EQ(again, handle);
+  rr_resources_free(r);
+}
+
+TEST(Resources, HandleRefusesNull) {
+  void* handle = reinterpret_cast<void*>(0x1);
+  EXPECT_EQ(rr_resources_handle(nullptr, &handle), RR_ERROR);
+  EXPECT_EQ(rr_last_error_kind(), RR_ERROR_LOGIC);
+  EXPECT_STREQ(rr_last_error(), "resources is NULL");
+  EXPECT_EQ(handle, nullptr);
+  EXPECT_EQ(rr_resources_handle(nullptr, nullptr), RR_ERROR);
+  EXPECT_STREQ(rr_last_error(), "out is NULL");
 }
 
 TEST(Resources, FreeAcceptsNull) {

@@ -3,35 +3,19 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
-#include <cuda/std/version>
 #include <memory>
 #include <raft/core/resource/cuda_stream.hpp>
-#include <raft/core/resource/resource_types.hpp>
 #include <raft/version_config.hpp>
-#include <rmm/version_config.hpp>
 
 #include "detail/error.hpp"
 #include "detail/handles.hpp"
 #include "detail/internal_api.h"
 #include "detail/memory_resource.hpp"
+#include "raftrkt/abi.h"
 
 namespace {
 
-const rr_abi_tag abi_tag = {
-    .abi_version = RR_ABI_VERSION,
-    .raft_major = RAFT_VERSION_MAJOR,
-    .raft_minor = RAFT_VERSION_MINOR,
-    .raft_patch = RAFT_VERSION_PATCH,
-    .rmm_major = RMM_VERSION_MAJOR,
-    .rmm_minor = RMM_VERSION_MINOR,
-    .rmm_patch = RMM_VERSION_PATCH,
-    .cccl_major = CCCL_MAJOR_VERSION,
-    .cccl_minor = CCCL_MINOR_VERSION,
-    .cccl_patch = CCCL_PATCH_VERSION,
-    .cuda_runtime = CUDART_VERSION,
-    .resource_types = raft::resource::resource_type::LAST_KEY,
-    .handle_size = sizeof(raft::handle_t),
-};
+const rr_abi_tag abi_tag = raftrkt::compiled_abi();
 
 constexpr std::size_t version_text_capacity = 16;
 
@@ -84,6 +68,14 @@ int rr_resources_sync(rr_resources* resources) {
     auto& r = *rr::require(resources, "resources");
     const rr::device_guard guard{r.device};
     raft::resource::sync_stream(*r.handle);
+  });
+}
+
+int rr_resources_handle(rr_resources* resources, void** out) {
+  return rr::translate_exceptions([&] {
+    auto& result = *rr::require(out, "out");
+    result = nullptr;
+    result = rr::require(resources, "resources")->handle.get();
   });
 }
 

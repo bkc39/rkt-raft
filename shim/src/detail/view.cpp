@@ -11,6 +11,7 @@
 #include "detail/error.hpp"
 #include "detail/handles.hpp"
 #include "raftrkt/array.h"
+#include "raftrkt/view.hpp"
 
 namespace rr {
 
@@ -50,32 +51,9 @@ void check_extents(const rr_view& view) {
   }
 }
 
-bool canonical_strides(layout l, int32_t rank, const int64_t* shape,
-                       int64_t* strides) noexcept {
-  const bool empty = std::any_of(shape, shape + rank,
-                                 [](int64_t extent) { return extent == 0; });
-  int64_t step = 1;
-  for (int32_t k = 0; k < rank; ++k) {
-    const int32_t i = l == layout::row_major ? rank - 1 - k : k;
-    strides[i] = empty ? 0 : step;
-    if (!empty && __builtin_mul_overflow(step, shape[i], &step)) {
-      return false;
-    }
-  }
-  return true;
-}
-
-bool has_layout(const rr_view& view, layout l) noexcept {
-  int64_t strides[RR_MAX_RANK] = {};
-  if (!canonical_strides(l, view.rank, view.shape, strides)) {
-    return false;
-  }
-  for (int32_t i = 0; i < view.rank; ++i) {
-    if (view.shape[i] > 1 && view.strides[i] != strides[i]) {
-      return false;
-    }
-  }
-  return true;
+raftrkt::layout public_layout(layout l) noexcept {
+  return l == layout::row_major ? raftrkt::layout::row_major
+                                : raftrkt::layout::col_major;
 }
 
 }  // namespace
@@ -103,7 +81,8 @@ rr_view describe(int32_t dtype, layout l, int32_t rank, const int64_t* shape) {
     std::copy(require(shape, "shape"), shape + rank, view.shape);
   }
   check_extents(view);
-  if (!canonical_strides(l, rank, view.shape, view.strides)) {
+  if (!raftrkt::canonical_strides(public_layout(l), rank, view.shape,
+                                  view.strides)) {
     throw logic_error("the array's size overflows");
   }
   byte_size(view);
@@ -114,10 +93,10 @@ std::optional<layout> layout_of(const rr_view& view) noexcept {
   if (view.rank < 0 || view.rank > RR_MAX_RANK) {
     return std::nullopt;
   }
-  if (has_layout(view, layout::row_major)) {
+  if (raftrkt::has_layout(view, raftrkt::layout::row_major)) {
     return layout::row_major;
   }
-  if (has_layout(view, layout::col_major)) {
+  if (raftrkt::has_layout(view, raftrkt::layout::col_major)) {
     return layout::col_major;
   }
   return std::nullopt;
