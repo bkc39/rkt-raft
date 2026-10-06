@@ -40,6 +40,7 @@
                   infer-dtype
                   infer-rows-dtype
                   matrix-shape
+                  over-elements
                   pack-matrix
                   pack-row-major
                   repack
@@ -110,8 +111,11 @@
               "rank ~a is not supported yet; rank 1 and 2 convert, and any rank arrives in leg 3"
               rank))
 
-(define (list-like? v)
-  (or (pair? v) (null? v)))
+(define (row? v)
+  (or (pair? v) (null? v) (vector? v)))
+
+(define (row-noun v)
+  (if (vector? v) "vector" "list"))
 
 (define (nesting-depth xs nested?)
   (let loop ([x xs]
@@ -124,24 +128,26 @@
       [(cons head _) (loop head (add1 depth))]
       [(? vector?) (loop (vector-ref x 0) (add1 depth))])))
 
-(define (nested-rank who xs nested? noun)
-  (define rank (nesting-depth xs nested?))
+(define (nested-rank who xs)
+  (define rank (nesting-depth xs row?))
   (case rank
     [(1)
-     (for ([x xs]
-           [i (in-naturals)]
-           #:when (nested? x))
-       (raise-raft who 'logic "element ~a is a ~a, but element 0 is not: ~e" i noun x))]
+     (over-elements
+      (for ([x xs]
+            [i (in-naturals)])
+        (when (row? x)
+          (raise-raft who 'logic "element ~a is a ~a, but element 0 is not: ~e" i (row-noun x) x))))]
     [(2)
-     (for ([row xs]
-           [i (in-naturals)]
-           #:unless (nested? row))
-       (raise-raft who 'logic "row ~a is not a ~a, but row 0 is: ~e" i noun row))]
+     (over-elements
+      (for ([row xs]
+            [i (in-naturals)])
+        (unless (row? row)
+          (raise-raft who 'logic "row ~a is not a list or vector, but row 0 is: ~e" i row))))]
     [else (raise-rank who rank)])
   rank)
 
-(define (send-nested who resources element-type order xs nested? noun extent)
-  (if (= 1 (nested-rank who xs nested? noun))
+(define (send-nested who resources element-type order xs extent)
+  (if (= 1 (nested-rank who xs))
       (send-flat who resources element-type order (list (extent xs)) xs)
       (send-rows who resources element-type order xs)))
 
@@ -171,13 +177,13 @@
                              #:dtype [element-type #f]
                              #:layout [order 'row-major]
                              #:resources [resources (current-device-resources)])
-  (send-nested 'list*->device-array resources element-type order xs list-like? "list" length))
+  (send-nested 'list*->device-array resources element-type order xs length))
 
 (define (vector*->device-array xs
                                #:dtype [element-type #f]
                                #:layout [order 'row-major]
                                #:resources [resources (current-device-resources)])
-  (send-nested 'vector*->device-array resources element-type order xs vector? "vector" vector-length))
+  (send-nested 'vector*->device-array resources element-type order xs vector-length))
 
 (define (device-array->list* a)
   (receive 'device-array->list* a 'list))
@@ -243,7 +249,8 @@
 
 (define (flarray-flonums arr)
   (with-handlers ([exn:fail:contract? (lambda (_) #f)])
-    (flarray-data arr)))
+    (parameterize ([error-value->string-handler (lambda (_v _n) "?")])
+      (flarray-data arr))))
 
 (define (array-elements arr)
   (cond
@@ -305,7 +312,8 @@
   (math-array 'device-array->array a (device-array-shape a)))
 
 (define (device-matrix->matrix m)
-  (math-array 'device-matrix->matrix m (device-array-shape m)))
+  (match-define (list rows cols) (device-array-shape m))
+  (math-array 'device-matrix->matrix m (list rows cols)))
 
 (define (device-vector->col-matrix v)
   (match-define (list n) (device-array-shape v))

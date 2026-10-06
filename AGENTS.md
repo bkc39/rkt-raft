@@ -79,6 +79,7 @@ raft/                         the Racket package and collection
   tests/                      raco tests; tests/private/ the harness; tests/python/ the twins
 scripts/                      gates, the GPU suite, the docs render, the binding census
 bench/conversions.rkt         the conversion speed table (raft/compat), 10^6 elements
+bench/typed-arrays.rkt        math/array arrays built in Typed Racket against untyped (typed-table.rkt)
 downstream/kmeans-canary/     the k-means canary, a minimal cuML binding (packages.kmeans-canary)
   include/ src/ tests/        the C API (kc_), its C++ over libcuml, gtests with libraftrkt
   kmeans-canary/              the Racket package: private/native.rkt, main.rkt, pool.rkt,
@@ -825,7 +826,8 @@ the binding census), `racket-review`, `racket-version` (at least 9.3),
   manual's links). `raft` does not re-export it.
 - **The rank comes from the nesting** in `list*->device-array` and
   `vector*->device-array`, by following first elements, as NumPy reads it
-  from the first entry: a list of lists is a matrix, anything else a vector,
+  from the first entry: a sequence of rows (lists or vectors, as NumPy takes
+  lists and tuples) is a matrix, anything else a vector,
   and `'()` an empty vector (`np.asarray([])`). A mixed depth is refused
   naming the element or row; ranks other than 1 and 2, from a nesting or a
   `math/array` array, raise `rank N is not supported yet; rank 1 and 2
@@ -841,8 +843,10 @@ the binding census), `racket-review`, `racket-version` (at least 9.3),
   make one (`FlArray`'s contract is a chaperone, not flat), so a settable
   array that is not mutable is tried with `flarray-data`, and its contract
   failure means "not a flonum array" (only an `FCArray`, whose complex
-  elements are then refused; building that contract's blame message costs
-  about 10 ms, once per array). The brief's `array->flarray` route was
+  elements are then refused). The blame message would print the whole
+  array, 10.9 s for a 1000×1000 `FCArray`, so the call runs with
+  `error-value->string-handler` returning `"?"` (about 9 ms); a test bounds
+  the refusal's time. The brief's `array->flarray` route was
   measured and not taken. Results of `math/matrix` operations and
   `build-array` are neither, so they take the element-by-element path.
 - **One loop per representation.** `pack.rkt`'s `over-elements` wraps an
@@ -857,7 +861,9 @@ the binding census), `racket-review`, `racket-version` (at least 9.3),
   every path (L1b's rule).
 - **Arrays come back** as flonum arrays from floating-point device arrays,
   built with `unsafe-flarray` (exported by `math/array`, undocumented) over
-  the flvector read from the device, so a `'float64` round trip copies once
+  the flvector read from the device. `unsafe-flarray` does not check that the
+  flvector's length is the product of the shape; `math-array` in
+  `compat.rkt` relies on `numel` sizing that flvector, so a `'float64` round trip copies once
   each way; integer arrays come back as mutable arrays (`vector->array`). A
   device matrix with an extent of 0 comes back as an empty array that
   `matrix?` rejects.

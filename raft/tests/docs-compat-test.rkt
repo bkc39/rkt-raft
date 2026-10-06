@@ -165,7 +165,7 @@
   (define saved (read (open-input-string "#(#(0.1 0.2) #(0.3 0.4) #(0.5 0.6))")))
   (check-equal? (shape (vector*->device-array saved #:dtype 'float32)) '(3 2))
   (check-raft-error 'logic
-                    "vector*->device-array: row 1 is not a vector, but row 0 is: 3"
+                    "vector*->device-array: row 1 is not a list or vector, but row 0 is: 3"
                     (lambda () (vector*->device-array (vector #(1 2) 3)))))
 
 (test-gpu "compat reference: device-array->list* and device-array->vector*"

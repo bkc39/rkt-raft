@@ -15,6 +15,7 @@
                   array->device-array
                   bytes->device-vector
                   device-array->array
+                  device-array->list*
                   device-matrix->vector*
                   device-vector->bytes
                   device-vector->f32vector
@@ -24,6 +25,7 @@
                   f32vector->device-vector
                   f64vector->device-vector
                   flvector->device-vector
+                  list*->device-array
                   vector*->device-matrix
                   vector->device-vector))
 
@@ -68,6 +70,10 @@
 (define table
   (list
    (row "list" (lambda () xs) (lambda (v d) (list->device-vector v #:dtype d)) device-vector->list)
+   (row "list, by list*->device-array"
+        (lambda () xs)
+        (lambda (v d) (list*->device-array v #:dtype d))
+        device-array->list*)
    (row "vector"
         (lambda () (list->vector xs))
         (lambda (v d) (vector->device-vector v #:dtype d))

@@ -13,6 +13,7 @@
          infer-dtype
          infer-rows-dtype
          matrix-shape
+         over-elements
          pack-matrix
          pack-row-major
          pack-vector

@@ -68,7 +68,13 @@ one: all exact integers give @racket['int64], any other real numbers
 @racket['float64], and no elements at all @racket['float64]. An
 @racket[flvector], an @racket[f64vector] and a flonum array hold flonums, so
 they give @racket['float64]; an @racket[f32vector] gives @racket['float32].
-Exact rationals become floats, and an integer type truncates toward zero. A
+Exact rationals become floats, and an integer type truncates toward zero.
+Inference differs from NumPy's in three places, all values NumPy has a type
+for and this library does not: exact rationals give @racket['float64], where
+NumPy, given @tt{Fraction}s, makes an @tt{object} array; booleans are refused,
+where NumPy makes @tt{bool} (or @tt{int64} mixed with integers); and an exact
+integer from 2@superscript{63} to 2@superscript{64}-1 is refused as out of
+range, where NumPy makes @tt{uint64}. A
 value the element type cannot hold, such as a complex number, an infinity or
 NaN for an integer type, or a number out of the type's range, raises
 @racket[exn:fail:raft] naming the procedure. A matrix's @racket[#:layout]
@@ -215,7 +221,8 @@ A column-major matrix still comes back as rows:
 (device-matrix->vector* G)
 ]}
 
-@defproc[(list*->device-array [xs (or/c (listof real?) (listof (listof real?)))]
+@defproc[(list*->device-array [xs (or/c (listof real?)
+                                         (listof (or/c (listof real?) (vectorof real?))))]
                               [#:dtype dtype (or/c #f 'float32 'float64 'int32 'int64) #f]
                               [#:layout layout (or/c 'row-major 'col-major) 'row-major]
                               [#:resources resources device-resources?
@@ -223,9 +230,10 @@ A column-major matrix still comes back as rows:
          device-array?]{
 
 Returns a vector if @racket[xs] is a list of numbers and a matrix if it is a
-list of lists, as @tt{device_ndarray(np.asarray(xs, dtype))} does. The rank is
-read from the nesting: if the first element of @racket[xs] is a list, every
-element must be one. The empty list is an empty vector, as
+list of rows, each a list or a vector, as
+@tt{device_ndarray(np.asarray(xs, dtype))} does with lists and tuples. The
+rank is read from the nesting: if the first element of @racket[xs] is a row,
+every element must be one. The empty list is an empty vector, as
 @tt{np.asarray([])} is. A deeper nesting is refused; @racket[layout] applies to
 a matrix and is ignored for a vector.
 
@@ -255,14 +263,16 @@ A nesting that is not one or two deep, or that mixes depths, is refused:
 (eval:error (list*->device-array '(1.0 (2.0 3.0))))
 ]}
 
-@defproc[(vector*->device-array [xs (or/c (vectorof real?) (vectorof (vectorof real?)))]
+@defproc[(vector*->device-array [xs (or/c (vectorof real?)
+                                           (vectorof (or/c (vectorof real?) (listof real?))))]
                                 [#:dtype dtype (or/c #f 'float32 'float64 'int32 'int64) #f]
                                 [#:layout layout (or/c 'row-major 'col-major) 'row-major]
                                 [#:resources resources device-resources?
                                              (current-device-resources)])
          device-array?]{
 
-Like @racket[list*->device-array], for vectors and vectors of vectors.
+Like @racket[list*->device-array], for a vector of numbers or a vector of
+rows; the rows may be vectors or lists.
 
 @examples[#:eval ev
 (vector*->device-array #(1 2 3))
