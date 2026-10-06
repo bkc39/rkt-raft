@@ -9,8 +9,7 @@ RAFT} and provides a low-level interface for working with arrays on the GPU.
 It needs Linux, an NVIDIA GPU and Racket 9.3 (@secref["getting-started"]).
 
 The manual has two parts: the @secref["guide"] works through the library by
-example, with the equivalent Python beside the Racket, and the
-@secref["reference"] documents every exported name.
+example, and the @secref["reference"] documents every exported name.
 
 The package's @secref["gs-license"], @secref["gs-acknowledgements"] and
 @secref["gs-ai-disclosure"] are at the end of @secref["getting-started"].

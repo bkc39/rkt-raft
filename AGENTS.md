@@ -459,18 +459,22 @@ the binding census), `racket-review`, `racket-version` (at least 9.3),
 
 - One manual, `raft/scribblings/raft.scrbl`: a guide (chapters under
   `guide/`) and a reference (one section per module under `reference/`).
-  `utils.rkt` holds `make-raft-eval`, the `python` block helper and the
-  `status` marker for names that arrive in a later leg.
+  `utils.rkt` holds `make-raft-eval` and the `status` marker for names that
+  arrive in a later leg.
 - **The manual assumes a catalog install** (`raco pkg install raft`; what
   that still needs is #24) and mentions no Nix at all: no dev shell, flake,
   `nix build`, `packages.*`, test-running or rendering instructions. Those
   are maintainer material and live in `README.md` (Development) and here.
+- **The manual shows Racket code only.** No Python blocks, no comparisons
+  with pylibraft, CuPy, NumPy or cuML, and no mention of the twins beyond one
+  clause in the AI disclosure and the Acknowledgements line. Python parity
+  lives in the tests and CI, never in the docs (owner decision, reversing the
+  earlier Python-beside-Racket convention). A fact about Racket semantics
+  (strides in elements, per-thread default resources, dtype inference,
+  layouts) is stated on its own terms.
 - **The owner reviews each leg's docs.** Every leg adds its own guide chapter
   and reference section. A guide chapter is a tutorial on realistic client
-  code, evaluated live, with the equivalent Python (pylibraft, rmm, CuPy,
-  NumPy) after the key Racket blocks as a non-evaluated block, and a sentence
-  on where the two sides differ. Run each Python block in the shell's
-  `python3` before quoting its output.
+  code, evaluated live.
 - Every exported name gets a `@defproc`/`@defform`/`@defthing` with prose and
   at least three live examples showing real use, not trivial calls.
 - Examples run through `scribble/example`; output is never pasted by hand.

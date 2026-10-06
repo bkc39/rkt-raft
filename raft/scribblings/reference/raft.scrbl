@@ -11,8 +11,8 @@
 
 @defproc[(raft-version) string?]{
 
-Returns the RAFT release the library was compiled against, as
-@tt{pylibraft.__version__} spells it: @racket["26.08.00"] is August 2026.
+Returns the RAFT release the library was compiled against, as year, month and
+patch: @racket["26.08.00"] is August 2026.
 
 @examples[#:eval ev
 (raft-version)
