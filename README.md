@@ -13,6 +13,9 @@ racket -l racket/base -l raft -e '(raft-version)'
 
 - The manual is `raft/scribblings/raft.scrbl`: a guide (Getting started,
   Concepts) and a reference. Render it with `scripts/render-docs.sh <dir>`.
+- Native bindings build on the frozen interface in `raft/unsafe` and the
+  flake's `packages.raft-dev` and `packages.rapids`;
+  `downstream/kmeans-canary/` is a minimal cuML binding that shows how.
 - The approved plan is [`plans/scoping-plan.md`](plans/scoping-plan.md).
 - Contributors and agents: [`AGENTS.md`](AGENTS.md).
 

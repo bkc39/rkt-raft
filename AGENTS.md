@@ -13,14 +13,17 @@ raft/core, §6 raft/array and raft/compat, §7 Memory model, §8 Shim ABI, §9
 Parity, §10 Build and §12 Starting cuML work before changing the design.
 
 - **Pins.** RAPIDS **26.08** (the `libraft-cu13`, `librmm-cu13` and
-  `rapids-logger` 0.2.3 wheels from PyPI). 26.10 is not on PyPI; never bump
-  without its own leg (#7). **CUDA 13 only.** Development builds target
-  **sm_86** (the lab host's RTX 3090 Ti). Racket **9.3**. One nixpkgs pin,
-  `07e1d92`, which carries Racket 9.3 and `cudaPackages_13` = CUDA 13.2.
+  `rapids-logger` 0.2.3 wheels from PyPI, and for cuML `libcuml-cu13` 26.8.0,
+  `libcuvs-cu13` 26.8.1, `libnvforest-cu13` 26.8.0 and `nvidia-nccl-cu13`
+  2.32.3). 26.10 is not on PyPI; never bump without its own leg (#7). **CUDA
+  13 only.** Development builds target **sm_86** (the lab host's RTX 3090
+  Ti). Racket **9.3**. One nixpkgs pin, `07e1d92`, which carries Racket 9.3
+  and `cudaPackages_13` = CUDA 13.2 (with nvJitLink taken from 13.3; see
+  Decisions recorded in L1d).
 - **Platforms.** `x86_64-linux` with an NVIDIA GPU. No CPU fallback, no macOS.
 - **Package.** One package and one collection, `raft` (the `raft/`
   directory), one manual. Apache-2.0.
-- **Status.** Milestone M1 "cuML-ready" (epic #1) is in progress. Leg 0 (#2)
+- **Status.** Milestone M1 "cuML-ready" (epic #1) is reached with L1d. Leg 0 (#2)
   landed the scaffold: the flake, the wheels, the shim, the FFI layer, the
   gates, the formatting and lint toolchain, CI and the manual skeleton, with
   `raft-version` and `raft-abi`. Leg L1a (#3) landed `raft/core`:
@@ -35,20 +38,30 @@ Parity, §10 Build and §12 Starting cuML work before changing the design.
   `raft/compat`: the conversion table for vectors, nested vectors and lists
   of either rank, `f32vector`s, `f64vector`s, byte strings, `math/matrix`
   matrices and `math/array` arrays of rank 1 and 2, plus re-exports of
-  `raft/array`'s list and flvector conversions.
+  `raft/array`'s list and flvector conversions. Leg L1d (#6) landed the
+  frozen downstream interface: `raft/unsafe` (`resources->handle-pointer`,
+  `with-array-views`, `status-checker`, `raft-abi-pointer`), the C entry
+  point `rr_resources_handle`, the header-only `raftrkt/view.hpp`,
+  `raftrkt/error.hpp` and `raftrkt/abi.h` in `packages.raft-dev`, cuML in
+  `packages.rapids`, and the k-means canary in `downstream/kmeans-canary/`
+  that proves them against `cuml.cluster.KMeans`.
 
 ## Layout
 
 ```
 flake.nix  flake.lock         one system: x86_64-linux
-nix/rapids.nix                the RAPIDS wheels as one patched prefix (packages.rapids)
-nix/python-twins.nix          pylibraft, rmm, CuPy, cuda-bindings wheels for the twins
+nix/rapids.nix                the RAPIDS wheels as one patched prefix (packages.rapids;
+                                passthru.core is RAFT, RMM and the logger only)
+nix/python-twins.nix          pylibraft, rmm, CuPy, cuML (and cudf, which it imports),
+                                scikit-learn for the twins
 nix/treefmt.nix               what `nix fmt` runs: formatters and linters
 nix/racket-tools.nix          raco fmt and raco review, pinned as a fixed-output derivation
 .fmt.rkt                      raco fmt's layout rules for this repository's own forms
 lint/                         raft-lint: the raco review extension for the test macros
 shim/                         libraftrkt: C++20 over RAFT's headers (CMake, g++; nvcc for .cu)
-  include/raftrkt/            C headers: core.h memory.h array.h, umbrella c_api.h
+  include/raftrkt/            C headers: core.h memory.h array.h abi.h, umbrella c_api.h;
+                                header-only C++: error.hpp view.hpp (all frozen, below)
+  cmake/raftrkt-config.cmake  find_package(raftrkt): raftrkt::headers, in packages.raft-dev
   src/{core,array,detail}/    host C++ (.cpp); a .cu only for code that launches kernels
   src/detail/dtypes.def       the dtypes: name, C++ type, code
   src/array/ops.def           what the array module instantiates, per op
@@ -59,12 +72,17 @@ raft/                         the Racket package and collection
   private/foreign/*.rkt       FFI bindings, one module per shim header
   array.rkt                   raft/array, re-exported by main.rkt
   compat.rkt                  raft/compat, the only module that requires math-lib
+  unsafe.rkt                  raft/unsafe, the frozen interface for native bindings
   private/{error,resource,resources,install-native}.rkt
   private/{array,dtype,pack,print}.rkt   arrays over buffers, the tables, packing, printing
   scribblings/                the manual: guide/ chapters, reference/ sections
   tests/                      raco tests; tests/private/ the harness; tests/python/ the twins
 scripts/                      gates, the GPU suite, the docs render, the binding census
 bench/conversions.rkt         the conversion speed table (raft/compat), 10^6 elements
+downstream/kmeans-canary/     the k-means canary, a minimal cuML binding (packages.kmeans-canary)
+  include/ src/ tests/        the C API (kc_), its C++ over libcuml, gtests with libraftrkt
+  kmeans-canary/              the Racket package: private/native.rkt, main.rkt, pool.rkt,
+                                tests/ (the cuML twin, 1,000 fits, the shared pool)
 plans/scoping-plan.md         the approved plan (revision 5), as Markdown
 ```
 
@@ -139,7 +157,10 @@ plans/scoping-plan.md         the approved plan (revision 5), as Markdown
      the type's tag check before its finalizer is dropped. `raft/tests/allocator-audit-test.rkt` reads every binding and
      enforces all of this, including that each allocator releases its own
      handle type through `release-once`; a new handle type needs an entry
-     there.
+     there. A borrowed pointer, which Racket never frees, has a cpointer type
+     of its own listed in the audit's `borrowed-types` (`_raft-handle`, the
+     `raft::handle_t*` that `rr_resources_handle` lends), and a binding that
+     returns one with an allocator wrap is refused.
    - A host buffer crosses with its own length: the copy bindings take
      `_host` (`foreign/host.rkt`), an `flvector` or host memory the library
      allocated and sized itself, and compute the byte count from it, so a
@@ -187,7 +208,8 @@ plans/scoping-plan.md         the approved plan (revision 5), as Markdown
     `raft/core`'s reference and the *Resources and the GPU* chapter,
     `docs-array-test.rkt` for `raft/array`'s and *Device arrays*,
    `docs-compat-test.rkt` for `raft/compat`'s and *Moving data between
-   Racket and the GPU*).
+   Racket and the GPU*, `docs-unsafe-test.rkt` for `raft/unsafe`'s and
+   *Building on raft*, which need the canary and print SKIP without it).
 15. **Every review finding is addressed**, from reviewer agents and from bots
     (`chatgpt-codex-connector[bot]` leaves inline comments): fixed with a
     test, or explained with evidence. No silent deferrals.
@@ -204,6 +226,9 @@ plans/scoping-plan.md         the approved plan (revision 5), as Markdown
 - Every entry point body runs inside `rr::translate_exceptions`
   (`src/detail/error.hpp`), which clears the last error, catches
   `std::exception` and `...`, classifies the failure and records the cause.
+  It is the public `raftrkt::translate_exceptions` (`include/raftrkt/error.hpp`)
+  over the shim's own thread-local `raftrkt::error_slot`, so a downstream shim
+  that includes the header classifies and records exactly as the shim does.
   The message lives in a fixed 4 KiB thread-local buffer, so recording an
   error never allocates (the out-of-memory path included); longer messages
   are truncated at a UTF-8 character boundary, and Racket decodes the message
@@ -293,6 +318,13 @@ plans/scoping-plan.md         the approved plan (revision 5), as Markdown
   `other`) for the tests.
 - `src/detail/device.{hpp,cpp}`: `device_guard` and `require_device`, host
   code that needs no RAFT header.
+- **The public C++ headers are the shim's own.** `core.cpp` builds the tag
+  `rr_abi` returns with `raftrkt::compiled_abi()` (`abi.h`), `view.cpp`
+  decides layouts with `raftrkt::canonical_strides` and `raftrkt::has_layout`
+  (`view.hpp`), and every entry point records errors through `error.hpp`, so
+  the gtests of the shim exercise the frozen headers on every build;
+  `tests/headers_test.cpp` covers what the shim itself does not call
+  (`require_abi`, the typed-pointer and mdspan checks, a downstream slot).
 - `rr_buffer` holds that same `shared_ptr`, its device and an
   `rmm::device_buffer` allocated on the handle's stream from the current
   device resource. The `shared_ptr` is declared first, so the buffer is freed
@@ -369,6 +401,14 @@ plans/scoping-plan.md         the approved plan (revision 5), as Markdown
   `private/foreign/` for the planned port to `ffi2` (#15).
 - `private/exn.rkt` also defines `raise-raft` (`who kind format arg ...`),
   the one place an `exn:fail:raft` is built.
+- `unsafe.rkt` (`raft/unsafe`, not re-exported by `raft`) holds no FFI
+  detail of its own: the views come from `private/array.rkt`'s
+  `settled-view` (poll the buffer's stream, then `rr_buffer_view`) and are
+  cleared by `foreign/array.rkt`'s `clear-view!`, whose
+  `void/reference-sink` keeps the array reachable until the post thunk of
+  `with-release` runs; the handle comes from `foreign/core.rkt`'s
+  `rr-resources-handle`. `status-checker` takes thunks, so it is independent
+  of the FFI a downstream binding uses.
 - `private/resources.rkt`: the `device-resources` struct (with
   `#:omit-define-syntaxes`, so the constructor procedure can carry the
   type's name; the raw constructor is `handle->device-resources`),
@@ -420,6 +460,8 @@ scripts/review.sh                  # raco review over every .rkt
 scripts/resyntax.sh origin/master  # Resyntax, red on any suggestion
 nix run --max-jobs 1 --cores 4 .#copy-native-libs   # restage the shim after a C++ change
 cmake -S shim -B shim/build -G Ninja -DBUILD_TESTING=ON   # the shim's inner loop
+nix build --max-jobs 1 --cores 4 .#kmeans-canary  # the canary (lib/, and tests/bin in .tests)
+raco test downstream/kmeans-canary/kmeans-canary  # the canary's Racket tests, twin included
 ```
 
 `nix develop` does this on entry, from the checkout's root only:
@@ -435,9 +477,14 @@ cmake -S shim -B shim/build -G Ninja -DBUILD_TESTING=ON   # the shim's inner loo
   only that directory (`RAFT_CUDA_DRIVER_PATH`).
 - **Stages the shim** and exports `RAFT_NATIVE_LIB_PATH`, `RAFT_SHIM_TESTS`
   (the gtest binaries) and `RAFT_SHIM_PROBE` (the probe library).
+- **Points at the canary:** `RAFT_KMEANS_CANARY` (its `libkmeans_canary.so`
+  in the store, loaded from there: it is never staged), `RAFT_KMEANS_CANARY_TESTS`
+  (its gtests) and `RAFT_RAPIDS_PREFIX` (`packages.rapids`, for the
+  `libcuml.so` symbol check).
 - **Gives each checkout its own `PLTUSERHOME`** under
-  `~/.cache/rkt-raft-devshell/<hash of the path>`, installs `raft` there in
-  link mode once (re-run when `raft/info.rkt` changes) and installs the pinned
+  `~/.cache/rkt-raft-devshell/<hash of the path>`, installs `raft` and
+  `kmeans-canary` there in link mode once (re-run when either `info.rkt`
+  changes) and installs the pinned
   Resyntax, raco fmt, raco review and `raft-lint` (from `lint/`, linked).
 - Provides `python3` with the twins, `CUDA_PATH` set for CuPy, `nvcc`,
   CMake, the CUDA headers and `compute-sanitizer` for the shim's inner loop,
@@ -474,10 +521,12 @@ with its counts, the docs rendered with no warnings, and Resyntax clean with
 both rule sets (see Tooling). After pushing, poll `gh pr checks <n>` (it exits
 non-zero while checks are pending) until green.
 
-`nix flake check` runs eleven checks: `shim` (build plus both gtest
+`nix flake check` runs thirteen checks: `shim` (build plus both gtest
 binaries), `shim-sanitizers` (both gtest binaries under ASAN and UBSAN),
 `c-headers` (the umbrella header compiled as C11 with `-Werror`),
-`clang-tidy`, `line-count` (500 lines per C/C++/CUDA file), `formatting`
+`clang-tidy`, `kmeans-canary` (the canary's build against `packages.raft-dev`
+and `packages.rapids`, plus its gtests), `clang-tidy-canary`, `line-count`
+(500 lines per C/C++/CUDA file under `shim/` and `downstream/`), `formatting`
 (treefmt), `racket` (the package build, `raco setup --check-pkg-deps
 --unused-pkg-deps`, `raco test raft`, the manual compiled but not rendered,
 the binding census), `racket-review`, `racket-version` (at least 9.3),
@@ -495,16 +544,16 @@ the binding census), `racket-review`, `racket-version` (at least 9.3),
 | ruff format, ruff check | the Python twins | treefmt | `nix fmt`; `ruff check` findings by hand |
 | shellcheck | shell scripts | treefmt | by hand |
 | actionlint (`.github/actionlint.yaml`) | workflows, including the shell in their `run:` steps | treefmt | by hand; move a long `run:` script into `scripts/` |
-| raco review, with `lint/` | Racket lint: unused and shadowed bindings, require order, unbound names | flake check `racket-review`; CI "Format and lint"; pre-push `review` (`scripts/review.sh`) | by hand; `;; noqa` only as below |
+| raco review, with `lint/` | Racket lint: unused and shadowed bindings, require order, unbound names, in `raft/`, `downstream/`, `lint/`, `scripts/` and `bench/` | flake check `racket-review`; CI "Format and lint"; pre-push `review` (`scripts/review.sh`) | by hand; `;; noqa` only as below |
 | Resyntax, default rules (pinned `40f3497`) | refactoring suggestions in `.rkt` files changed since the base | CI "Resyntax lint"; gate `resyntax` (`scripts/resyntax.sh`) | `resyntax fix --local-git-repository . origin/master`, then `nix fmt` |
 | Resyntax, bkc-style rules | the owner's style suite from the racket-dev plugin | locally, before a push | as above |
 | `raco setup --check-pkg-deps --unused-pkg-deps` | `raft/info.rkt`'s dependencies, missing and unused | flake check `racket` | edit `deps` and `build-deps` |
-| grep gates | `define-syntax-rule`/`syntax-rules`; raw `malloc`/`free` outside `resource.rkt` | flake checks; CI "Format and lint"; pre-push | rules 6 and 7 |
+| grep gates | `define-syntax-rule`/`syntax-rules`; raw `malloc`/`free` outside `resource.rkt` (`raft/`, `downstream/`, `lint/`, `scripts/`) | flake checks; CI "Format and lint"; pre-push | rules 6 and 7 |
 | compiler warnings | g++: `-Wall -Wextra -Wpedantic -Werror`; nvcc: `-Werror=all-warnings -Xcompiler=-Wall,-Wextra,-Werror` | every shim build | by hand |
-| clang-tidy (`shim/.clang-tidy`) | every `.cpp` under `shim/src` and `shim/tests`, warnings as errors: `bugprone-*`, `performance-*`, `readability-*` except `identifier-length` (below), `modernize-use-nullptr`, `modernize-use-override` | flake check `clang-tidy` | by hand |
+| clang-tidy (`shim/.clang-tidy`, `downstream/kmeans-canary/.clang-tidy`) | every `.cpp` under `shim/src`, `shim/tests` and the canary's `src` and `tests`, warnings as errors: `bugprone-*`, `performance-*`, `readability-*` except `identifier-length` (below), `modernize-use-nullptr`, `modernize-use-override` | flake checks `clang-tidy`, `clang-tidy-canary` | by hand |
 | `c-headers`, `line-count` | the umbrella header as C11; 500 lines per C/C++/CUDA file | flake checks | by hand |
 | ASAN and UBSAN (`-DRAFTRKT_SANITIZE=ON`) | host memory errors, leaks and undefined behaviour in both gtest binaries | flake check `shim-sanitizers` (GPU cases SKIP); the GPU suite (GPU cases run); gate `sanitizers` | by hand |
-| compute-sanitizer memcheck | device memory errors, device leaks (`--leak-check full`) and failing CUDA calls (`--report-api-errors explicit`) in both gtest binaries | the GPU suite (gate `gpu`, `gpu.yml`) | by hand |
+| compute-sanitizer memcheck | device memory errors, device leaks (`--leak-check full`) and failing CUDA calls (`--report-api-errors explicit`) in both gtest binaries and the canary's | the GPU suite (gate `gpu`, `gpu.yml`) | by hand |
 
 - **raco fmt** formats `.rkt` files only. It crashes on Scribble's
   at-expressions (`regexp-match: contract violation … given: 'text` in
@@ -825,4 +874,130 @@ the binding census), `racket-review`, `racket-version` (at least 9.3),
   more than one column (data the conversion cannot make a vector of);
   `matrix->device-matrix` given an array of another rank is a wrong kind,
   unchecked until the contracts leg.
+
+## The frozen downstream interface
+
+Frozen at ABI version 1 (`RR_ABI_VERSION`, `raft-abi`'s `'abi-version`) by
+L1d. A change to anything in this list is a new ABI version, and the k-means
+canary changes with it in the same pull request:
+
+- **C:** `rr_view` (152 bytes, its field offsets pinned by
+  `tests/c_api_compile_test.c`), `RR_MAX_RANK`, the `RR_DTYPE_*` and
+  `RR_MEMORY_*` codes, `rr_buffer_view`, `rr_resources_handle`, `rr_abi_tag`
+  (56 bytes) with `rr_abi` and `RR_ABI_VERSION`, the status codes, the error
+  kinds and the `rr_last_error`/`rr_last_error_kind` convention.
+- **C++ headers** (`packages.raft-dev`, `find_package(raftrkt)` →
+  `raftrkt::headers`): `raftrkt/abi.h` (`rr_abi_compare`,
+  `raftrkt::compiled_abi`, `raftrkt::require_abi`), `raftrkt/error.hpp`
+  (`error_slot`, `translate_exceptions`, `classify`, `logic_error`,
+  `cuda_error`, `cuda_check`, `require`), `raftrkt/view.hpp`
+  (`matrix_data`, `vector_data`, `matrix_view`, `vector_view`, `has_layout`,
+  `canonical_strides`, `dtype_code`, `dtype_name`, `any_extent`).
+- **Racket** (`raft/unsafe`): `resources->handle-pointer`,
+  `with-array-views`, `status-checker`, `raft-abi-pointer`; `core-test.rkt`
+  pins the export set.
+
+What a downstream binding must do, which the canary does and the manual's
+*Building on raft* explains: compile against `packages.rapids` and
+`packages.raft-dev` of this flake (never another RAPIDS); check the tag at
+load (`kc_check_abi` with `raft-abi-pointer`); run each entry point inside
+`raftrkt::translate_exceptions` over its own thread-local `error_slot`; read
+arrays only through `view.hpp`; allocate outputs with raft's constructors on
+the resources the call runs on; and synchronise the handle's stream before
+returning (until the stream API, #13, gives it events). Internal entry points
+(`src/detail/*_api.h`) are not part of it and may change freely.
+
+## Decisions recorded in L1d
+
+- **`raft/unsafe` is a module, not a submodule of `raft`.** It gets its own
+  `defmodule` and reference section and its own export pin, and `raft` does
+  not re-export it, as with `raft/compat`; `(submod raft unsafe)` would put
+  unsafe names one `require` away from every user of `raft`.
+- **Four exports, not three.** The ABI check runs in the downstream's C++,
+  against the headers it was compiled with (`require_abi`), so it needs
+  `libraftrkt`'s tag: `raft-abi-pointer` hands it over. A Racket-side
+  comparison could only check what the downstream recorded about itself.
+- **`with-array-views`** evaluates the array expressions first, then for each
+  array polls its stream until queued work is done (`settled-view`) and binds
+  a view filled by `rr_buffer_view`. It expands to `with-release` (acquire
+  once, refuse re-entry, `#:who 'with-array-views`); the release clears the
+  view (`data` NULL, `device` and `memory` -1, so a view kept past the form is
+  refused by `view.hpp`) and `void/reference-sink`s the array, which keeps
+  it reachable for the whole extent. `#f` binds `#f` (a NULL `_pointer`), for
+  optional arrays such as sample weights. It does not wait after the body:
+  the downstream synchronises before returning (L1b's stream rule). Waiting
+  before binding costs a poll per array; the stream API (#13) can relax it to
+  recorded events without changing the C interface.
+- **`status-checker`** is curried, `((status-checker last-error
+  last-error-kind #:exn exn) who thunk)`: the thunk's first value is the C
+  status and the rest are returned on success, so a `_fun` that answers
+  `(values status out ...)` needs no wrapper. Call and reads share one
+  `call-as-atomic` (the slot is per OS thread). Kind codes 0 to 3 map to
+  `exn:fail:raft`'s kinds, anything else is `'generic`; bytes are decoded
+  leniently. `#:exn` takes a constructor with `exn:fail:raft`'s fields, so a
+  downstream can raise a subtype.
+- **The handle pointer is borrowed**: a cpointer of the new type
+  `_raft-handle`, never freed by Racket; the allocator audit gained
+  `borrowed-types` and refuses an allocator wrap on one.
+- **One implementation of each header.** `rr::translate_exceptions` is
+  `raftrkt::translate_exceptions` over the shim's slot, `rr_abi`'s tag is
+  `raftrkt::compiled_abi()`, and `view.cpp` uses `view.hpp`'s layout test.
+  `rr_abi_tag` moved from `core.h` to `abi.h` (`core.h` keeps its typedef);
+  its layout did not change, so the ABI version stays 1, which is the frozen
+  version. `rr_abi_compare` is a `static inline` C function using
+  `snprintf`, so a C caller can compare too (the C11 compile test calls it).
+- **`view.hpp` checks what memory safety needs, named by argument:** a NULL or
+  unbound view, the rank, the element type (`const T` reads `T`), the layout
+  (an axis of extent 1 fits either), requested extents, extents that fit the
+  index type, contiguous vectors. Messages are `"X: expected float32, got
+  int32"`; the Racket binding prefixes its procedure's name.
+- **`packages.rapids` is the full set** (RAFT, RMM, logger, cuML, cuVS,
+  nvForest, NCCL) and `packages.raft-dev` is the shim's `dev` output (headers
+  and `raftrkt-config.cmake`). The shim itself builds against
+  `rapids.core`, the same `libraft`/`librmm`/logger derivations without
+  cuML, so its checks do not download cuML on CI. The `libcuml-cu13` wheel
+  ships its headers (`include/cuml`), so no source tag is pinned.
+  `libcuvs-cu13` is 26.8.1, the only 26.08 release on PyPI (libcuml requires
+  `==26.8.*`). `libnvforest` (a `NEEDED` of `libcuml.so`) and NCCL (a
+  `NEEDED` of `libcuvs.so`; nixpkgs builds NCCL from source) come from their
+  wheels. cuVS and nvForest join the prefix as `lib64` only: nvForest ships a
+  second CCCL under `include/rapids`, which must not shadow RAFT's.
+- **nvJitLink 13.3 everywhere.** `libcuvs.so` references
+  `__nvJitLinkCreate_13_3`, which 13.2's library lacks, and only one
+  `libnvJitLink.so.13` loads per process, so the flake overrides
+  `cudaPackages_13.libnvjitlink` with `cudaPackages_13_3`'s (13.3.33, which
+  keeps the 13.0 to 13.2 symbols). nvcc and the rest stay 13.2.
+- **The canary links `libcuml.so` directly**, as an imported target:
+  `cuml-config.cmake` requires Treelite and nvForest CMake packages that the
+  run-time prefix does not carry. It does not link `libraftrkt`. It hides its
+  static CUDA runtime (`--exclude-libs,ALL`) and keeps RMM's registry
+  symbols exported, as the shim does (#10); its tests find them `UNIQUE` in
+  both `libkmeans_canary.so` and `libcuml.so`, and show cuML's workspace
+  coming from the pool raft installed (the pool's high-water mark rises
+  during a fit and its use returns).
+- **The canary's API**: `blobs` (rule 4 rules out `make-blobs`; it binds the
+  C++ `ML::Datasets::make_blobs`, which differs from cuML Python's CuPy
+  `make_blobs`), `kmeans-fit` (values centroids, inertia, iterations) and
+  `kmeans-predict` (values labels, inertia), with cuML Python's `init` names
+  and its `n_init='auto'` rule, `#:seed` defaulting to 0. It refuses data it
+  would have to convert (column-major, integer) where cuML Python converts.
+  It synchronises its handle's stream before every return.
+- **The twin passes the canary's data** to Python as JSON (exact for
+  float32 and float64) instead of re-seeding, and compares by machine:
+  adjusted Rand index 1 (`sklearn.metrics.adjusted_rand_score`), inertia and
+  centroids (matched by label) within `1e-4`, on eight data sets covering
+  both float types and all four inits.
+- **The twin environment** gains `cuml-cu13`, which imports `cudf` at load,
+  so `cudf`, `pylibcudf`, `libcudf`, `libkvikio`, `nvcomp`, `nvforest`,
+  `treelite`, `numba-cuda`, `cuda-core` and `nvtx` come too, as wheels
+  patched against the same prefix; nixpkgs supplies scikit-learn, pandas,
+  pyarrow, numba and scipy. Their runtime-dependency check is off, since
+  cudf caps pandas, pyarrow and numba just below the pin's versions, and
+  `numba-cuda` 0.30.4 is patched not to register `np.row_stack`, which NumPy
+  2.5 removed. Everything the twin runs imports and fits.
+- **The ffi2 port (#15).** The frozen Racket exports hand out
+  `ffi/unsafe` cpointers (a handle, cstruct pointers), and downstream
+  bindings pass them as `_pointer`. A port to ffi2 must keep these exports
+  producing values `ffi/unsafe` accepts, or bump the ABI version;
+  `status-checker` takes thunks and is unaffected.
 
