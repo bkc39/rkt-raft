@@ -181,6 +181,17 @@ Python has no form for scoping a @tt{DeviceResources}: CPython frees the
 worker's handle by reference counting once @tt{run_worker} returns and
 nothing else refers to it.
 
+Leaving the resources to the garbage collector would be correct too: their
+finalizer releases them, exactly once, at some collection after the worker
+drops them. What @racket[with-device-resources] adds is a clear timeline for
+their lifetime. A resources object holds GPU and driver state the collector
+cannot see or weigh, a CUDA stream and the cuBLAS, cuSOLVER and cuSPARSE
+handles RAFT creates the first time an operation needs them, so with workers
+coming and going, dropped resources would keep their streams and handles
+until some collection found them, released in no particular order. Scoped,
+each worker's resources go when the worker ends, and the finalizer stays as
+the backstop for a worker killed part way through.
+
 @section[#:tag "res-threads"]{Fanning out}
 
 Each worker runs in a thread of its own, on the resources it made, so each

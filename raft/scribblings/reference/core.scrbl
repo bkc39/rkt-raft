@@ -231,6 +231,20 @@ Release drops this object's hold on its @tt{raft::handle_t}. An array
 allocated with these resources @status{L1b} holds the handle too, stream and
 library handles included, so they are freed when the last such array is.
 
+Resources need no form to be released: their finalizer does it, once, at
+some collection after they become unreachable, and that default is correct.
+The form exists to give their lifetime a clear timeline. A resources object
+holds GPU and driver state the collector cannot see, its CUDA stream and the
+cuBLAS, cuSOLVER and cuSPARSE handles created the first time an operation
+needs them, which the collector would otherwise release only eventually, in
+no particular order. Scoped, they are released when the body exits:
+
+@examples[#:eval ev #:label #f
+(define unscoped (device-resources))
+(define scoped (with-device-resources ([r (device-resources)]) r))
+(list unscoped scoped)
+]
+
 @examples[#:eval ev
 (with-device-resources ([r (device-resources)])
   (resources-sync! r)
