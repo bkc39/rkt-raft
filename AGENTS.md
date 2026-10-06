@@ -518,7 +518,8 @@ the binding census), `racket-review`, `racket-version` (at least 9.3),
   `with-device-resources` and the test macros keep the name (and
   `test-unless-skipped`'s reason) on the first line and a body that holds a
   list below, as `let` does, while a body of atoms (a macro's `body ...`)
-  stays on one line. The `_fun`, hash and body formatters use fmt's internal
+  stays on one line; `over-elements` (`private/pack.rkt`) keeps its loop
+form and its clauses on the first line, as `for` does. The `_fun`, hash and body formatters use fmt's internal
   document model, which fmt calls unstable, so `nix/racket-tools.nix` pins
   fmt, review and pretty-expressive by commit (the catalog's own source for
   each) and a bump is a deliberate change: check `.fmt.rkt` with the new fmt. Any form whose head is a
