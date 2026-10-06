@@ -300,4 +300,20 @@ arrives.
        (list @elem{@racket[matrix->device-matrix], @racket[array->device-array]}
              @elem{a host buffer and @tt{cudaMemcpyAsync}}
              @tt{device_ndarray(np.asarray(A))}
+             "here")
+       (list @racket[resources->handle-pointer]
+             @elem{@tt{raft::handle_t*}, from @tt{rr_resources_handle}}
+             @tt{DeviceResources.getHandle()}
+             "here")
+       (list @racket[with-array-views]
+             @elem{@tt{rr_view}, read by @tt{raftrkt/view.hpp}}
+             @elem{@tt{X.data.ptr} and the shape, passed separately}
+             "here")
+       (list @racket[status-checker]
+             @elem{@tt{raftrkt::translate_exceptions} and an @tt{error_slot}}
+             @elem{Cython's @tt{except +}}
+             "here")
+       (list @racket[raft-abi-pointer]
+             @elem{@tt{rr_abi()}, @tt{raftrkt::require_abi}}
+             "no counterpart"
              "here"))]

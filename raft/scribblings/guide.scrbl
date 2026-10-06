@@ -16,3 +16,4 @@ differ. For the definition of each name, follow its link into the
 @include-section["guide/resources.scrbl"]
 @include-section["guide/arrays.scrbl"]
 @include-section["guide/moving-data.scrbl"]
+@include-section["guide/downstream.scrbl"]

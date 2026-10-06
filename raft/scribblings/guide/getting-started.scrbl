@@ -103,8 +103,9 @@ Python has no single ABI tag:
 each package reports its own version, and a mismatch between, say, the RMM
 that pylibraft was built against and the one that is installed shows up as an
 import error or a crash. The tag exists on the Racket side because a second
-native library, the cuML binding, will compile against the same headers and
-has to check at load time that they match; see @racket[raft-abi].
+native library, such as a cuML binding, compiles against the same headers and
+has to check at load time that they match; see @racket[raft-abi] and
+@secref["downstream-abi"].
 
 Last, check that the driver sees a GPU. @racket[device-count] answers how
 many CUDA devices this process can use:

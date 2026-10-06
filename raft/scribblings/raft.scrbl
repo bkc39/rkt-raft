@@ -21,7 +21,8 @@ The library is young. Today it provides the native library and its build,
 device resources and the devices they run on, the exception type, the
 version and ABI tag, device matrices and vectors, and their conversions to
 and from lists, vectors, flvectors, f32vectors, f64vectors, byte strings and
-@racketmodname[math/matrix] and @racketmodname[math/array] values;
+@racketmodname[math/matrix] and @racketmodname[math/array] values, and the
+frozen interface a native binding such as cuML's builds on;
 @secref["concepts"] explains the design. A name that does not exist yet is
 marked with the leg that adds it, such as @status{L2}, and is described in
 prose, not called.

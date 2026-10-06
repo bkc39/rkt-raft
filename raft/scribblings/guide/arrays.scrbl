@@ -14,8 +14,9 @@ values back to Racket, and lets the memory go. Each section adds to the one
 before.
 
 The cuML calls themselves are not part of this library. A cuML binding is a
-separate package built on it, through an interface that arrives later
-@status{L1d}; what this chapter prepares is exactly what those calls take.
+separate package built on it, through the interface of
+@racketmodname[raft/unsafe]; @secref["downstream"] builds a small one for
+k-means. What this chapter prepares is exactly what those calls take.
 
 @section[#:tag "arrays-upload"]{A dataset on the GPU}
 

@@ -25,7 +25,7 @@ and brings arrays back in the forms the rest of the program uses. The last
 section measures what each form costs.
 
 The cuML calls themselves belong to a separate package built on this library,
-through an interface that arrives later @status{L1d}; this chapter covers the
+through the interface @secref["downstream"] describes; this chapter covers the
 hand-off, the arrays those calls take.
 
 Every conversion here comes from @racketmodname[raft/compat], which the
