@@ -19,7 +19,8 @@
                              with-device-resources))
 
 (define array-names
-  '(contiguous device-array?
+  '(contiguous contiguous?
+               device-array?
                device-matrix
                device-matrix->list*
                device-matrix?

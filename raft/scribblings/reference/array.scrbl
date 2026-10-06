@@ -42,6 +42,9 @@ then its values, as NumPy does: whole up to 1000 elements, and beyond that
 the first and last three along each axis. A @racket['float32] value prints as
 the shortest decimal that reads back as the same @racket['float32]. Printing
 copies the values it shows to the host, so it waits for the array's stream.
+Printing never raises: if the values cannot be read, the array prints its
+header and @tt{<values unavailable: ...>} with the reason, so an error
+message that shows an array keeps its own meaning.
 
 @bold{Errors.} The native library refuses what it cannot handle safely, such
 as an unknown element type or layout, or a negative extent, and the refusal
@@ -294,22 +297,21 @@ pylibraft's @tt{c_contiguous} answers @tt{True}.
 (layout (contiguous X #:layout 'col-major))
 ]
 
-Arrays that are in both layouts report @racket['row-major]:
+Arrays that are in both layouts report @racket['row-major]; to ask whether
+an array is in a given layout, use @racket[contiguous?], which answers
+@racket[#t] for both:
 
 @examples[#:eval ev #:label #f
 (define column (device-matrix 5 1 #:layout 'col-major))
 (list (strides column) (layout column) (layout labels))
+(contiguous? column #:layout 'col-major)
 ]
 
-Refusing a matrix in the wrong order before a call that assumes one:
+A log line for each input of a pipeline:
 
 @examples[#:eval ev #:label #f
-(define (require-fortran-order m)
-  (unless (eq? (layout m) 'col-major)
-    (error 'least-squares "expected a col-major matrix, given ~a" (layout m)))
-  m)
-(layout (require-fortran-order (contiguous X #:layout 'col-major)))
-(eval:error (require-fortran-order X))
+(for ([a (list X labels)])
+  (printf "~a ~a ~a\n" (dtype a) (shape a) (layout a)))
 ]}
 
 @defproc[(strides [a device-array?]) (listof exact-nonnegative-integer?)]{
@@ -376,12 +378,51 @@ Skipping work on an empty input:
 
 @section[#:tag "ref-array-layout"]{Changing the layout}
 
+@defproc[(contiguous? [a device-array?]
+                      [#:layout layout (or/c 'row-major 'col-major) 'row-major])
+         boolean?]{
+
+Returns @racket[#t] if the elements of @racket[a] are laid out in
+@racket[layout], so that a consumer reading that order can take @racket[a]
+as it is. As in NumPy's @tt{flags.c_contiguous} and @tt{flags.f_contiguous},
+an axis of extent 1 does not constrain the layout: a vector, a matrix with
+one row or one column, and a matrix with no elements are contiguous in both
+layouts. @racket[contiguous] returns its argument exactly when this answers
+@racket[#t].
+
+@examples[#:eval ev
+(contiguous? X)
+(contiguous? X #:layout 'col-major)
+(contiguous? (contiguous X #:layout 'col-major) #:layout 'col-major)
+]
+
+A single feature column is in both layouts, so a least-squares solver can
+take it without a copy:
+
+@examples[#:eval ev #:label #f
+(define one-feature (list*->device-matrix '((5.1) (4.9) (7.0)) #:dtype 'float32))
+(list (contiguous? one-feature) (contiguous? one-feature #:layout 'col-major))
+(eq? (contiguous one-feature #:layout 'col-major) one-feature)
+]
+
+Refusing a matrix in the wrong order before a call that assumes one:
+
+@examples[#:eval ev #:label #f
+(define (require-fortran-order m)
+  (unless (contiguous? m #:layout 'col-major)
+    (error 'least-squares "expected a col-major matrix, given ~a" (layout m)))
+  m)
+(shape (require-fortran-order (contiguous X #:layout 'col-major)))
+(shape (require-fortran-order one-feature))
+(eval:error (require-fortran-order X))
+]}
+
 @defproc[(contiguous [a device-matrix?]
                      [#:layout layout (or/c 'row-major 'col-major) 'row-major])
          device-matrix?]{
 
 Returns a matrix holding the same rows and columns as @racket[a], in
-@racket[layout]. If @racket[a] is already in @racket[layout], the result is
+@racket[layout]. If @racket[(contiguous? a #:layout layout)], the result is
 @racket[a] itself and nothing is copied; otherwise it is a new matrix, copied
 on the GPU by RAFT's copy between a row-major and a column-major view (cuBLAS
 for @racket['float32] and @racket['float64], a RAFT kernel for the integer
@@ -425,8 +466,10 @@ device, the element type is inferred as NumPy infers it unless
 real numbers @racket['float64], and an empty list @racket['float64]. Exact
 rationals become floats. An integer type truncates other numbers toward zero,
 as NumPy's casts do. A value the element type cannot hold, such as a complex
-number, an infinity or NaN for an integer type, or an integer out of the
-type's range, raises @racket[exn:fail:raft] naming the procedure. A
+number, an infinity or NaN for an integer type, an integer out of the
+type's range, or a finite number too large for a float type (where NumPy
+would store an infinity), raises @racket[exn:fail:raft] naming the
+procedure. Infinities and NaN themselves pass into float types. A
 matrix's @racket[#:layout] decides the order the values are packed in on the
 host, so no copy runs on the GPU to change it. Coming back, the conversions
 wait for the work queued on the array's stream, as @racket[resources-sync!]

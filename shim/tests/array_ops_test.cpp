@@ -229,6 +229,25 @@ TEST_F(Refusals, AnExtentCuBlasCannotTake) {
   expect_refused(wide, "extent 2147483648 is beyond 2147483647");
 }
 
+TEST_F(Refusals, BufferViewBindsADescriptorToItsBuffer) {
+  rr_view row{};
+  row.dtype = RR_DTYPE_FLOAT32;
+  row.rank = 1;
+  row.shape[0] = 3;
+  row.strides[0] = 1;
+  ASSERT_EQ(rr_buffer_view(buffer_, 3 * sizeof(float), &row), RR_OK)
+      << rr_last_error();
+  EXPECT_EQ(row.data, static_cast<char*>(view_.data) + (3 * sizeof(float)));
+  EXPECT_EQ(row.device, 0);
+  EXPECT_EQ(row.memory, RR_MEMORY_DEVICE);
+  expect_refusal(rr_buffer_view(buffer_, 4 * sizeof(float), &row),
+                 "12 bytes at byte offset 16 do not fit a buffer of 24 bytes");
+  expect_refusal(rr_buffer_view(buffer_, 1, &row),
+                 "byte offset 1 is not a multiple of the element size 4");
+  expect_refusal(rr_buffer_view(nullptr, 0, &row), "buffer is NULL");
+  expect_refusal(rr_buffer_view(buffer_, 0, nullptr), "view is NULL");
+}
+
 TEST_F(Refusals, AnUnknownLayout) {
   expect_refused(view_,
                  "unsupported layout diagonal; expected row-major or "

@@ -53,12 +53,17 @@ const rr_dtype_info& dtype_named(const char* name) {
                     expected_names());
 }
 
-void refuse_dtype(int32_t code) {
+void refuse_dtype(const char* op, int32_t code) {
   const auto* info = find_dtype(code);
-  if (info == nullptr) {
-    throw logic_error("unsupported dtype code " + std::to_string(code));
-  }
-  throw logic_error(std::string("unsupported dtype ") + info->name);
+  const std::string dtype = info == nullptr ? "code " + std::to_string(code)
+                                            : std::string(info->name);
+  throw logic_error("unsupported dtype " + dtype + " for " + op);
+}
+
+void refuse_layout(const char* op, layout l) {
+  throw logic_error(std::string("unsupported layout ") +
+                    (l == layout::row_major ? "row-major" : "col-major") +
+                    " for " + op);
 }
 
 }  // namespace rr

@@ -42,10 +42,11 @@ inline constexpr std::array op_table = {
 #undef RR_OP
 };
 
-[[noreturn]] void refuse_dtype(int32_t code);
+[[noreturn]] void refuse_dtype(const char* op, int32_t code);
+[[noreturn]] void refuse_layout(const char* op, layout l);
 
 template <uint32_t Dtypes, typename Fn>
-void dispatch_dtype(int32_t code, Fn&& fn) {
+void dispatch_dtype(const char* op, int32_t code, Fn&& fn) {
   switch (code) {
 #define RR_DTYPE(name, type, c)                   \
   case c:                                         \
@@ -59,11 +60,11 @@ void dispatch_dtype(int32_t code, Fn&& fn) {
     default:
       break;
   }
-  refuse_dtype(code);
+  refuse_dtype(op, code);
 }
 
 template <uint32_t Layouts, typename Fn>
-void dispatch_layout(layout l, Fn&& fn) {
+void dispatch_layout(const char* op, layout l, Fn&& fn) {
   if constexpr ((Layouts & RR_LAYOUT_ROW_MAJOR) != 0) {
     if (l == layout::row_major) {
       std::forward<Fn>(fn)(type_tag<row_major_t>{});
@@ -76,20 +77,21 @@ void dispatch_layout(layout l, Fn&& fn) {
       return;
     }
   }
-  throw logic_error("unsupported layout");
+  refuse_layout(op, l);
 }
 
 }  // namespace rr
 
-#define RR_DISPATCH_DTYPE(op, code, T, ...)                                    \
-  ::rr::dispatch_dtype<::rr::ops::op.dtypes>((code), [&](auto rr_dtype_tag_) { \
-    using T = typename decltype(rr_dtype_tag_)::type;                          \
-    __VA_ARGS__;                                                               \
-  })
+#define RR_DISPATCH_DTYPE(op, code, T, ...)                 \
+  ::rr::dispatch_dtype<::rr::ops::op.dtypes>(               \
+      ::rr::ops::op.name, (code), [&](auto rr_dtype_tag_) { \
+        using T = typename decltype(rr_dtype_tag_)::type;   \
+        __VA_ARGS__;                                        \
+      })
 
-#define RR_DISPATCH_LAYOUT(op, which, L, ...)              \
-  ::rr::dispatch_layout<::rr::ops::op.layouts>(            \
-      (which), [&](auto rr_layout_tag_) {                  \
-        using L = typename decltype(rr_layout_tag_)::type; \
-        __VA_ARGS__;                                       \
+#define RR_DISPATCH_LAYOUT(op, which, L, ...)                 \
+  ::rr::dispatch_layout<::rr::ops::op.layouts>(               \
+      ::rr::ops::op.name, (which), [&](auto rr_layout_tag_) { \
+        using L = typename decltype(rr_layout_tag_)::type;    \
+        __VA_ARGS__;                                          \
       })

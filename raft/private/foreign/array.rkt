@@ -9,6 +9,7 @@
                   _pointer
                   _ptr
                   _size
+                  _uint64
                   ctype-sizeof
                   define-cstruct)
          (only-in racket/list make-list take)
@@ -18,6 +19,8 @@
 
 (provide blank-view
          describe-view!
+         rr-buffer-view
+         (rename-out [rr-view-data view-data]) ;; noqa
          rr-buffer-alloc
          rr-copy-d2h
          rr-copy-h2d
@@ -68,6 +71,9 @@
         -> (status : _int)
         -> (and (zero? status) out))
   #:wrap buffer-allocator)
+
+(define-raft rr-buffer-view
+  (_fun _rr-buffer _uint64 _rr-view-pointer -> (status : _int) -> (zero? status)))
 
 (define-raft rr-copy-h2d
   (_fun _rr-buffer (host : _host) (_size = (host-bytes host)) -> (status : _int) -> (zero? status)))

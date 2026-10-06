@@ -230,7 +230,13 @@ plans/scoping-plan.md         the approved plan (revision 5), as Markdown
   `rr_view` (`RR_MAX_RANK` 8; `data` already offset; strides in elements;
   152 bytes, pinned by `_Static_assert`s and the Racket mirror's size test),
   the `RR_DTYPE_*` and `RR_MEMORY_*` codes (memory in `raft::memory_type`'s
-  order). The entry points only raft's Racket uses are internal:
+  order), and `rr_buffer_view(buffer, offset, view)`, the one way to get a
+  bound view: the caller fills `dtype`, `rank`, `shape` and `strides`; the
+  shim validates them against the buffer (`rr::bind`) and fills `data`
+  (base plus offset), `device` and `memory`. `data` is valid only while the
+  buffer lives and only for work ordered on the buffer's stream; the header
+  says so at the declaration. The entry points only raft's Racket uses are
+  internal:
   `rr_dtype_table` and `rr_op_table` in `internal_api.h`, and
   `rr_array_create`, `rr_array_contiguous`, `rr_buffer_ready`,
   `rr_buffer_read` and `rr_buffer_write` in `src/detail/array_api.h`
@@ -240,8 +246,9 @@ plans/scoping-plan.md         the approved plan (revision 5), as Markdown
   `ops.def` beside its sources). `detail/dtype.hpp` and `detail/dispatch.hpp`
   build the tables from them; `RR_DISPATCH_DTYPE(op, code, T, body)` and
   `RR_DISPATCH_LAYOUT(op, layout, L, body)` instantiate the body only for
-  what the op's entry lists and refuse anything else (`unsupported dtype
-  int32`, `unsupported dtype code 7`). Racket reads the tables at load
+  what the op's entry lists and refuse anything else, naming the op
+  (`unsupported dtype int32 for gemm`, `unsupported layout col-major for
+  gemm`). Racket reads the tables at load
   (`private/dtype.rkt`). The dtype codes are the table's order; a test
   round-trips each.
 - **Views are validated against their buffer.** Racket passes a view's
@@ -724,6 +731,26 @@ the binding census), `racket-review`, `racket-version` (at least 9.3),
 - **Printing** follows NumPy's summarising (threshold 1000 elements, three
   edge items) and prints float32 as its shortest round-tripping decimal;
   it reads only the elements it shows.
+- **`rr_view` has no reserved or flags word.** Versions move in lockstep:
+  a downstream shim compiles against identical headers and compares
+  `rr_abi` at load, so forward compatibility is not a goal, and any change
+  to the struct bumps the ABI tag and the canary. A reserved field older
+  readers ignore would invite exactly the silent misreading the ABI check
+  exists to prevent. DLPack mapping (#8) is a separate struct, not a field.
+- **Bound views come from `rr_buffer_view`**, public in `array.h`, rather
+  than a frozen (buffer, offset, descriptor) triple: a downstream shim
+  receives ready `rr_view`s, and the binding is validated in one place.
+  Racket's `bound-view` (`private/array.rkt`) calls it; L1d's
+  `with-array-views` will.
+- **`contiguous?`** is the public layout predicate (NumPy's
+  `flags.c_contiguous`/`f_contiguous`); `layout` answers one symbol and
+  says `'row-major` for an array in both layouts.
+- **Printing never raises.** A released array prints `<released>`; a read
+  that fails prints `<values unavailable: ...>`, so an error message that
+  shows an array (`raise-argument-error`, rackunit) keeps its own error.
+- **A finite value that overflows a float type is refused** (`1e300` into
+  float32, `10^400` into float64), as integer overflow is; NumPy would
+  store an infinity. Infinities and NaN pass into float types.
 - **The released-buffer noun is `device-array`** (#16): the public
   predicate is `device-array?`. No public procedure releases a buffer in
   L1b, so only internal code can reach it.

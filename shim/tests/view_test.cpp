@@ -100,18 +100,18 @@ TEST(Dispatch, EachCodeReachesItsType) {
   }
   EXPECT_EQ(
       refusal([] { RR_DISPATCH_DTYPE(contiguous, 9, T, (void)sizeof(T)); }),
-      "unsupported dtype code 9");
+      "unsupported dtype code 9 for contiguous");
 }
 
 TEST(Dispatch, AnOpRefusesADtypeItsMaskLeavesOut) {
   int reached = 0;
   auto float_only = [&](int32_t code) {
-    rr::dispatch_dtype<RR_FLOAT_DTYPES>(code, [&](auto) { ++reached; });
+    rr::dispatch_dtype<RR_FLOAT_DTYPES>("gemm", code, [&](auto) { ++reached; });
   };
   float_only(RR_DTYPE_FLOAT64);
   EXPECT_EQ(reached, 1);
   EXPECT_EQ(refusal([&] { float_only(RR_DTYPE_INT32); }),
-            "unsupported dtype int32");
+            "unsupported dtype int32 for gemm");
   EXPECT_EQ(reached, 1);
 }
 
@@ -124,6 +124,14 @@ TEST(Dispatch, LayoutsReachTheirTags) {
                      col = std::is_same_v<L, rr::col_major_t>);
   EXPECT_TRUE(row);
   EXPECT_TRUE(col);
+}
+
+TEST(Dispatch, AnOpRefusesALayoutItsMaskLeavesOut) {
+  EXPECT_EQ(refusal([] {
+              rr::dispatch_layout<RR_LAYOUT_ROW_MAJOR>(
+                  "gemm", rr::layout::col_major, [](auto) {});
+            }),
+            "unsupported layout col-major for gemm");
 }
 
 TEST(Layouts, NamesParseAndUnknownOnesAreRefused) {

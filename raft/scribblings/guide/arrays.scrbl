@@ -151,6 +151,7 @@ them from @racket[samples]:
 F
 (layout F)
 (strides F)
+(contiguous? F #:layout 'col-major)
 (equal? (device-matrix->list* F) (device-matrix->list* features))
 ]
 

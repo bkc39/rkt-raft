@@ -2,9 +2,10 @@
 
 (require (only-in racket/flonum flvector in-flvector)
          (only-in racket/list range)
-         (only-in rackunit check-eq? check-equal? check-false check-pred check-true)
+         (only-in rackunit check-eq? check-equal? check-exn check-false check-pred check-true)
          (only-in "../main.rkt"
                   contiguous
+                  contiguous?
                   device-array?
                   device-matrix
                   device-matrix->list*
@@ -23,10 +24,16 @@
                   shape
                   strides
                   with-device-resources)
-         (only-in "../private/array.rkt" array-buffer-handle release-array!)
+         (only-in "../private/array.rkt" array-buffer-handle bound-view release-array!)
          (only-in "../private/error.rkt" call/raft)
          (only-in "../private/foreign/array-api.rkt" rr-array-contiguous)
-         (only-in "../private/foreign/array.rkt" blank-view describe-view!)
+         (only-in "../private/foreign/array.rkt"
+                  blank-view
+                  describe-view!
+                  view-data
+                  view-device
+                  view-shape
+                  view-strides)
          (only-in "../private/foreign/memory.rkt" buffer-drop-count)
          (only-in "private/arrays.rkt" storage)
          (only-in "private/collect.rkt" collect-until drain-finalizers!)
@@ -302,6 +309,43 @@
   (check-raft-error 'logic
                     "device-array: used after its release"
                     (lambda () (device-vector->list v))))
+
+(test-gpu "a released array prints without raising, and never replaces another error"
+  (define v (list->device-vector '(1 2 3)))
+  (release-array! v)
+  (check-equal? (format "~a" v) "#<device-vector int64[3] cuda:0 <released>>")
+  (check-exn (lambda (e)
+               (and (exn:fail:contract? e)
+                    (regexp-match? #rx"^foo: contract violation" (exn-message e))))
+             (lambda () (raise-argument-error 'foo "string?" v))))
+
+(test-gpu "contiguous? says whether an array is in a layout, and a single row, column or no elements is in both"
+  (define m (device-matrix 2 3))
+  (check-equal? (list (contiguous? m) (contiguous? m #:layout 'col-major)) '(#t #f))
+  (check-equal? (contiguous? (contiguous m #:layout 'col-major) #:layout 'col-major) #t)
+  (for ([both (list (device-matrix 5 1)
+                    (device-matrix 1 5 #:layout 'col-major)
+                    (device-matrix 0 3)
+                    (device-vector 4))])
+    (check-equal? (list (contiguous? both) (contiguous? both #:layout 'col-major)) '(#t #t))))
+
+(test-gpu "a finite value that overflows a float type is refused, naming the caller"
+  (check-raft-error 'logic
+                    "list->device-vector: 1e+300 does not fit float32"
+                    (lambda () (list->device-vector '(1e300) #:dtype 'float32)))
+  (check-raft-error 'logic
+                    #rx"^list\\*->device-matrix: 1000+(\\.\\.\\.)? does not fit float64$"
+                    (lambda () (list*->device-matrix (list (list (expt 10 400))) #:dtype 'float64)))
+  (check-equal? (device-vector->list (list->device-vector '(+inf.0 -inf.0) #:dtype 'float32))
+                '(+inf.0 -inf.0))
+  (check-equal? (device-vector->list (list->device-vector '(3.4028234663852886e38) #:dtype 'float32))
+                '(3.4028234663852886e38)))
+
+(test-gpu "an array's bound view points into its buffer"
+  (define m (list*->device-matrix '((1 2) (3 4)) #:dtype 'int32))
+  (define view (bound-view 'test m))
+  (check-true (and (view-data view) #t))
+  (check-equal? (list (view-device view) (view-shape view) (view-strides view)) '(0 (2 2) (2 1))))
 
 (test-gpu "an empty vector prints its header"
   (check-equal? (format "~a" (device-vector 0 #:dtype 'int32)) "#<device-vector int32[0] cuda:0 []>"))
