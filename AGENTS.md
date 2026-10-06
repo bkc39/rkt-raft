@@ -724,7 +724,18 @@ the binding census), `racket-review`, `racket-version` (at least 9.3),
   than a frozen (buffer, offset, descriptor) triple: a downstream shim
   receives ready `rr_view`s, and the binding is validated in one place.
   Racket's `bound-view` (`private/array.rkt`) calls it; L1d's
-  `with-array-views` will.
+  `with-array-views` will. A refused call leaves `data` NULL and `device`
+  and `memory` -1, so a reused view never pairs an old pointer with an
+  unvalidated shape.
+- **The stream rule for L1d.** A downstream shim cannot learn a buffer's
+  stream from an `rr_view`; only raft's own handle knows it. So L1d must
+  run a downstream op on the resources the arrays were allocated with (or
+  synchronise those arrays' streams before handing them to work on another
+  stream), and `with-array-views` must keep every array reachable for the
+  whole native call, since its finalizer frees the memory on its own
+  stream. An internal stream accessor is not added in L1b: nothing reads
+  it yet, and L3's cross-stream rule (recorded events) is where one
+  belongs.
 - **`contiguous?`** is the public layout predicate (NumPy's
   `flags.c_contiguous`/`f_contiguous`); `layout` answers one symbol and
   says `'row-major` for an array in both layouts.
@@ -732,8 +743,9 @@ the binding census), `racket-review`, `racket-version` (at least 9.3),
   that fails prints `<values unavailable: ...>`, so an error message that
   shows an array (`raise-argument-error`, rackunit) keeps its own error.
 - **A finite value that overflows a float type is refused** (`1e300` into
-  float32, `10^400` into float64), as integer overflow is; NumPy would
-  store an infinity. Infinities and NaN pass into float types.
+  float32, `10^400` into float64), as integer overflow is, where NumPy
+  stores an infinity (float32 narrowing) or raises (`OverflowError` for
+  `10**400`). Infinities and NaN pass into float types.
 - **The released-buffer noun is `device-array`** (#16): the public
   predicate is `device-array?`. No public procedure releases a buffer in
   L1b, so only internal code can reach it.

@@ -388,7 +388,10 @@ as it is. As in NumPy's @tt{flags.c_contiguous} and @tt{flags.f_contiguous},
 an axis of extent 1 does not constrain the layout: a vector, a matrix with
 one row or one column, and a matrix with no elements are contiguous in both
 layouts. @racket[contiguous] returns its argument exactly when this answers
-@racket[#t].
+@racket[#t]. A @racket[layout] other than @racket['row-major] or
+@racket['col-major] answers @racket[#f]; there are no argument checks yet,
+whereas @racket[contiguous] passes the name to the native library, which
+refuses it.
 
 @examples[#:eval ev
 (contiguous? X)
@@ -468,7 +471,7 @@ rationals become floats. An integer type truncates other numbers toward zero,
 as NumPy's casts do. A value the element type cannot hold, such as a complex
 number, an infinity or NaN for an integer type, an integer out of the
 type's range, or a finite number too large for a float type (where NumPy
-would store an infinity), raises @racket[exn:fail:raft] naming the
+stores an infinity or raises), raises @racket[exn:fail:raft] naming the
 procedure. Infinities and NaN themselves pass into float types. A
 matrix's @racket[#:layout] decides the order the values are packed in on the
 host, so no copy runs on the GPU to change it. Coming back, the conversions

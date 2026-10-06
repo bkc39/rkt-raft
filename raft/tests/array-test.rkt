@@ -24,7 +24,12 @@
                   shape
                   strides
                   with-device-resources)
-         (only-in "../private/array.rkt" array-buffer-handle bound-view release-array!)
+         (only-in "../private/array.rkt"
+                  array-buffer-handle
+                  bound-view
+                  buffer->device-array
+                  device-array-buffer
+                  release-array!)
          (only-in "../private/error.rkt" call/raft)
          (only-in "../private/foreign/array-api.rkt" rr-array-contiguous)
          (only-in "../private/foreign/array.rkt"
@@ -318,6 +323,15 @@
                (and (exn:fail:contract? e)
                     (regexp-match? #rx"^foo: contract violation" (exn-message e))))
              (lambda () (raise-argument-error 'foo "string?" v))))
+
+(test-gpu "an array whose values cannot be read prints the reason instead of raising"
+  (define v (list->device-vector '(1 2 3)))
+  (define past-the-end (buffer->device-array (device-array-buffer v) 1000 '(3) '(1) 'int64 'device))
+  (check-equal? (format "~a" past-the-end)
+                (string-append
+                 "#<device-vector int64[3] cuda:0 <values unavailable: "
+                 "device-array: 24 bytes at byte offset 1000 do not fit a buffer of 24 bytes>>"))
+  (check-equal? (contiguous? v #:layout 'diagonal) #f))
 
 (test-gpu "contiguous? says whether an array is in a layout, and a single row, column or no elements is in both"
   (define m (device-matrix 2 3))
