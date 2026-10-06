@@ -110,7 +110,7 @@ if(BUILD_TESTING)
   )
   target_include_directories(raftrkt_error_tests
     PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include ${CMAKE_CURRENT_SOURCE_DIR}/src)
-  target_link_libraries(raftrkt_error_tests PRIVATE raft::raft GTest::gtest_main)
+  target_link_libraries(raftrkt_error_tests PRIVATE raft::raft CUDA::cusparse GTest::gtest_main)
   raftrkt_enable_warnings(raftrkt_error_tests)
   raftrkt_apply_nix_cflags(raftrkt_error_tests)
   gtest_discover_tests(raftrkt_error_tests DISCOVERY_MODE PRE_TEST)

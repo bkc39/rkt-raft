@@ -44,6 +44,8 @@ KC_API int kc_current_is_async(int32_t device, int32_t* out);
 KC_API int kc_pool_bytes(int32_t device, int64_t* used, int64_t* high,
                          int64_t* reserved);
 KC_API int kc_pool_reset_high(int32_t device);
+KC_API int kc_device_memory(int32_t device, int64_t* free_bytes,
+                            int64_t* total_bytes);
 
 #ifdef __cplusplus
 }

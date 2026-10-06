@@ -1,5 +1,6 @@
 #include <cuda_runtime_api.h>
 
+#include <cstddef>
 #include <cstdint>
 #include <cuda/memory_resource>
 #include <rmm/cuda_device.hpp>
@@ -66,6 +67,20 @@ int kc_pool_reset_high(int32_t device) {
     raftrkt::cuda_check(
         cudaMemPoolSetAttribute(pool, cudaMemPoolAttrUsedMemHigh, &zero),
         "cudaMemPoolSetAttribute");
+  });
+}
+
+int kc_device_memory(int32_t device, int64_t* free_bytes,
+                     int64_t* total_bytes) {
+  return raftrkt::translate_exceptions(kc::last_error_slot(), [&] {
+    auto& free_out = *raftrkt::require(free_bytes, "free_bytes");
+    auto& total_out = *raftrkt::require(total_bytes, "total_bytes");
+    const raftrkt::device_scope scope{device};
+    std::size_t free = 0;
+    std::size_t total = 0;
+    raftrkt::cuda_check(cudaMemGetInfo(&free, &total), "cudaMemGetInfo");
+    free_out = static_cast<int64_t>(free);
+    total_out = static_cast<int64_t>(total);
   });
 }
 }

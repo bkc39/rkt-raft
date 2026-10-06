@@ -100,7 +100,10 @@ The usual checker, for the canary's library:
 
 A failing call raises with the native library's message, prefixed by the
 name the binding gives. Here k-means is handed integer data, which the canary
-refuses before cuML sees it:
+refuses before cuML sees it. The handle here comes from the thread's default
+resources, which the thread keeps reachable; a binding takes it with
+@racket[with-array-views]'s @racket[#:resources] instead
+(@secref["ref-unsafe-handle"]):
 
 @examples[#:eval ev #:label #f
 (define ints (list*->device-matrix '((1 2) (3 4) (5 6)) #:dtype 'int32))
@@ -198,13 +201,17 @@ Returns a pointer to the @tt{raft::handle_t} that @racket[resources] wrap
 and cuSPARSE handles and workspace. A downstream binding passes it as a
 @racket[_pointer] and its C++ casts it back.
 
-The pointer is borrowed: it is valid while @racket[resources] are unreleased,
-and no longer. Arrays keep the handle of the resources that allocated them
-alive, so a call that runs on the arrays' own resources inside
-@racket[with-array-views] always has a live handle. Released resources raise
-@racket[exn:fail:raft] of kind @racket['logic], naming this procedure. This
-is pylibraft's @tt{DeviceResources.getHandle()}, which cuML's Cython casts to
-a @tt{handle_t*} the same way.
+The pointer is borrowed, and it does not keep @racket[resources] reachable:
+once the program drops them, their finalizer frees the handle at the next
+collection, whether or not the pointer is still in use. So a binding takes the
+handle with @racket[with-array-views]'s @racket[#:resources] clause, which
+binds this same pointer and keeps the resources reachable until the body
+returns; this procedure on its own suits code that holds the resources some
+other way, as @racket[(current-device-resources)] does for its thread.
+Released resources raise @racket[exn:fail:raft] of kind @racket['logic],
+naming this procedure. This is pylibraft's @tt{DeviceResources.getHandle()},
+which cuML's Cython casts to a @tt{handle_t*} the same way, and which leaves
+keeping the @tt{DeviceResources} alive to its caller too.
 
 @examples[#:eval ev
 (resources->handle-pointer (current-device-resources))
@@ -221,14 +228,15 @@ queued on separate streams:
 
 A binding allocates its outputs on the resources it runs on, so the handle,
 the arrays and their frees share one stream. Here the canary's
-@tt{make_blobs} fills arrays allocated on @racket[other]:
+@tt{make_blobs} fills arrays allocated on @racket[other], with the handle
+taken by @racket[with-array-views], which is the same pointer:
 
 @examples[#:eval ev #:label #f
-(define on-other (resources->handle-pointer other))
 (define Y (device-matrix 6 2 #:resources other))
 (define classes (device-vector 6 #:dtype 'int32 #:resources other))
-(with-array-views ([y Y] [k classes])
-  (check 'blobs (lambda () (kc-make-blobs on-other y k 2 0.1 0 -1.0 1.0 3))))
+(with-array-views #:resources [on-other other] ([y Y] [k classes])
+  (check 'blobs (lambda () (kc-make-blobs on-other y k 2 0.1 0 -1.0 1.0 3)))
+  (ptr-equal? on-other (resources->handle-pointer other)))
 (sort (remove-duplicates (device-vector->list classes)) <)
 ]
 
@@ -241,12 +249,21 @@ Released resources have no handle:
 
 @section[#:tag "ref-unsafe-views"]{Array views}
 
-@defform[(with-array-views ([id array-expr] ...) body ...+)
-         #:contracts ([array-expr (or/c device-array? #f)])]{
+@defform[(with-array-views maybe-resources ([id array-expr] ...) body ...+)
+         #:grammar ([maybe-resources code:blank
+                                     (code:line #:resources [handle-id resources-expr])])
+         #:contracts ([array-expr (or/c device-array? #f)]
+                      [resources-expr device-resources?])]{
 
-Evaluates each @racket[array-expr], then binds each @racket[id] to a pointer
-to an @tt{rr_view} describing that array, and evaluates the @racket[body]s,
-whose results are the form's results. An @racket[array-expr] that evaluates to
+Evaluates @racket[resources-expr], if given, and each @racket[array-expr];
+then binds @racket[handle-id] to the resources' @tt{raft::handle_t} pointer
+(the one @racket[resources->handle-pointer] returns) and each @racket[id] to a
+pointer to an @tt{rr_view} describing its array, and evaluates the
+@racket[body]s, whose results are the form's results. The resources stay
+reachable until the body ends, like the arrays, so their finalizer cannot free
+the handle during the native call; released resources raise
+@racket[exn:fail:raft] naming @racket[with-array-views]. A binding takes its
+handle this way. An @racket[array-expr] that evaluates to
 @racket[#f] binds @racket[#f], which a @racket[_pointer] argument passes as
 @tt{NULL}: the way to pass an optional array, such as cuML's sample weights.
 
@@ -261,7 +278,8 @@ Before binding a view, the form waits, by polling, until the work already
 queued on the array's stream has finished, so a native call on any stream
 sees the array's contents. It does not wait after the body: a native call
 that queues work and returns before it finishes must run on the arrays' own
-resources, or synchronise its stream before it returns, as the canary does.
+resources, or synchronise its stream before it returns; the canary
+synchronises on every exit, a raise included.
 
 On every exit from the body (a return, a raise, an escape, a generator's
 @racket[yield]) each view is cleared: its @tt{data} becomes @tt{NULL} and its
@@ -269,8 +287,8 @@ device and memory @racket[-1], so a view kept past the form is refused by the
 C side instead of pointing at memory that may be freed. Control that jumps
 back into the body afterwards raises @racket[exn:fail:raft] of kind
 @racket['logic], naming @racket[with-array-views]; it never binds the views
-again. A released array raises before the body runs. Two @racket[id]s with
-the same name are a syntax error.
+again. A released array raises before the body runs. Two @racket[id]s, or
+@racket[handle-id] and an @racket[id], with the same name are a syntax error.
 
 The views are what a native call takes. Here the canary's @tt{predict}
 receives the fitted centroids, the data and an output vector, with no sample
@@ -278,8 +296,9 @@ weights:
 
 @examples[#:eval ev
 (define labels (device-vector 300 #:dtype 'int32))
-(define-values (score)
-  (with-array-views ([c fitted] [x X] [w #f] [y labels])
+(define score
+  (with-array-views #:resources [handle (current-device-resources)]
+                    ([c fitted] [x X] [w #f] [y labels])
     (check 'kmeans-predict (lambda () (kc-predict handle c x w 1 y)))))
 (< (abs (- score inertia)) (* 1e-3 inertia))
 (length (remove-duplicates (device-vector->list labels)))
@@ -392,13 +411,22 @@ downstream library's errors look like @tt{libraftrkt}'s:
  @item{@tt{raftrkt::classify}: the kind of an exception.
        @tt{rmm::out_of_memory}, @tt{std::bad_alloc} and any CUDA error whose
        status is @tt{cudaErrorMemoryAllocation} are @racket['out-of-memory];
-       other CUDA, RMM and RAFT CUDA errors are @racket['cuda];
+       so are RAFT's cuBLAS, cuSOLVER and cuSPARSE errors whose status is
+       @tt{*_STATUS_ALLOC_FAILED}; other CUDA, RMM and RAFT CUDA, cuBLAS,
+       cuSOLVER and cuSPARSE errors are @racket['cuda];
        @tt{std::logic_error} and @tt{raft::logic_error} are @racket['logic];
        anything else is @racket['generic].}
  @item{@tt{raftrkt::logic_error}, @tt{raftrkt::cuda_error},
        @tt{raftrkt::cuda_check(status, call)} and
        @tt{raftrkt::require(pointer, name)}, which throws
-       @tt{"name is NULL"}.}]
+       @tt{"name is NULL"}.}
+ @item{@tt{raftrkt::device_scope}: makes a device current for its scope,
+       throwing if @tt{cudaSetDevice} fails, and restores the previous one.}
+ @item{@tt{raftrkt::sync_guard}: synchronises a stream on every exit from its
+       scope. @tt{finish()} synchronises and throws on failure; if the scope
+       is left by a throw instead, the destructor synchronises and swallows a
+       second error, so the first is the one reported and no array is handed
+       back while work queued on it still runs.}]
 
 @bold{@tt{raftrkt/view.hpp}.} Views to typed pointers and RAFT views, after
 the checks memory safety needs. Each takes the argument's name for its
@@ -419,7 +447,13 @@ messages, and throws @tt{raftrkt::logic_error}:
        @tt{raftrkt::vector_view<T, Index>}: the same checks, answering a
        @tt{raft::device_matrix_view} or @tt{raft::device_vector_view}.}
  @item{@tt{raftrkt::has_layout(view, l)}, @tt{raftrkt::dtype_code<T>} and
-       @tt{raftrkt::dtype_name(code)}.}]
+       @tt{raftrkt::dtype_name(code)}.}
+ @item{@tt{raftrkt::handle_of(void* handle)}: the @tt{raft::handle_t} a
+       pointer from @racket[with-array-views] or
+       @racket[resources->handle-pointer] carries, refusing @tt{NULL};
+       @tt{raftrkt::device_of(handle)}: its device.}
+ @item{@tt{raftrkt::require_on_device(device, {{"X", x}, ...})}: refuses a
+       bound view on another device, naming it.}]
 
 @listing["C++"]|{
 const T* data = raftrkt::matrix_data<const T, int>(x, "X", raftrkt::layout::row_major);
@@ -432,6 +466,11 @@ auto m = raftrkt::matrix_view<const float, raft::col_major, int64_t>(a, "A");
 codes; @tt{rr_buffer_view}; @tt{rr_resources_handle}; @tt{rr_abi_tag},
 @tt{rr_abi} and @tt{RR_ABI_VERSION}; the status codes, error kinds and
 @tt{rr_last_error} convention; the three headers @tt{raftrkt/view.hpp},
-@tt{raftrkt/error.hpp} and @tt{raftrkt/abi.h}; and the four exports of this
-module. A change to any of them is a new ABI version, and the k-means canary
+@tt{raftrkt/error.hpp} and @tt{raftrkt/abi.h}; the four exports of this
+module; and the rules a downstream entry point keeps, which the canary's
+entry points show: run inside @tt{translate_exceptions}, select the
+handle's device, refuse arrays on another device, read arrays only through
+@tt{view.hpp}, and synchronise the handle's stream on every exit. Only the
+four element types above are in it: int8, uint8 and half arrays, which cuVS
+takes, need new dtype codes and so ABI version 2 (#8). A change to any of them is a new ABI version, and the k-means canary
 in @tt{downstream/kmeans-canary} changes with it, in the same pull request.

@@ -220,9 +220,13 @@ int kc_fit(void* handle, const rr_view* x, const rr_view* sample_weight,
     auto& n_iter_out = *raftrkt::require(n_iter, "n_iter");
     inertia_out = 0;
     n_iter_out = 0;
-    const raft::handle_t& h = kc::handle_of(handle);
-    const kc::device_scope scope{raft::resource::get_device_id(h)};
-    kc::require_device({x, sample_weight, centroids});
+    const raft::handle_t& h = raftrkt::handle_of(handle);
+    const int device = raftrkt::device_of(h);
+    const raftrkt::device_scope scope{device};
+    raftrkt::require_on_device(
+        device,
+        {{"X", x}, {"sample-weight", sample_weight}, {"centroids", centroids}});
+    raftrkt::sync_guard sync{raft::resource::get_cuda_stream(h)};
     const fit_arrays arrays{x, sample_weight, centroids};
     const fit_options options{init, max_iter, tol, n_init, oversampling_factor,
                               seed};
@@ -231,7 +235,7 @@ int kc_fit(void* handle, const rr_view* x, const rr_view* sample_weight,
       inertia_out = result.inertia;
       n_iter_out = result.n_iter;
     });
-    raft::resource::sync_stream(h);
+    sync.finish();
   });
 }
 
@@ -241,14 +245,19 @@ int kc_predict(void* handle, const rr_view* centroids, const rr_view* x,
   return raftrkt::translate_exceptions(kc::last_error_slot(), [&] {
     auto& inertia_out = *raftrkt::require(inertia, "inertia");
     inertia_out = 0;
-    const raft::handle_t& h = kc::handle_of(handle);
-    const kc::device_scope scope{raft::resource::get_device_id(h)};
-    kc::require_device({centroids, x, sample_weight, labels});
+    const raft::handle_t& h = raftrkt::handle_of(handle);
+    const int device = raftrkt::device_of(h);
+    const raftrkt::device_scope scope{device};
+    raftrkt::require_on_device(device, {{"centroids", centroids},
+                                        {"X", x},
+                                        {"sample-weight", sample_weight},
+                                        {"labels", labels}});
+    raftrkt::sync_guard sync{raft::resource::get_cuda_stream(h)};
     const predict_arrays arrays{centroids, x, sample_weight, labels};
     on_floats(centroids, "centroids", [&](auto tag) {
       inertia_out = predict<decltype(tag)>(h, arrays, normalize_weights != 0);
     });
-    raft::resource::sync_stream(h);
+    sync.finish();
   });
 }
 
@@ -256,15 +265,17 @@ int kc_make_blobs(void* handle, const rr_view* out, const rr_view* labels,
                   int32_t n_clusters, double cluster_std, int32_t shuffle,
                   double center_box_min, double center_box_max, uint64_t seed) {
   return raftrkt::translate_exceptions(kc::last_error_slot(), [&] {
-    const raft::handle_t& h = kc::handle_of(handle);
-    const kc::device_scope scope{raft::resource::get_device_id(h)};
-    kc::require_device({out, labels});
+    const raft::handle_t& h = raftrkt::handle_of(handle);
+    const int device = raftrkt::device_of(h);
+    const raftrkt::device_scope scope{device};
+    raftrkt::require_on_device(device, {{"out", out}, {"labels", labels}});
+    raftrkt::sync_guard sync{raft::resource::get_cuda_stream(h)};
     const blob_arrays arrays{out, labels};
     const blob_options options{n_clusters,     cluster_std,    shuffle != 0,
                                center_box_min, center_box_max, seed};
     on_floats(out, "out",
               [&](auto tag) { make_blobs<decltype(tag)>(h, arrays, options); });
-    raft::resource::sync_stream(h);
+    sync.finish();
   });
 }
 }

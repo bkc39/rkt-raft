@@ -1,14 +1,24 @@
+#include <cuda_runtime_api.h>
 #include <gtest/gtest.h>
 
+#include <atomic>
+#include <chrono>
 #include <cstdint>
+#include <cstdio>
 #include <raft/core/resource/device_id.hpp>
+#include <rmm/cuda_stream.hpp>
+#include <stdexcept>
 #include <string>
+#include <thread>
 
 #include "detail/handles.hpp"
 #include "gpu.hpp"
 #include "raftrkt/c_api.h"
+#include "raftrkt/error.hpp"
 
 namespace {
+
+constexpr int pause_ms = 50;
 
 TEST(Version, NamesTheRaftRelease) {
   EXPECT_STREQ(rr_version(), "26.08.00");
@@ -104,12 +114,65 @@ TEST(Resources, HandleIsTheRaftHandle) {
   rr_resources_free(r);
 }
 
-TEST(Resources, HandleKnowsItsDevice) {
+TEST(Resources, HandleKnowsItsDeviceWhenAnotherIsCurrent) {
   RR_REQUIRE_GPU();
+  int32_t count = 0;
+  ASSERT_EQ(rr_device_count(&count), RR_OK);
+  const int32_t target = count > 1 ? 1 : 0;
+  if (count < 2) {
+    std::printf(
+        "NOTE: one GPU, so this case cannot fail here; a stale device id "
+        "needs a second device to show\n");
+  }
+  ASSERT_EQ(cudaSetDevice(0), cudaSuccess);
   rr_resources* r = nullptr;
-  ASSERT_EQ(rr_resources_create(0, &r), RR_OK) << rr_last_error();
-  EXPECT_EQ(raft::resource::get_device_id(*r->handle), r->device);
+  ASSERT_EQ(rr_resources_create(target, &r), RR_OK) << rr_last_error();
+  EXPECT_EQ(raft::resource::get_device_id(*r->handle), target);
   rr_resources_free(r);
+}
+
+void CUDART_CB mark_after_a_pause(void* flag) {
+  std::this_thread::sleep_for(std::chrono::milliseconds(pause_ms));
+  static_cast<std::atomic<bool>*>(flag)->store(true);
+}
+
+bool queued_mark(rmm::cuda_stream_view stream, std::atomic<bool>& flag) {
+  return cudaLaunchHostFunc(stream.value(), mark_after_a_pause, &flag) ==
+         cudaSuccess;
+}
+
+bool finished_cleanly(raftrkt::sync_guard& sync) {
+  try {
+    sync.finish();
+    return true;
+  } catch (const std::exception&) {
+    return false;
+  }
+}
+
+TEST(Streams, ASyncGuardWaitsWhenFinished) {
+  RR_REQUIRE_GPU();
+  const rmm::cuda_stream stream;
+  std::atomic<bool> done{false};
+  raftrkt::sync_guard sync{stream.view()};
+  ASSERT_TRUE(queued_mark(stream.view(), done));
+  EXPECT_TRUE(finished_cleanly(sync));
+  EXPECT_TRUE(done.load());
+}
+
+TEST(Streams, ASyncGuardWaitsWhenTheWorkThrows) {
+  RR_REQUIRE_GPU();
+  const rmm::cuda_stream stream;
+  std::atomic<bool> done{false};
+  bool queued = false;
+  try {
+    const raftrkt::sync_guard sync{stream.view()};
+    queued = queued_mark(stream.view(), done);
+    throw std::runtime_error("the library failed after queuing work");
+  } catch (const std::runtime_error&) {
+    EXPECT_TRUE(done.load());
+  }
+  EXPECT_TRUE(queued);
 }
 
 TEST(Resources, HandleRefusesNull) {

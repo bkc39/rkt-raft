@@ -6,7 +6,7 @@
          syntax/parse/define
          (only-in "private/array.rkt" settled-view)
          (only-in "private/error.rkt" call/raft exn:fail:raft)
-         (only-in "private/foreign/array.rkt" clear-view!)
+         (only-in "private/foreign/array.rkt" clear-view! keep-reachable)
          (only-in "private/foreign/core.rkt" rr-abi rr-resources-handle)
          (only-in "private/resource.rkt" with-release)
          (only-in "private/resources.rkt" resources-handle))
@@ -19,9 +19,11 @@
 (define (raft-abi-pointer)
   (rr-abi))
 
-(define (resources->handle-pointer r)
-  (define who 'resources->handle-pointer)
+(define (handle-for who r)
   (call/raft who (lambda () (rr-resources-handle (resources-handle who r)))))
+
+(define (resources->handle-pointer r)
+  (handle-for 'resources->handle-pointer r))
 
 (define error-kinds #(generic out-of-memory cuda logic))
 
@@ -59,10 +61,18 @@
     #:description "a [name array-expr] binding"
     (pattern [name:id array:expr])))
 
-(define-syntax-parse-rule (with-array-views (b:view-binding ...) body:expr ...+)
-  #:fail-when (check-duplicate-identifier (syntax->list #'(b.name ...))) "duplicate binding name"
+(define (handle-release r) ;; noqa
+  (lambda (_handle) (keep-reachable r)))
+
+(define-syntax-parse-rule (with-array-views (~optional (~seq #:resources [handle:id resources:expr]))
+                            (b:view-binding ...)
+                            body:expr ...+)
+  #:fail-when (check-duplicate-identifier (syntax->list #'((~? handle) b.name
+                                                                       ...))) "duplicate binding name"
   #:with (a ...) (generate-temporaries #'(b.name ...))
-  (let ([a b.array] ...)
+  (let ([r (~? resources #f)]
+        [a b.array] ...)
     (with-release #:who 'with-array-views
-                  ([b.name (and a (settled-view 'with-array-views a)) (view-release a)] ...)
+                  ((~? [handle (handle-for 'with-array-views r) (handle-release r)])
+                   [b.name (and a (settled-view 'with-array-views a)) (view-release a)] ...)
                   body ...)))

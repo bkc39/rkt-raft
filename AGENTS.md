@@ -896,21 +896,28 @@ canary changes with it in the same pull request:
   `raftrkt::headers`): `raftrkt/abi.h` (`rr_abi_compare`,
   `raftrkt::compiled_abi`, `raftrkt::require_abi`), `raftrkt/error.hpp`
   (`error_slot`, `translate_exceptions`, `classify`, `logic_error`,
-  `cuda_error`, `cuda_check`, `require`), `raftrkt/view.hpp`
-  (`matrix_data`, `vector_data`, `matrix_view`, `vector_view`, `has_layout`,
-  `canonical_strides`, `dtype_code`, `dtype_name`, `any_extent`).
+  `cuda_error`, `cuda_check`, `require`, `device_scope`, `sync_guard`),
+  `raftrkt/view.hpp` (`matrix_data`, `vector_data`, `matrix_view`,
+  `vector_view`, `has_layout`, `canonical_strides`, `dtype_code`,
+  `dtype_name`, `any_extent`, `handle_of`, `device_of`,
+  `require_on_device`). Only the four dtype codes of today are frozen; cuVS's
+  int8, uint8 and half arrays need new codes and so ABI version 2 (#8).
 - **Racket** (`raft/unsafe`): `resources->handle-pointer`,
-  `with-array-views`, `status-checker`, `raft-abi-pointer`; `core-test.rkt`
-  pins the export set.
+  `with-array-views` (with its `#:resources [handle r]` clause),
+  `status-checker`, `raft-abi-pointer`; `core-test.rkt` pins the export set.
 
 What a downstream binding must do, which the canary does and the manual's
 *Building on raft* explains: compile against `packages.rapids` and
 `packages.raft-dev` of this flake (never another RAPIDS); check the tag at
-load (`kc_check_abi` with `raft-abi-pointer`); run each entry point inside
-`raftrkt::translate_exceptions` over its own thread-local `error_slot`; read
-arrays only through `view.hpp`; allocate outputs with raft's constructors on
-the resources the call runs on; and synchronise the handle's stream before
-returning (until the stream API, #13, gives it events). Internal entry points
+load (`kc_check_abi` with `raft-abi-pointer`); take the handle and the
+views with `with-array-views #:resources`, which keeps the resources
+reachable for the call; run each entry point inside
+`raftrkt::translate_exceptions` over its own thread-local `error_slot`;
+select the handle's device (`device_scope`) and refuse arrays on another one
+(`require_on_device`); read arrays only through `view.hpp`; allocate outputs
+with raft's constructors on the resources the call runs on; and synchronise
+the handle's stream on every exit, a throw included (`sync_guard`), until
+the stream API (#13) gives it events. Internal entry points
 (`src/detail/*_api.h`) are not part of it and may change freely.
 
 ## Decisions recorded in L1d
@@ -931,7 +938,7 @@ returning (until the stream API, #13, gives it events). Internal entry points
   refused by `view.hpp`) and `void/reference-sink`s the array, which keeps
   it reachable for the whole extent. `#f` binds `#f` (a NULL `_pointer`), for
   optional arrays such as sample weights. It does not wait after the body:
-  the downstream synchronises before returning (L1b's stream rule). Waiting
+  the downstream synchronises on every exit (L1b's stream rule). Waiting
   before binding costs a poll per array; the stream API (#13) can relax it to
   recorded events without changing the C interface.
 - **`status-checker`** is curried, `((status-checker last-error
@@ -944,7 +951,24 @@ returning (until the stream API, #13, gives it events). Internal entry points
   downstream can raise a subtype.
 - **The handle pointer is borrowed**: a cpointer of the new type
   `_raft-handle`, never freed by Racket; the allocator audit gained
-  `borrowed-types` and refuses an allocator wrap on one.
+  `borrowed-types` and refuses an allocator wrap on one. It does not keep
+  its resources reachable (the review of #20 reproduced the handle being
+  freed while the pointer was held: `with-array-views`'s wait yields to the
+  finalizer thread), so **`with-array-views` takes `#:resources [handle r]`**
+  and keeps `r` reachable for the body, as it keeps the arrays. One form,
+  not a separate `with-resources-handle`: every downstream call needs the
+  handle and its arrays together, on the same resources (L1b's stream rule),
+  so one form acquires both, in one extent, and a binding cannot take one
+  without the other by mistake. `resources->handle-pointer` stays for code
+  that holds the resources itself.
+- **The headers carry the per-call rules** (review of #20): `device_scope`
+  (the shim's own `rr::device_guard` is now this type), `sync_guard` (sync
+  on success with an error, sync on a throw swallowing a second error),
+  `handle_of`, `device_of` and `require_on_device` moved from the canary into
+  the frozen headers, and `classify` knows RAFT's cuBLAS, cuSOLVER and
+  cuSPARSE errors (`'cuda`, or `'out-of-memory` for
+  `*_STATUS_ALLOC_FAILED`, read from RAFT's message). The frozen rule is
+  "synchronise on every exit".
 - **One implementation of each header.** `rr::translate_exceptions` is
   `raftrkt::translate_exceptions` over the shim's slot, `rr_abi`'s tag is
   `raftrkt::compiled_abi()`, and `view.cpp` uses `view.hpp`'s layout test.
@@ -987,7 +1011,7 @@ returning (until the stream API, #13, gives it events). Internal entry points
   `kmeans-predict` (values labels, inertia), with cuML Python's `init` names
   and its `n_init='auto'` rule, `#:seed` defaulting to 0. It refuses data it
   would have to convert (column-major, integer) where cuML Python converts.
-  It synchronises its handle's stream before every return. It calls cuML's
+  It synchronises its handle's stream on every exit (`sync_guard`). It calls cuML's
   `int` overloads, as cuML Python does whenever the element count fits an
   `int`, and `view.hpp` refuses a view whose extent or element count does
   not; the `int64_t` overloads are the cuML binding's to add. A device
@@ -1013,6 +1037,17 @@ returning (until the stream API, #13, gives it events). Internal entry points
   cudf caps pandas, pyarrow and numba just below the pin's versions, and
   `numba-cuda` 0.30.4 is patched not to register `np.row_stack`, which NumPy
   2.5 removed. Everything the twin runs imports and fits.
+- **`status-checker` runs the whole native call in atomic mode**, so a long
+  call holds up the place and cannot be broken; the options are in #21,
+  to decide with #15.
+- **The memory test also samples `cudaMemGetInfo`** (`kc_device_memory`) and
+  allows 256 MiB of device-wide drift, since the GPU is shared; the pool's
+  own numbers are asserted exactly.
+- **The twin covers seed-sensitive data:** nine overlapping-blob cases
+  (2000×4, std 4.0, k=8, three inits × three fit seeds on one data set)
+  besides the eight separated ones, and checks the iteration count against
+  cuML's as well as ARI, inertia and centroids; on the overlapping cases the
+  seed changes the result, so a dropped seed or init would show.
 - **The ffi2 port (#15).** The frozen Racket exports hand out
   `ffi/unsafe` cpointers (a handle, cstruct pointers), and downstream
   bindings pass them as `_pointer`. A port to ffi2 must keep these exports

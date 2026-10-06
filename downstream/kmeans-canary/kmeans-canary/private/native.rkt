@@ -20,6 +20,7 @@
          canary-path
          kc-check-abi
          kc-current-is-async
+         kc-device-memory
          kc-fit
          kc-make-blobs
          kc-pool-bytes
@@ -79,5 +80,10 @@
         -> (values status used high reserved)))
 
 (define-kc kc-pool-reset-high (_fun _int32 -> _int))
+
+(define-kc kc-device-memory
+  (_fun _int32 (free-bytes : (_ptr o _int64)) (total : (_ptr o _int64))
+        -> (status : _int)
+        -> (values status free-bytes total)))
 
 (call/kc 'kmeans-canary (lambda () (kc-check-abi (raft-abi-pointer))))

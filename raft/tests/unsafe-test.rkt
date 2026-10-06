@@ -28,7 +28,7 @@
                   view-dtype-code
                   view-shape
                   view-strides)
-         (only-in "../private/foreign/memory.rkt" buffer-drop-count)
+         (only-in "../private/foreign/memory.rkt" buffer-drop-count resources-drop-count)
          (only-in "../private/resource.rkt" with-release)
          (only-in "../private/resources.rkt" resources-handle)
          (only-in "../unsafe.rkt"
@@ -113,9 +113,35 @@
                     "device-array: used after its release"
                     (lambda () (with-array-views ([x a]) x))))
 
+(test-gpu "with-array-views #:resources binds the handle and keeps its resources reachable"
+  (drain-finalizers!)
+  (define before (resources-drop-count))
+  (with-array-views #:resources [handle (device-resources)] ()
+    (drain-finalizers!)
+    (check-equal? (resources-drop-count) before "the resources live while the handle is bound")
+    (check-pred cpointer? handle))
+  (drain-finalizers!)
+  (check-equal? (resources-drop-count) (add1 before) "and are freed once the body ends"))
+
+(test-gpu "with-array-views #:resources binds the same handle resources->handle-pointer answers"
+  (define r (device-resources))
+  (with-array-views #:resources [handle r] ([x (device-vector 2 #:resources r)])
+    (check-true (ptr-equal? handle (resources->handle-pointer r)))
+    (check-not-false (view-data x))))
+
+(test-gpu "with-array-views #:resources refuses released resources, naming itself"
+  (define finished (with-device-resources ([r (device-resources)]) r))
+  (check-raft-error 'logic
+                    "with-array-views: the device resources on device 0 were released"
+                    (lambda () (with-array-views #:resources [handle finished] () handle))))
+
 (test-case "a name bound twice is a syntax error"
   (check-exn #rx"duplicate binding name"
-             (lambda () (convert-syntax-error (with-array-views ([a #f] [a #f]) a)))))
+             (lambda () (convert-syntax-error (with-array-views ([a #f] [a #f]) a))))
+  (check-exn #rx"duplicate binding name"
+             (lambda ()
+               (convert-syntax-error
+                (with-array-views #:resources [a (device-resources)] ([a #f]) a)))))
 
 (test-probe "with-array-views waits for work queued on the array's stream"
   (define r (device-resources))

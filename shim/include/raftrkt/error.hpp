@@ -10,8 +10,12 @@
 #include <cstdio>
 #include <exception>
 #include <new>
+#include <raft/core/cublas_macros.hpp>
+#include <raft/core/cusolver_macros.hpp>
+#include <raft/core/cusparse_macros.hpp>
 #include <raft/core/error.hpp>
 #include <raft/util/cuda_rt_essentials.hpp>
+#include <rmm/cuda_stream_view.hpp>
 #include <rmm/error.hpp>
 #include <stdexcept>
 #include <string>
@@ -100,10 +104,13 @@ inline bool names_oom(const std::exception& e) noexcept {
          std::string_view::npos;
 }
 
+inline bool names_alloc_failed(const std::exception& e) noexcept {
+  return std::string_view(e.what()).find("_STATUS_ALLOC_FAILED") !=
+         std::string_view::npos;
+}
+
 }  // namespace detail
 
-// Clearing the runtime's last error keeps a later peek-style check (RAFT's
-// RAFT_CHECK_CUDA) from reporting this failure a second time.
 inline void cuda_check(cudaError_t status, const char* call) {
   if (status != cudaSuccess) {
     static_cast<void>(cudaGetLastError());
@@ -112,6 +119,53 @@ inline void cuda_check(cudaError_t status, const char* call) {
                      status);
   }
 }
+
+class device_scope {
+ public:
+  explicit device_scope(int device) {
+    cuda_check(cudaGetDevice(&previous_), "cudaGetDevice");
+    if (previous_ != device) {
+      cuda_check(cudaSetDevice(device), "cudaSetDevice");
+      restore_ = true;
+    }
+  }
+  ~device_scope() {
+    if (restore_) {
+      cudaSetDevice(previous_);
+    }
+  }
+  device_scope(const device_scope&) = delete;
+  device_scope& operator=(const device_scope&) = delete;
+  device_scope(device_scope&&) = delete;
+  device_scope& operator=(device_scope&&) = delete;
+
+ private:
+  int previous_ = 0;
+  bool restore_ = false;
+};
+
+class sync_guard {
+ public:
+  explicit sync_guard(rmm::cuda_stream_view stream) : stream_(stream) {}
+  void finish() {
+    finished_ = true;
+    cuda_check(cudaStreamSynchronize(stream_.value()), "cudaStreamSynchronize");
+  }
+  ~sync_guard() {
+    if (!finished_) {
+      static_cast<void>(cudaStreamSynchronize(stream_.value()));
+      static_cast<void>(cudaGetLastError());
+    }
+  }
+  sync_guard(const sync_guard&) = delete;
+  sync_guard& operator=(const sync_guard&) = delete;
+  sync_guard(sync_guard&&) = delete;
+  sync_guard& operator=(sync_guard&&) = delete;
+
+ private:
+  rmm::cuda_stream_view stream_;
+  bool finished_ = false;
+};
 
 inline error_kind classify(const std::exception& e) noexcept {
   if (dynamic_cast<const rmm::out_of_memory*>(&e) != nullptr) {
@@ -132,6 +186,11 @@ inline error_kind classify(const std::exception& e) noexcept {
       dynamic_cast<const rmm::cuda_error*>(&e) != nullptr ||
       dynamic_cast<const raft::cuda_error*>(&e) != nullptr) {
     return detail::names_oom(e) ? error_kind::oom : error_kind::cuda;
+  }
+  if (dynamic_cast<const raft::cublas_error*>(&e) != nullptr ||
+      dynamic_cast<const raft::cusolver_error*>(&e) != nullptr ||
+      dynamic_cast<const raft::cusparse_error*>(&e) != nullptr) {
+    return detail::names_alloc_failed(e) ? error_kind::oom : error_kind::cuda;
   }
   if (dynamic_cast<const std::bad_alloc*>(&e) != nullptr) {
     return error_kind::oom;

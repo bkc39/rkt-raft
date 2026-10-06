@@ -10,7 +10,7 @@
                   dtype
                   list*->device-matrix
                   shape)
-         (only-in raft/unsafe resources->handle-pointer with-array-views)
+         (only-in raft/unsafe with-array-views)
          (only-in "private/native.rkt" call/kc kc-fit kc-make-blobs kc-predict))
 
 (provide blobs
@@ -34,9 +34,8 @@
   (define X
     (device-matrix n-samples n-features #:dtype element-type #:layout order #:resources resources))
   (define labels (device-vector n-samples #:dtype 'int32 #:resources resources))
-  (define handle (resources->handle-pointer resources))
   (match-define (list low high) center-box)
-  (with-array-views ([x X] [y labels])
+  (with-array-views #:resources [handle resources] ([x X] [y labels])
     (call/kc 'blobs
              (lambda ()
                (kc-make-blobs handle
@@ -80,9 +79,8 @@
     (if (eq? init 'k-means++)
         0.0
         (exact->inexact oversampling-factor)))
-  (define handle (resources->handle-pointer resources))
   (define-values (inertia n-iter)
-    (with-array-views ([x X] [w sample-weight] [c centroids])
+    (with-array-views #:resources [handle resources] ([x X] [w sample-weight] [c centroids])
       (call/kc 'kmeans-fit
                (lambda ()
                  (kc-fit handle x w c code max-iter (exact->inexact tol) runs factor seed)))))
@@ -95,8 +93,9 @@
                         #:resources [resources (current-device-resources)])
   (match-define (list n-samples _) (shape X))
   (define labels (device-vector n-samples #:dtype 'int32 #:resources resources))
-  (define handle (resources->handle-pointer resources))
   (define inertia
-    (with-array-views ([c centroids] [x X] [w sample-weight] [y labels])
+    (with-array-views #:resources
+                      [handle resources]
+                      ([c centroids] [x X] [w sample-weight] [y labels])
       (call/kc 'kmeans-predict (lambda () (kc-predict handle c x w (if normalize? 1 0) y)))))
   (values labels inertia))

@@ -2,10 +2,14 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <initializer_list>
 #include <limits>
 #include <raft/core/device_mdspan.hpp>
+#include <raft/core/handle.hpp>
+#include <raft/core/resource/device_id.hpp>
 #include <string>
 #include <type_traits>
+#include <utility>
 
 #include "raftrkt/array.h"
 #include "raftrkt/error.hpp"
@@ -222,6 +226,27 @@ raft::device_matrix_view<T, Index, Layout> matrix_view(
   return raft::make_device_matrix_view<T, Index, Layout>(
       data, static_cast<Index>(view->shape[0]),
       static_cast<Index>(view->shape[1]));
+}
+
+inline const raft::handle_t& handle_of(void* handle) {
+  return *static_cast<const raft::handle_t*>(require(handle, "handle"));
+}
+
+inline int device_of(const raft::handle_t& handle) {
+  return raft::resource::get_device_id(handle);
+}
+
+inline void require_on_device(
+    int device,
+    std::initializer_list<std::pair<const char*, const rr_view*>> views) {
+  for (const auto& [name, view] : views) {
+    if (view != nullptr && view->memory == RR_MEMORY_DEVICE &&
+        view->device != device) {
+      throw logic_error(
+          std::string(name) + ": on device " + std::to_string(view->device) +
+          ", but the resources are on device " + std::to_string(device));
+    }
+  }
 }
 
 }  // namespace raftrkt

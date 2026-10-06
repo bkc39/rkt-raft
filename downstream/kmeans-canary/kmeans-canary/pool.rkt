@@ -1,8 +1,14 @@
 #lang racket/base
 
-(require (only-in "private/native.rkt" call/kc kc-current-is-async kc-pool-bytes kc-pool-reset-high))
+(require (only-in "private/native.rkt"
+                  call/kc
+                  kc-current-is-async
+                  kc-device-memory
+                  kc-pool-bytes
+                  kc-pool-reset-high))
 
 (provide canary-current-is-async?
+         canary-device-memory
          canary-pool-bytes
          canary-pool-reset-high!)
 
@@ -14,3 +20,6 @@
 
 (define (canary-pool-reset-high! [device 0])
   (call/kc 'canary-pool-reset-high! (lambda () (kc-pool-reset-high device))))
+
+(define (canary-device-memory [device 0])
+  (call/kc 'canary-device-memory (lambda () (kc-device-memory device))))

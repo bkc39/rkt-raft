@@ -1,6 +1,6 @@
 #lang racket/base
 
-(require (only-in racket/list first)
+(require (only-in racket/list first remove-duplicates)
          (only-in racket/match match-define)
          ;; whole-module: define-runtime-path needs bindings only-in strips
          racket/runtime-path
@@ -13,25 +13,25 @@
 
 (define tolerance 1e-4)
 
-(struct fitted (spec X truth centroids fit-inertia labels inertia))
+(struct fitted (spec X truth centroids fit-inertia n-iter labels inertia))
 
 (define (run-case spec)
-  (match-define (list samples features k dtype init seed) spec)
+  (match-define (list samples features k dtype init seed spread data-seed) spec)
   (define-values (X truth)
-    (blobs samples features #:centers k #:cluster-std 0.6 #:seed (+ seed 100) #:dtype dtype))
+    (blobs samples features #:centers k #:cluster-std spread #:seed data-seed #:dtype dtype))
   (define start
     (and (eq? init 'array)
          (list*->device-matrix (for/list ([row (in-list (device-matrix->list* X))]
                                           [_ (in-range k)])
                                  row)
                                #:dtype dtype)))
-  (define-values (centroids fit-inertia _n-iter)
+  (define-values (centroids fit-inertia n-iter)
     (kmeans-fit X #:n-clusters k #:init (or start init) #:seed seed))
   (define-values (labels inertia) (kmeans-predict centroids X))
-  (fitted spec X truth centroids fit-inertia labels inertia))
+  (fitted spec X truth centroids fit-inertia n-iter labels inertia))
 
 (define (twin-case f)
-  (match-define (list _ _ k dtype init seed) (fitted-spec f))
+  (match-define (list _ _ k dtype init seed _ _) (fitted-spec f))
   (hasheq 'X (device-matrix->list* (fitted-X f))
           'dtype (symbol->string dtype)
           'n_clusters k
@@ -47,14 +47,25 @@
           'labels (device-vector->list (fitted-labels f))
           'truth (device-vector->list (fitted-truth f))))
 
-(define specs
-  '((300 2 3 float32 k-means++ 1) (500 5 4 float32 scalable-k-means++ 2)
-                                  (400 3 5 float32 random 3)
-                                  (300 4 3 float32 array 4)
-                                  (300 2 3 float64 k-means++ 5)
-                                  (500 8 6 float64 scalable-k-means++ 6)
-                                  (1000 16 8 float32 k-means++ 7)
-                                  (250 3 2 float64 random 8)))
+(define separated
+  (for/list ([spec (in-list '((300 2 3 float32 k-means++ 1) (500 5 4 float32 scalable-k-means++ 2)
+                                                            (400 3 5 float32 random 3)
+                                                            (300 4 3 float32 array 4)
+                                                            (300 2 3 float64 k-means++ 5)
+                                                            (500 8 6 float64 scalable-k-means++ 6)
+                                                            (1000 16 8 float32 k-means++ 7)
+                                                            (250 3 2 float64 random 8)))])
+    (append spec (list 0.6 (+ (list-ref spec 5) 100)))))
+
+(define overlapping-inits '(k-means++ scalable-k-means++ random))
+(define overlapping-seeds '(1 2 3))
+
+(define overlapping
+  (for*/list ([init (in-list overlapping-inits)]
+              [seed (in-list overlapping-seeds)])
+    (list 2000 4 8 'float32 init seed 4.0 42)))
+
+(define specs (append separated overlapping))
 
 (define (largest-difference ours theirs)
   (for*/fold ([worst 0.0])
@@ -72,17 +83,30 @@
     (define theirs (hash-ref twin 'centroids))
     (define matched? (andmap list? theirs))
     (define worst (and matched? (largest-difference ours theirs)))
-    (printf "twin ~a: ARI ~a (truth ~a, sklearn ~a); inertia ~a against ~a; centroids within ~a\n"
-            spec
-            (hash-ref twin 'ari)
-            (hash-ref twin 'ari_truth)
-            (hash-ref twin 'ari_sklearn)
-            (fitted-inertia f)
-            (hash-ref twin 'inertia)
-            worst)
+    (printf
+     "twin ~a: ARI ~a (truth ~a, sklearn ~a); iterations ~a against ~a; inertia ~a against ~a; centroids within ~a\n"
+     spec
+     (hash-ref twin 'ari)
+     (hash-ref twin 'ari_truth)
+     (hash-ref twin 'ari_sklearn)
+     (fitted-n-iter f)
+     (hash-ref twin 'n_iter)
+     (fitted-inertia f)
+     (hash-ref twin 'inertia)
+     worst)
     (check-equal? (hash-ref twin 'ari) 1.0 spec)
+    (check-equal? (fitted-n-iter f) (hash-ref twin 'n_iter) spec)
     (check-true (close? (fitted-inertia f) (hash-ref twin 'inertia) tolerance) spec)
     (check-true (close? (fitted-fit-inertia f) (hash-ref twin 'inertia) tolerance) spec)
     (check-true matched? (format "every canary cluster has a cuML cluster: ~a" spec))
     (check-true (and worst (<= worst tolerance)) spec))
-  (check-equal? (hash-ref (first results) 'version) "26.08.00"))
+  (check-equal? (hash-ref (first results) 'version) "26.08.00")
+  (for ([init (in-list overlapping-inits)])
+    (define inertias
+      (for/list ([f (in-list fits)]
+                 #:when (and (member (fitted-spec f) overlapping)
+                             (eq? (list-ref (fitted-spec f) 4) init)))
+        (fitted-inertia f)))
+    (check-equal? (length (remove-duplicates inertias))
+                  (length overlapping-seeds)
+                  (format "the seed changes the ~a result on the same overlapping blobs" init))))

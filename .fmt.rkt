@@ -100,9 +100,8 @@
                     "test-probe"
                     "test-twin"
                     "test-without-gpu"
-                    "with-array-views"
                     "with-device-resources")
      (format-body-form 1)]
-    [("with-release") format-with-release]
+    [("with-array-views" "with-release") format-with-release]
     [("test-unless-skipped") (format-body-form 2)]
     [else #f]))

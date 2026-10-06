@@ -6,10 +6,14 @@
 #include <thrust/system/system_error.h>
 
 #include <new>
+#include <raft/core/cublas_macros.hpp>
+#include <raft/core/cusolver_macros.hpp>
+#include <raft/core/cusparse_macros.hpp>
 #include <raft/core/error.hpp>
 #include <rmm/error.hpp>
 #include <stdexcept>
 #include <string>
+#include <utility>
 
 namespace {
 
@@ -59,6 +63,32 @@ TEST(Classify, ArgumentFailuresAreLogic) {
   EXPECT_EQ(kind_of(rr::logic_error("shape")), rr::error_kind::logic);
   EXPECT_EQ(kind_of(raft::logic_error("layout")), rr::error_kind::logic);
   EXPECT_EQ(kind_of(std::invalid_argument("dtype")), rr::error_kind::logic);
+}
+
+template <typename Fn>
+rr::error_kind kind_of_call(Fn&& fn) {
+  EXPECT_EQ(rr::translate_exceptions(std::forward<Fn>(fn)), RR_ERROR);
+  return rr::last_error_kind();
+}
+
+TEST(Classify, RaftLibraryErrorsAreCudaOrOutOfMemory) {
+  EXPECT_EQ(kind_of_call([] { RAFT_CUBLAS_TRY(CUBLAS_STATUS_ALLOC_FAILED); }),
+            rr::error_kind::oom);
+  EXPECT_EQ(
+      kind_of_call([] { RAFT_CUBLAS_TRY(CUBLAS_STATUS_EXECUTION_FAILED); }),
+      rr::error_kind::cuda);
+  EXPECT_EQ(
+      kind_of_call([] { RAFT_CUSOLVER_TRY(CUSOLVER_STATUS_ALLOC_FAILED); }),
+      rr::error_kind::oom);
+  EXPECT_EQ(
+      kind_of_call([] { RAFT_CUSOLVER_TRY(CUSOLVER_STATUS_INVALID_VALUE); }),
+      rr::error_kind::cuda);
+  EXPECT_EQ(
+      kind_of_call([] { RAFT_CUSPARSE_TRY(CUSPARSE_STATUS_ALLOC_FAILED); }),
+      rr::error_kind::oom);
+  EXPECT_EQ(
+      kind_of_call([] { RAFT_CUSPARSE_TRY(CUSPARSE_STATUS_INTERNAL_ERROR); }),
+      rr::error_kind::cuda);
 }
 
 TEST(Classify, AnythingElseIsGeneric) {

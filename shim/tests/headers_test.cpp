@@ -271,6 +271,18 @@ TEST(ViewHeader, MdspanViewsCarryTheExtents) {
   EXPECT_EQ(static_cast<const void*>(w.data_handle()), fake_data());
 }
 
+TEST(ViewHeader, ViewsMustBeOnTheHandlesDevice) {
+  rr_view x = bound(RR_DTYPE_FLOAT32, rr::layout::row_major, 3, 2);
+  x.device = 1;
+  rr_view unbound = x;
+  unbound.memory = -1;
+  EXPECT_EQ(refusal([&] { raftrkt::require_on_device(0, {{"X", &x}}); }),
+            "X: on device 1, but the resources are on device 0");
+  EXPECT_NO_THROW(raftrkt::require_on_device(
+      1, {{"X", &x}, {"sample-weight", nullptr}, {"labels", &unbound}}));
+  EXPECT_EQ(refusal([] { raftrkt::handle_of(nullptr); }), "handle is NULL");
+}
+
 TEST(ViewHeader, DtypeCodesFollowTheTable) {
   EXPECT_EQ(raftrkt::dtype_code<float>, RR_DTYPE_FLOAT32);
   EXPECT_EQ(raftrkt::dtype_code<const double>, RR_DTYPE_FLOAT64);

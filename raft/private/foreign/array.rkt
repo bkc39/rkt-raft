@@ -20,6 +20,7 @@
 
 (provide blank-view
          clear-view!
+         keep-reachable
          describe-view!
          rr-buffer-view
          (rename-out [rr-view-data view-data]) ;; noqa
@@ -58,6 +59,9 @@
   (set-rr-view-shape! view (padded shape))
   (set-rr-view-strides! view (padded strides))
   view)
+
+(define (keep-reachable v)
+  (void/reference-sink v))
 
 (define (clear-view! view keep)
   (set-rr-view-data! view #f)

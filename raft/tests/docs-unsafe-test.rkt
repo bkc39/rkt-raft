@@ -161,11 +161,11 @@
   (check-true (ptr-equal? handle (resources->handle-pointer (current-device-resources))))
   (define other (device-resources))
   (check-equal? (ptr-equal? handle (resources->handle-pointer other)) #f)
-  (define on-other (resources->handle-pointer other))
   (define Y (device-matrix 6 2 #:resources other))
   (define classes (device-vector 6 #:dtype 'int32 #:resources other))
-  (with-array-views ([y Y] [k classes])
-    (check 'blobs (lambda () (kc-make-blobs on-other y k 2 0.1 0 -1.0 1.0 3))))
+  (check-true (with-array-views #:resources [on-other other] ([y Y] [k classes])
+                (check 'blobs (lambda () (kc-make-blobs on-other y k 2 0.1 0 -1.0 1.0 3)))
+                (ptr-equal? on-other (resources->handle-pointer other))))
   (check-equal? (sort (remove-duplicates (device-vector->list classes)) <) '(0 1))
   (define finished (with-device-resources ([r (device-resources)]) r))
   (check-raft-error 'logic
@@ -180,8 +180,10 @@
   (define-values (inertia _n-iter) (fit-with check handle X fitted))
   (define labels (device-vector 300 #:dtype 'int32))
   (define score
-    (with-array-views ([c fitted] [x X] [w #f] [y labels])
-      (check 'kmeans-predict (lambda () (kc-predict handle c x w 1 y)))))
+    (with-array-views #:resources
+                      [default-handle (current-device-resources)]
+                      ([c fitted] [x X] [w #f] [y labels])
+      (check 'kmeans-predict (lambda () (kc-predict default-handle c x w 1 y)))))
   (check-true (< (abs (- score inertia)) (* 1e-3 inertia)))
   (check-equal? (length (remove-duplicates (device-vector->list labels))) 3)
   (define F (contiguous X #:layout 'col-major))
