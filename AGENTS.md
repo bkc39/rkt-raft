@@ -46,7 +46,7 @@ shim/                         libraftrkt: C++20 over RAFT's headers (CMake, g++;
 raft/                         the Racket package and collection
   main.rkt core.rkt           the public surface
   private/foreign/*.rkt       FFI bindings, one module per shim header
-  private/{error,resource,resources,install-native}.rkt
+  private/{abi,error,resource,resources,install-native}.rkt
   scribblings/                the manual: guide/ chapters, reference/ sections
   tests/                      raco tests; tests/private/ the harness; tests/python/ the twins
 scripts/                      gates, the GPU suite, the docs render, the binding census
@@ -283,9 +283,9 @@ plans/scoping-plan.md         the approved plan (revision 5), as Markdown
 
 ### Racket (`raft/`)
 
-- `main.rkt` re-exports `core.rkt`, which defines `device-count`,
-  `raft-version` and `raft-abi` and re-exports `private/resources.rkt` and
-  `exn:fail:raft`.
+- `main.rkt` re-exports `core.rkt`, which defines `device-count` and
+  `raft-version` and re-exports `private/abi.rkt` (`raft-abi` with its
+  predicate and accessors), `private/resources.rkt` and `exn:fail:raft`.
 - `private/exn.rkt` also defines `raise-raft` (`who kind format arg ...`),
   the one place an `exn:fail:raft` is built.
 - `private/resources.rkt`: the `device-resources` struct (with
@@ -593,9 +593,20 @@ the binding census), `racket-review`, `racket-version` (at least 9.3),
   import `libraft`/`librmm` only if installed; the twins omit them and patch
   the extensions against `packages.rapids` instead, so both sides load the
   same `libraft.so` and `librmm.so`.
-- **The ABI tag is a hash** in Racket (`raft-abi`) and `rr_abi_tag` in C:
+- **The ABI tag is a struct** in Racket (`raft-abi`) and `rr_abi_tag` in C:
   tag version, RAFT, RMM and CCCL versions, CUDA runtime,
-  `sizeof(raft::handle_t)` and the resource-type count.
+  `sizeof(raft::handle_t)` and the resource-type count. The Racket struct is
+  transparent (`equal?`, `struct-copy raft-abi`) with a `prop:custom-write`
+  printer; its fields are `version`, `raft`, `rmm`, `cccl`, `cuda-runtime`,
+  `resource-types` and `handle-size`, read by `raft-abi-version` (not
+  `raft-abi-abi-version`), `raft-abi-raft` and so on, with `raft-abi?`. The
+  name `raft-abi` is one compile-time binding (`private/abi.rkt`) that is the
+  query in an expression, a keyword match pattern (`(raft-abi #:raft r)`;
+  every keyword optional, unnamed fields ignored, an unknown keyword a syntax
+  error listing the fields) and the struct's static info for `struct-copy`;
+  the `struct` form itself binds its info to `raft-abi-struct` and its
+  constructor to `make-raft-abi`, neither exported (owner-approved design,
+  replacing the hash).
 - **Errors carry a kind** (a field of `exn:fail:raft`, not a subtype).
 
 ## Decisions recorded in L1a

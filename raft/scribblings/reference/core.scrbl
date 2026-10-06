@@ -340,32 +340,44 @@ Refusing to start on another release:
 (eval:error (require-raft-release! "26.10.00"))
 ]}
 
-@defproc[(raft-abi) hash?]{
+@defproc[(raft-abi) raft-abi?]{
 
-Returns the ABI tag of the native library: an immutable hash of what a second
-native library, such as a cuML binding, must match to share RAFT handles and
-arrays with it. Such a library records the tag it was built against and
-compares it at load time.
-
-@tabular[#:sep @hspace[2]
-         #:style 'boxed
-         #:row-properties '(bottom-border ())
- (list (list @bold{Key} @bold{Value})
-       (list @racket['abi-version]
-             @elem{the version of the tag itself, an exact integer; it changes
-                   whenever a change to the native interface would break a
-                   library built against the previous one})
-       (list @racket['raft] @elem{the RAFT release, as @racket[raft-version] returns it})
-       (list @racket['rmm] "the RMM release, in the same form")
-       (list @racket['cccl] @elem{the CCCL release, for example @racket["3.4.3"]})
-       (list @racket['cuda-runtime]
-             "the CUDA runtime the native library was compiled with, major.minor")
-       (list @racket['handle-size] @elem{@tt{sizeof(raft::handle_t)}, in bytes})
-       (list @racket['resource-types]
-             "the number of resource kinds a RAFT handle can hold"))]
+Returns the ABI tag of the native library: what a second native library, such
+as a cuML binding, must match to share RAFT handles and arrays with it. Such a
+library records the tag it was built against and compares it at load time.
 
 @examples[#:eval ev
 (raft-abi)
+]
+
+In a @racket[match] pattern, @racket[raft-abi] takes the tag's fields by
+keyword. Every keyword is optional and fields not named are ignored; an
+unknown keyword is a syntax error.
+
+@racketgrammar*[#:literals (raft-abi)
+                [abi-pattern (raft-abi field-pattern ...)]
+                [field-pattern (code:line #:version pat)
+                               (code:line #:raft pat)
+                               (code:line #:rmm pat)
+                               (code:line #:cccl pat)
+                               (code:line #:cuda-runtime pat)
+                               (code:line #:resource-types pat)
+                               (code:line #:handle-size pat)]]
+
+@examples[#:eval ev #:label #f
+(match-define (raft-abi #:raft raft #:cuda-runtime cuda-runtime) (raft-abi))
+(list raft cuda-runtime)
+]
+
+A program tested on one release can say so on another:
+
+@examples[#:eval ev #:label #f
+(define (support-status abi)
+  (match abi
+    [(raft-abi #:raft "26.08.00") 'supported]
+    [(raft-abi #:raft other) (list 'untested other)]))
+(support-status (raft-abi))
+(support-status (struct-copy raft-abi (raft-abi) [raft "26.10.00"]))
 ]
 
 Checking a recorded tag: a match, a different RAFT release, and a handle
@@ -373,18 +385,58 @@ layout change a version check would miss:
 
 @examples[#:eval ev #:label #f
 (define (abi-mismatches built-against)
-  (for/list ([(key value) (in-hash built-against)]
-             #:unless (equal? value (hash-ref (raft-abi) key #f)))
-    key))
+  (for/list ([field (in-list (list raft-abi-version raft-abi-raft raft-abi-rmm
+                                   raft-abi-cccl raft-abi-handle-size))]
+             [name (in-list '(version raft rmm cccl handle-size))]
+             #:unless (equal? (field built-against) (field (raft-abi))))
+    name))
 (abi-mismatches (raft-abi))
-(abi-mismatches (hash-set (raft-abi) 'raft "26.10.00"))
-(abi-mismatches (hash-update (raft-abi) 'handle-size add1))
+(abi-mismatches (struct-copy raft-abi (raft-abi) [raft "26.10.00"]))
+(abi-mismatches (struct-copy raft-abi (raft-abi) [handle-size 40]))
 ]
 
 A one-line support report:
 
 @examples[#:eval ev #:label #f
-(string-join (for/list ([key (in-list '(raft rmm cccl cuda-runtime))])
-               (~a key "=" (hash-ref (raft-abi) key)))
-             " ")
+(match-let ([(raft-abi #:raft raft #:rmm rmm #:cccl cccl) (raft-abi)])
+  (format "raft=~a rmm=~a cccl=~a" raft rmm cccl))
+]}
+
+@deftogether[(@defproc[(raft-abi? [v any/c]) boolean?]
+              @defproc[(raft-abi-version [abi raft-abi?]) exact-nonnegative-integer?]
+              @defproc[(raft-abi-raft [abi raft-abi?]) string?]
+              @defproc[(raft-abi-rmm [abi raft-abi?]) string?]
+              @defproc[(raft-abi-cccl [abi raft-abi?]) string?]
+              @defproc[(raft-abi-cuda-runtime [abi raft-abi?]) string?]
+              @defproc[(raft-abi-resource-types [abi raft-abi?]) exact-nonnegative-integer?]
+              @defproc[(raft-abi-handle-size [abi raft-abi?]) exact-positive-integer?])]{
+
+The predicate and the fields of an ABI tag, a transparent structure:
+@racket[equal?] compares tags field by field, and
+@racket[(struct-copy raft-abi abi [field value] ...)] makes a changed copy.
+
+@tabular[#:sep @hspace[2]
+         #:style 'boxed
+         #:row-properties '(bottom-border ())
+ (list (list @bold{Field} @bold{Value})
+       (list @racket[version]
+             @elem{the version of the tag itself; it changes whenever a change
+                   to the native interface would break a library built against
+                   the previous one})
+       (list @racket[raft] @elem{the RAFT release, as @racket[raft-version] returns it})
+       (list @racket[rmm] "the RMM release, in the same form")
+       (list @racket[cccl] @elem{the CCCL release, for example @racket["3.4.3"]})
+       (list @racket[cuda-runtime]
+             "the CUDA runtime the native library was compiled with, major.minor")
+       (list @racket[resource-types]
+             "the number of resource kinds a RAFT handle can hold")
+       (list @racket[handle-size] @elem{@tt{sizeof(raft::handle_t)}, in bytes}))]
+
+@examples[#:eval ev
+(define abi (raft-abi))
+(raft-abi? abi)
+(raft-abi-version abi)
+(raft-abi-cuda-runtime abi)
+(equal? abi (raft-abi))
+(equal? abi (struct-copy raft-abi abi [rmm "26.10.00"]))
 ]}
