@@ -72,38 +72,3 @@ arrive with the rest of the core module.
 
 Every Racket example is evaluated when the manual is built, on the GPU, and a
 test pins what each one shows.
-
-@section[#:tag "gs-license"]{License}
-
-This package is distributed under @bold{Apache-2.0} (see @tt{LICENSE} at the
-root of the repository). The repository holds only its own code and does not
-redistribute what it builds on.
-
-@itemlist[
-  @item{RAFT and RMM, from NVIDIA's RAPIDS wheels on PyPI, and
-        @tt{rapids-logger}, which they use: Apache-2.0.}
-  @item{CCCL (Thrust, CUB and libcu++), whose headers come inside the RAFT
-        wheel: Apache-2.0, libcu++ with LLVM exceptions, with some parts
-        under other permissive licences.}
-  @item{The CUDA toolkit and libraries (the runtime, cuBLAS, cuSOLVER,
-        cuSPARSE and the rest): NVIDIA's CUDA Toolkit End User
-        License Agreement, which is not an open-source licence.}
-]
-
-@section[#:tag "gs-acknowledgements"]{Acknowledgements}
-
-This library is a thin layer over the work of NVIDIA's RAPIDS teams: RAFT,
-RMM, cuML and cuVS. Its tests check results against @tt{pylibraft} and
-CuPy.
-
-@section[#:tag "gs-ai-disclosure"]{AI disclosure}
-
-This package was built with substantial help from AI coding agents. Claude, by
-Anthropic, running in Claude Code, wrote most of the code, the tests and this
-manual under the maintainer's direction, and most commits in the repository's
-history credit Claude as a co-author.
-
-Every change goes through a pull request, reviewed by independent AI reviewer
-agents, and the maintainer decides what is merged. The numbers do not rest
-on the agents' word: automated tests check them against @tt{pylibraft} and
-CuPy built from the same RAPIDS release.
