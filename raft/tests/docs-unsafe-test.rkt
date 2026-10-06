@@ -39,6 +39,8 @@
                   layout
                   list*->device-matrix
                   raft-abi
+                  raft-abi-handle-size
+                  raft-abi-version
                   shape
                   with-device-resources)
          (only-in "../unsafe.rkt"
@@ -140,18 +142,18 @@
 (test-canary "unsafe reference: the ABI tag"
   (define check (status-checker kc-last-error kc-last-error-kind))
   (check-true (cpointer? (raft-abi-pointer)))
-  (check-equal? (ptr-ref (raft-abi-pointer) _int32 0) (hash-ref (raft-abi) 'abi-version))
+  (check-equal? (ptr-ref (raft-abi-pointer) _int32 0) (raft-abi-version (raft-abi)))
   (check-equal? (ptr-ref (raft-abi-pointer) _int32 0) 1)
   (check-raft-error
    'logic
    "kmeans-canary: RAFT: built against 26.08.00, but libraftrkt has 26.10.00; build both against the same rapids package set"
    (lambda () (check 'kmeans-canary (lambda () (kc-check-abi (forged-tag _int32 2 10))))))
-  (define bigger-handle (add1 (hash-ref (raft-abi) 'handle-size)))
+  (define bigger-handle (add1 (raft-abi-handle-size (raft-abi))))
   (check-raft-error
    'logic
    (format
     "kmeans-canary: raft::handle_t size: built against ~a, but libraftrkt has ~a; build both against the same rapids package set"
-    (hash-ref (raft-abi) 'handle-size)
+    (raft-abi-handle-size (raft-abi))
     bigger-handle)
    (lambda () (check 'kmeans-canary (lambda () (kc-check-abi (forged-tag _int64 6 bigger-handle)))))))
 
@@ -251,4 +253,4 @@
   (kmeans-fit X #:n-clusters 3 #:seed 42)
   (define-values (after peak _reserved-after) (canary-pool-bytes))
   (check-equal? (list (> peak in-use) (> peak after)) '(#t #t))
-  (check-equal? (hash-ref (raft-abi) 'abi-version) 1))
+  (check-equal? (raft-abi-version (raft-abi)) 1))

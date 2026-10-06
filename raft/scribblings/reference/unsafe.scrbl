@@ -116,7 +116,7 @@ With @racket[#:exn], a package raises its own subtype of
 @defproc[(raft-abi-pointer) cpointer?]{
 
 Returns a pointer to @tt{libraftrkt}'s @tt{rr_abi_tag} in static storage,
-the struct @racket[raft-abi] reads: the tag's version (the first field), the
+the C struct that @racket[raft-abi] reads: the tag's version (the first field), the
 RAFT, RMM, CCCL and CUDA runtime releases, the size of @tt{raft::handle_t}
 and the number of RAFT resource types. A downstream library passes it to its
 native code at load, which compares it with the tag of the headers it was
@@ -125,7 +125,7 @@ compiled against (@tt{raftrkt::require_abi}).
 @examples[#:eval ev
 (raft-abi-pointer)
 (ptr-ref (raft-abi-pointer) _int32 0)
-(hash-ref (raft-abi) 'abi-version)
+(raft-abi-version (raft-abi))
 ]
 
 The canary's load check returns nothing when the headers match:
@@ -145,7 +145,7 @@ handle of another size (the seventh @tt{int64} slot):
   (ptr-set! tag type index value)
   tag)
 (eval:error (check 'kmeans-canary (lambda () (kc-check-abi (forged-tag _int32 2 10)))))
-(define bigger-handle (add1 (hash-ref (raft-abi) 'handle-size)))
+(define bigger-handle (add1 (raft-abi-handle-size (raft-abi))))
 (eval:error
  (check 'kmeans-canary (lambda () (kc-check-abi (forged-tag _int64 6 bigger-handle)))))
 ]}

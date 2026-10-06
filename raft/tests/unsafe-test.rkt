@@ -20,6 +20,8 @@
                   exn:fail:raft-kind
                   list*->device-matrix
                   raft-abi
+                  raft-abi-handle-size
+                  raft-abi-version
                   with-device-resources)
          (only-in "../private/array.rkt" release-array!)
          (only-in "../private/foreign/array.rkt"
@@ -46,8 +48,8 @@
   (check-pred cpointer? tag)
   (check-true (ptr-equal? tag (raft-abi-pointer)))
   (define abi (raft-abi))
-  (check-equal? (ptr-ref tag _int32 0) (hash-ref abi 'abi-version))
-  (check-equal? (ptr-ref tag _int64 6) (hash-ref abi 'handle-size)))
+  (check-equal? (ptr-ref tag _int32 0) (raft-abi-version abi))
+  (check-equal? (ptr-ref tag _int64 6) (raft-abi-handle-size abi)))
 
 (test-gpu "resources->handle-pointer answers the same handle for the same resources"
   (define r (device-resources))
