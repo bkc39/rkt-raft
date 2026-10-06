@@ -11,8 +11,13 @@ It needs Linux, an NVIDIA GPU and Racket 9.3 (@secref["getting-started"]).
 The manual has two parts: the @secref["guide"] works through the library by
 example, and the @secref["reference"] documents every exported name.
 
-The package's @secref["gs-license"], @secref["gs-acknowledgements"] and
-@secref["gs-ai-disclosure"] are at the end of @secref["getting-started"].
+@bold{License.} This package is distributed under @bold{Apache-2.0}.
+
+@bold{Acknowledgements.} RAFT and the libraries it builds on are the work of
+NVIDIA's RAPIDS teams.
+
+@bold{AI Disclosure.} This package and its documentation were created with the
+use of AI tools.
 
 @local-table-of-contents[]
 
