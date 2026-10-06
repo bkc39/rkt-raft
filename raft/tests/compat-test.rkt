@@ -246,12 +246,11 @@
   (check-raft-error 'logic
                     "array->device-array: 1e+300 does not fit float32"
                     (lambda () (array->device-array (flarray #[1.0 1e300]) #:dtype 'float32)))
-  (check-raft-error 'logic
-                    "array->device-array: 1e+300 does not fit float32"
-                    (lambda ()
-                      (array->device-array (flarray #[#[1.0] #[1e300]])
-                                           #:dtype 'float32
-                                           #:layout 'col-major)))
+  (check-raft-error
+   'logic
+   "array->device-array: 1e+300 does not fit float32"
+   (lambda ()
+     (array->device-array (flarray #[#[1.0] #[1e300]]) #:dtype 'float32 #:layout 'col-major)))
   (check-raft-error 'logic
                     "matrix->device-matrix: 1e+300 does not fit float32"
                     (lambda () (matrix->device-matrix (matrix [[1e300 2.0]]) #:dtype 'float32)))

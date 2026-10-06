@@ -1,7 +1,14 @@
 #lang racket/base
 
 (require (only-in ffi/vector f32vector->list f64vector->list list->f32vector list->f64vector)
-         (only-in math/array :: array->flarray array->list* array-axis-swap array-slice-ref build-array vector->array)
+         (only-in math/array
+                  ::
+                  array->flarray
+                  array->list*
+                  array-axis-swap
+                  array-slice-ref
+                  build-array
+                  vector->array)
          (only-in racket/flonum flsingle for/flvector in-flvector)
          (only-in racket/list append*)
          (only-in racket/math exact-truncate)

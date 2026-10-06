@@ -117,7 +117,9 @@
   (let loop ([x xs]
              [depth 0])
     (match x
-      [_ #:when (not (nested? x)) depth]
+      [_
+       #:when (not (nested? x))
+       depth]
       [(or (vector) '()) (add1 depth)]
       [(or (vector head _ ...) (cons head _)) (loop head (add1 depth))])))
 

@@ -21,9 +21,8 @@
          unpack-row-major
          unpack-vector)
 
-(define-syntax-parse-rule (over-elements (loop:id prefix:expr ...)
-                                         ([x:id xs:expr] clause:expr ...)
-                                         body:expr ...+)
+(define-syntax-parse-rule (over-elements (loop:id prefix:expr ...) ([x:id xs:expr] clause:expr ...)
+                            body:expr ...+)
   (let ([elements xs])
     (cond
       [(list? elements) (loop prefix ... ([x (in-list elements)] clause ...) body ...)]

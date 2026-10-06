@@ -127,7 +127,8 @@
 (define (ms x)
   (~r x #:precision 1))
 
-(displayln "| Racket value | to device, float64 | to device, float32 | back, float64 | back, float32 |")
+(displayln
+ "| Racket value | to device, float64 | to device, float32 | back, float64 | back, float32 |")
 (displayln "|---|---:|---:|---:|---:|")
 (for ([r (in-list table)])
   (match-define (cons name times) r)
