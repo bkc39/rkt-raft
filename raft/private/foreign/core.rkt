@@ -10,7 +10,7 @@
                   _ptr
                   _string/utf-8
                   define-cstruct)
-         (only-in "library.rkt" _rr-resources _rr-resources/null define-raft)
+         (only-in "library.rkt" _raft-handle/null _rr-resources _rr-resources/null define-raft)
          (only-in "memory.rkt" resources-allocator))
 
 (provide rr-abi
@@ -19,6 +19,7 @@
          rr-last-error
          rr-last-error-kind
          rr-resources-create
+         rr-resources-handle
          rr-resources-sync
          rr-version)
 
@@ -54,3 +55,6 @@
   #:wrap resources-allocator)
 
 (define-raft rr-resources-sync (_fun _rr-resources -> (status : _int) -> (zero? status)))
+
+(define-raft rr-resources-handle
+  (_fun _rr-resources (out : (_ptr o _raft-handle/null)) -> (status : _int) -> (and (zero? status) out)))

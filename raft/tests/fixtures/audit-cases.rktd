@@ -17,6 +17,13 @@
              ("m: the signature is not a literal _fun"))
             ((define-raft n (_fun _rr-buffer _pointer _size -> _int))
              ("n takes a bare _pointer"))
+            ((define-raft p
+               (_fun _rr-resources (out : (_ptr o _raft-handle/null)) -> (status : _int) -> (and (zero? status) out))
+               #:wrap resources-allocator)
+             ("p returns the borrowed _raft-handle/null with #:wrap resources-allocator"))
+            ((define-raft q
+               (_fun _rr-resources (out : (_ptr o _raft-handle/null)) -> (status : _int) -> (and (zero? status) out)))
+             ())
             ((define-raft ok
                (_fun (out : (_ptr o _rr-buffer/null)) -> (status : _int) -> (and (zero? status) out))
                #:wrap buffer-allocator)

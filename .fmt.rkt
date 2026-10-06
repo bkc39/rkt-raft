@@ -95,7 +95,8 @@
     [("define-raft") (format-define-like)]
     [("define-cstruct") (format-uniform-body/helper 1 #:body-formatter format-binding-pairs/indirect)]
     [("define-pretty" "generator") (format-uniform-body/helper 1)]
-    [("test-gpu" "test-pools" "test-probe" "test-twin" "test-without-gpu" "with-device-resources")
+    [("test-canary" "test-gpu" "test-pools" "test-probe" "test-twin" "test-without-gpu"
+      "with-array-views" "with-device-resources")
      (format-body-form 1)]
     [("with-release") format-with-release]
     [("test-unless-skipped") (format-body-form 2)]
