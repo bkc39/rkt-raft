@@ -4,10 +4,11 @@ set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
 allowed=raft/private/resource.rkt
+non_moving=raft/private/foreign/host.rkt
 pattern='\((malloc|free)([[:space:]]|\)|$)'
 
 hits=$(grep -rnE --include='*.rkt' --include='*.scrbl' "$pattern" lint raft scripts |
-  grep -v "^$allowed:" || true)
+  grep -v -e "^$allowed:" -e "^$non_moving:" || true)
 
 if [ -n "$hits" ]; then
   while IFS=: read -r file line _; do
@@ -19,4 +20,4 @@ if [ -n "$hits" ]; then
   done <<<"$hits"
   exit 1
 fi
-echo "no-raw-malloc: none outside $allowed"
+echo "no-raw-malloc: none outside $allowed and $non_moving"

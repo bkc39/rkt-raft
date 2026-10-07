@@ -27,6 +27,11 @@ Parity, §10 Build and §12 Starting cuML work before changing the design.
   `device-resources`, `device-resources?`, `resources-device`,
   `resources-sync!`, `current-device-resources`, `with-device-resources`,
   `device-count` and `exn:fail:raft`, and the default async memory resource.
+  Leg L1b (#4) landed `raft/array`: `device-matrix`, `device-vector`, the
+  predicates, `shape`, `dtype`, `layout`, `strides`, `numel`, `contiguous`,
+  printing, phantom bytes, and the list, nested-list and flvector
+  conversions; in the shim, the `rr_view` descriptor, the dtype and op
+  tables, the dispatch macros and the first kernels.
 
 ## Layout
 
@@ -41,12 +46,16 @@ lint/                         raft-lint: the raco review extension for the test 
 shim/                         libraftrkt: C++20 over RAFT's headers (CMake, g++; nvcc for .cu)
   include/raftrkt/            C headers: core.h memory.h array.h, umbrella c_api.h
   src/{core,array,detail}/    host C++ (.cpp); a .cu only for code that launches kernels
+  src/detail/dtypes.def       the dtypes: name, C++ type, code
+  src/array/ops.def           what the array module instantiates, per op
   tests/                      gtest; GPU cases print SKIP without a device
   tests/probe/                libraftrkt_probe, a second RMM user for the tests
 raft/                         the Racket package and collection
   main.rkt core.rkt           the public surface
   private/foreign/*.rkt       FFI bindings, one module per shim header
+  array.rkt                   raft/array, re-exported by main.rkt
   private/{abi,error,resource,resources,install-native}.rkt
+  private/{array,dtype,pack,print}.rkt   arrays over buffers, the tables, packing, printing
   scribblings/                the manual: guide/ chapters, reference/ sections
   tests/                      raco tests; tests/private/ the harness; tests/python/ the twins
 scripts/                      gates, the GPU suite, the docs render, the binding census
@@ -110,8 +119,10 @@ plans/scoping-plan.md         the approved plan (revision 5), as Markdown
    generator resume, a re-entered continuation) raises `exn:fail:raft`
    (kind `'logic`) instead of acquiring again. A public form passes its own name as `#:who`
    (`with-device-resources`), which prefixes that message; without it the
-   message names nothing internal. No raw `malloc`/`free` outside that module:
-   `scripts/no-raw-malloc.sh` gates it.
+   message names nothing internal. No raw `malloc`/`free` outside that module
+   and `raft/private/foreign/host.rkt`, which allocates the non-moving host
+   staging memory (`'atomic-interior`, owned by the GC, so it has no free and
+   nothing to scope): `scripts/no-raw-malloc.sh` gates it.
 8. **Imports and size.** `(only-in …)` with alphabetised names, collection
    requires before relative ones (raco review enforces the order). Exempt,
    with a comment at the require: pure re-export facades (`main.rkt`, marked
@@ -136,11 +147,14 @@ plans/scoping-plan.md         the approved plan (revision 5), as Markdown
      enforces all of this, including that each allocator releases its own
      handle type through `release-once`; a new handle type needs an entry
      there.
-   - A host buffer crosses with its own length: the copy bindings take an
-     `f64vector` and compute the byte count from it, so a copy cannot run past
-     the host side; the shim checks the device side. A raw `_pointer` plus a
-     caller-chosen size is not allowed for host memory. The vector lives in
-     the GC heap, so these calls must stay non-blocking.
+   - A host buffer crosses with its own length: the copy bindings take
+     `_host` (`foreign/host.rkt`), an `flvector` or host memory the library
+     allocated and sized itself, and compute the byte count from it, so a
+     copy cannot run past the host side; the shim checks the device side. A
+     raw `_pointer` plus a caller-chosen size is not allowed for host memory,
+     and neither is an `f64vector`, whose length `ffi/vector`'s
+     `s:f64vector` struct can forge. An flvector lives in the GC heap, so
+     these calls must stay non-blocking.
    - A fallible binding answers its result (or `#t`) on success and `#f` on
      failure, from the `_fun` result expression. The caller wraps it in
      `call/raft` (`raft/private/error.rkt`), which makes the call and reads
@@ -177,7 +191,8 @@ plans/scoping-plan.md         the approved plan (revision 5), as Markdown
 14. **Every doc example is a test** (rkt-polars #152): the behaviour each
     manual example shows is pinned in `raft/tests/docs-*test.rkt`
     (`docs-test.rkt` for leg 0's pages, `docs-core-test.rkt` for
-    `raft/core`'s reference and the *Resources and the GPU* chapter).
+    `raft/core`'s reference and the *Resources and the GPU* chapter,
+    `docs-array-test.rkt` for `raft/array`'s and *Device arrays*).
 15. **Every review finding is addressed**, from reviewer agents and from bots
     (`chatgpt-codex-connector[bot]` leaves inline comments): fixed with a
     test, or explained with evidence. No silent deferrals.
@@ -216,6 +231,55 @@ plans/scoping-plan.md         the approved plan (revision 5), as Markdown
   interface L1d freezes; L2's stream API (`rr_stream_query`) may replace
   the first.
   `rr_resources_sync` blocks and stays for C callers and the gtests.
+- **Arrays.** The public `array.h` holds what a downstream shim needs:
+  `rr_view` (`RR_MAX_RANK` 8; `data` already offset; strides in elements;
+  152 bytes, pinned by `_Static_assert`s and the Racket mirror's size test),
+  the `RR_DTYPE_*` and `RR_MEMORY_*` codes (memory in `raft::memory_type`'s
+  order), and `rr_buffer_view(buffer, offset, view)`, the one way to get a
+  bound view: the caller fills `dtype`, `rank`, `shape` and `strides`; the
+  shim validates them against the buffer (`rr::bind`) and fills `data`
+  (base plus offset), `device` and `memory`. `data` is valid only while the
+  buffer lives and only for work ordered on the buffer's stream; the header
+  says so at the declaration. The entry points only raft's Racket uses are
+  internal:
+  `rr_dtype_table` and `rr_op_table` in `internal_api.h`, and
+  `rr_array_create`, `rr_array_contiguous`, `rr_buffer_ready`,
+  `rr_buffer_read` and `rr_buffer_write` in `src/detail/array_api.h`
+  (bound in `private/foreign/array-api.rkt`).
+- **One table per fact.** `src/detail/dtypes.def` lists the dtypes and
+  `src/array/ops.def` each op's dtypes and layouts (a module adds its own
+  `ops.def` beside its sources). `detail/dtype.hpp` and `detail/dispatch.hpp`
+  build the tables from them; `RR_DISPATCH_DTYPE(op, code, T, body)` and
+  `RR_DISPATCH_LAYOUT(op, layout, L, body)` instantiate the body only for
+  what the op's entry lists and refuse anything else, naming the op
+  (`unsupported dtype int32 for gemm`, `unsupported layout col-major for
+  gemm`). Racket reads the tables at load
+  (`private/dtype.rkt`). The dtype codes are the table's order; a test
+  round-trips each.
+- **Views are validated against their buffer.** Racket passes a view's
+  dtype, rank, shape and strides with the buffer and a byte offset;
+  `rr::bind` (`detail/view.cpp`) checks the dtype, the rank, non-negative
+  extents and strides, the offset's alignment and that the span the strides
+  reach fits the buffer, then fills `data`, `device` and `memory`. Names
+  (`dtype`, `layout`) cross as strings and the shim refuses unknown ones,
+  so an unsupported dtype or layout is refused there, not in Racket.
+  Strides are NumPy's, in elements: all zero for an array with no
+  elements. As in NumPy, an axis of extent 1 does not constrain the layout,
+  so a vector, a matrix with one row or one column, and an empty matrix are
+  in both layouts and reported row-major (pylibraft's `c_contiguous`); the
+  twin pins it.
+- **contiguous** is `raft::copy` (`raft/core/copy.cuh`) between a row-major
+  and a col-major `device_matrix_view`: cuBLAS `geam` for float32 and
+  float64 (the path `raft::linalg::transpose` takes) and RAFT's
+  `mdspan_copy_kernel` for int32 and int64, which `linalg::transpose` does
+  not accept (it is `enable_if`'d to floating point). The result is
+  allocated on the source buffer's owner handle, so the copy, the result's
+  free and the source's free share one stream. cuBLAS takes `int` extents,
+  so extents beyond 2^31-1 are refused. `src/array/copy.cu` holds only the
+  16 explicit instantiations (4 dtypes x 2 x 2 layouts), driven by
+  `dtypes.def` with a `static_assert` against `ops.def`; validation and
+  dispatch are in `array.cpp`, which clang-tidy reads. cuBLAS is linked
+  explicitly (`CUDA::cublas`).
 - **The default memory resource.** `rr_resources_create` calls
   `rr::install_default_memory_resource` (`src/core/memory_resource.cpp`)
   before it builds the handle, so RAFT's workspace factories see the pool.
@@ -285,7 +349,21 @@ plans/scoping-plan.md         the approved plan (revision 5), as Markdown
 
 - `main.rkt` re-exports `core.rkt`, which defines `device-count` and
   `raft-version` and re-exports `private/abi.rkt` (`raft-abi` with its
-  predicate and accessors), `private/resources.rkt` and `exn:fail:raft`.
+  predicate and accessors), `private/resources.rkt` and `exn:fail:raft`, and
+  `array.rkt`, the public `raft/array`.
+- `private/array.rkt`: a `buffer` (native handle, device, byte size, and
+  phantom bytes of exactly that size) and the `device-array` over it
+  (offset, shape, strides, dtype, memory). Only the handle has a finalizer.
+  Reads and writes first poll the buffer's stream (`rr_buffer_ready` over
+  `in-backoff`, as `resources-sync!` does), then copy on that stream.
+- `private/pack.rkt`, which L1c reuses: dtype inference, `matrix-shape` (a
+  ragged row raises `exn:fail:raft` naming the row), packing into host
+  memory by the array's strides (bounded by its shape, so it cannot write
+  past the memory), unpacking. `private/print.rkt`: the printed form.
+- `private/foreign/host.rkt` keeps the FFI's host side in one place: the
+  `_host` type, `host-memory`, and element access by dtype. Every FFI detail
+  (pointer types, the `rr_view` cstruct, flvector passing) stays under
+  `private/foreign/` for the planned port to `ffi2` (#15).
 - `private/exn.rkt` also defines `raise-raft` (`who kind format arg ...`),
   the one place an `exn:fail:raft` is built.
 - `private/resources.rkt`: the `device-resources` struct (with
@@ -307,8 +385,8 @@ plans/scoping-plan.md         the approved plan (revision 5), as Markdown
   raise it. `private/error.rkt`: `call/raft`, re-exporting the exception. A
   released handle's cpointer type refuses it with `exn:fail:raft` (kind
   `'logic`) before the call, named by the public noun:
-  `device-resources: used after its release`, and, provisionally until L1b
-  settles its names (#16), `buffer: used after its release`.
+  `device-resources: used after its release` and
+  `device-array: used after its release` (#16).
   `private/resource.rkt`: `with-release`. `private/install-native.rkt`: the
   pre-install hook, honouring `RAFT_NATIVE_LIB_PATH` (a directory whose
   `lib/` holds `libraftrkt.so`).
@@ -544,8 +622,10 @@ the binding census), `racket-review`, `racket-version` (at least 9.3),
   `@status` markers or future-work references (no "arrives later", no
   forward issue links). Each leg's manual describes that leg's library as
   complete and never mentions what an upper leg adds.
-- `render-docs.sh` ignores the lab host's `Fontconfig warning:` cache-version
-  line, which Scribble prints when it draws an image.
+- **Concepts' lifetime figure is a pict** (`guide/lifetime-diagram.rkt`,
+  `pict-lib` a build dependency), rendered to an image by Scribble.
+  `render-docs.sh` ignores the lab host's `Fontconfig warning:` cache-version
+  line that drawing it prints.
 - **The owner reviews each leg's docs.** Every leg adds its own guide chapter
   and reference section. A guide chapter is a tutorial on realistic client
   code, evaluated live.
@@ -648,3 +728,69 @@ the binding census), `racket-review`, `racket-version` (at least 9.3),
   changes when a change would break a library built against the previous
   one, and L1d freezes the downstream interface.
 
+## Decisions recorded in L1b
+
+- **`numel`** is the element count, as rktorch names it, so the shared array
+  protocol (#8) has one name; NumPy's `size` is mentioned in the manual.
+- **Defaults.** `device-matrix` and `device-vector` make `float32`,
+  row-major, as `device_ndarray.empty` does. `contiguous`'s `#:layout`
+  defaults to `'row-major`, as `np.ascontiguousarray`; `'col-major` is
+  `np.asfortranarray`. Conversions infer as NumPy (an empty list gives
+  float64) and integer dtypes truncate toward zero, as NumPy's casts do.
+- **No Racket argument checks** (rule 3): an unknown dtype or layout name
+  or a negative extent is refused by the shim. What the conversions refuse
+  is data they cannot convert, not argument kinds: a ragged row (the leg
+  brief requires the row to be named; the packer is bounded by the shape,
+  so a ragged row could not overrun memory, but it would silently drop or
+  leave uninitialised elements), a value the element type cannot hold (a
+  complex number, an infinity or NaN for an integer type, an integer out of
+  range), and data with no inferable dtype. Each raises `exn:fail:raft`
+  naming the public procedure. Wrong-kind arguments (a matrix where a
+  vector goes, a string for a list) may surface Racket's own errors until
+  the contracts leg.
+- **Reads and writes poll** the buffer's stream before copying, so the GC
+  and other threads are not held up by queued GPU work, as in L1a. The copy
+  itself is a second, non-blocking call that ends in
+  `cudaStreamSynchronize`: work another Racket thread queues on the same
+  stream between the poll and the copy is waited for inside it, holding up
+  the place. Safe, and rare; L3's stream rule revisits it.
+- **Printing** follows NumPy's summarising (threshold 1000 elements, three
+  edge items) and prints float32 as its shortest round-tripping decimal;
+  it reads only the elements it shows.
+- **`rr_view` has no reserved or flags word.** Versions move in lockstep:
+  a downstream shim compiles against identical headers and compares
+  `rr_abi` at load, so forward compatibility is not a goal, and any change
+  to the struct bumps the ABI tag and the canary. A reserved field older
+  readers ignore would invite exactly the silent misreading the ABI check
+  exists to prevent. DLPack mapping (#8) is a separate struct, not a field.
+- **Bound views come from `rr_buffer_view`**, public in `array.h`, rather
+  than a frozen (buffer, offset, descriptor) triple: a downstream shim
+  receives ready `rr_view`s, and the binding is validated in one place.
+  Racket's `bound-view` (`private/array.rkt`) calls it; L1d's
+  `with-array-views` will. A refused call leaves `data` NULL and `device`
+  and `memory` -1, so a reused view never pairs an old pointer with an
+  unvalidated shape.
+- **The stream rule for L1d.** A downstream shim cannot learn a buffer's
+  stream from an `rr_view`; only raft's own handle knows it. So L1d must
+  run a downstream op on the resources the arrays were allocated with (or
+  synchronise those arrays' streams before handing them to work on another
+  stream), and `with-array-views` must keep every array reachable for the
+  whole native call, since its finalizer frees the memory on its own
+  stream. An internal stream accessor is not added in L1b: nothing reads
+  it yet, and L3's cross-stream rule (recorded events) is where one
+  belongs.
+- **`contiguous?`** is the public layout predicate (NumPy's
+  `flags.c_contiguous`/`f_contiguous`); `layout` answers one symbol and
+  says `'row-major` for an array in both layouts.
+- **Printing never raises.** A released array prints `<released>`; a read
+  that fails prints `<values unavailable: ...>`, so an error message that
+  shows an array (`raise-argument-error`, rackunit) keeps its own error.
+- **A finite value that overflows a float type is refused** (`1e300` into
+  float32, `10^400` into float64), as integer overflow is, where NumPy
+  stores an infinity (float32 narrowing) or raises (`OverflowError` for
+  `10**400`). Infinities and NaN pass into float types.
+- **The released-buffer noun is `device-array`** (#16): the public
+  predicate is `device-array?`. No public procedure releases a buffer in
+  L1b, so only internal code can reach it.
+- **L0's copies** (`rr_copy_h2d`, `rr_copy_d2h`) stay in the public header
+  for C callers and tests; Racket binds them with `_host`.

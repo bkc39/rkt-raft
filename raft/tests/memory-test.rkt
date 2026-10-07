@@ -1,6 +1,6 @@
 #lang racket/base
 
-(require (only-in ffi/vector f64vector f64vector->list)
+(require (only-in racket/flonum flvector in-flvector)
          (only-in rackunit check-equal? check-exn check-pred check-true)
          (only-in "../private/error.rkt" exn:fail:raft-kind exn:fail:raft?)
          (only-in "../private/foreign/memory.rkt"
@@ -44,9 +44,11 @@
 (test-gpu "a buffer keeps its stream alive after its resources are freed"
   (define resources (new-resources))
   (with-release ([buffer (new-buffer resources 16) rr-buffer-free])
-    (copy-in! buffer (f64vector 2.0 4.0))
+    (copy-in! buffer (flvector 2.0 4.0))
     (rr-resources-free resources)
-    (check-equal? (f64vector->list (copy-out buffer 2)) '(2.0 4.0))))
+    (check-equal? (for/list ([x (in-flvector (copy-out buffer 2))])
+                    x)
+                  '(2.0 4.0))))
 
 (test-gpu "a second release does nothing and a released handle cannot be used"
   (define resources (new-resources))
@@ -55,10 +57,10 @@
   (rr-buffer-free buffer)
   (rr-buffer-free buffer)
   (check-equal? (buffer-drop-count) (add1 before))
-  (define after-buffer (raised (lambda () (copy-in! buffer (f64vector 1.0)))))
+  (define after-buffer (raised (lambda () (copy-in! buffer (flvector 1.0)))))
   (check-pred exn:fail:raft? after-buffer)
   (check-equal? (exn:fail:raft-kind after-buffer) 'logic)
-  (check-equal? (exn-message after-buffer) "buffer: used after its release")
+  (check-equal? (exn-message after-buffer) "device-array: used after its release")
   (rr-resources-free resources)
   (rr-resources-free resources)
   (define after-resources (raised (lambda () (new-buffer resources 8))))
@@ -71,8 +73,10 @@
     (check-exn #rx"rr-buffer" (lambda () (rr-buffer-free resources)))
     (check-equal? (resources-drop-count) before)
     (with-release ([buffer (new-buffer resources 8) rr-buffer-free])
-      (copy-in! buffer (f64vector 1.0))
-      (check-equal? (f64vector->list (copy-out buffer 1)) '(1.0)))))
+      (copy-in! buffer (flvector 1.0))
+      (check-equal? (for/list ([x (in-flvector (copy-out buffer 1))])
+                      x)
+                    '(1.0)))))
 
 (test-gpu "with-release after an explicit release frees once"
   (with-release ([resources (new-resources) rr-resources-free])

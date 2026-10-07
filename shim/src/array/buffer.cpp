@@ -1,9 +1,12 @@
 #include <cstddef>
+#include <cstdint>
 #include <raft/core/resource/cuda_stream.hpp>
 #include <string>
 
+#include "detail/array_api.h"
 #include "detail/error.hpp"
 #include "detail/handles.hpp"
+#include "detail/view.hpp"
 #include "raftrkt/array.h"
 
 namespace {
@@ -62,6 +65,61 @@ int rr_copy_d2h(void* dst, const rr_buffer* src, size_t bytes) {
     rr::require(dst, "dst");
     require_fits(bytes, buffer.data.size());
     copy_sync(dst, buffer.data.data(), bytes, cudaMemcpyDeviceToHost, buffer);
+  });
+}
+
+int rr_buffer_view(const rr_buffer* buffer, uint64_t offset, rr_view* view) {
+  return rr::translate_exceptions([&] {
+    auto& filled = *rr::require(view, "view");
+    filled.data = nullptr;
+    filled.device = -1;
+    filled.memory = -1;
+    const rr_view bound =
+        rr::bind(*rr::require(buffer, "buffer"), offset, filled);
+    filled = bound;
+  });
+}
+
+int rr_buffer_ready(const rr_buffer* buffer, int32_t* out) {
+  return rr::translate_exceptions([&] {
+    auto& ready = *rr::require(out, "out");
+    ready = 0;
+    const auto& b = *rr::require(buffer, "buffer");
+    const rr::device_guard guard{b.device};
+    const cudaError_t status = cudaStreamQuery(b.data.stream().value());
+    if (status == cudaErrorNotReady) {
+      static_cast<void>(cudaGetLastError());
+      return;
+    }
+    rr::cuda_check(status, "cudaStreamQuery");
+    ready = 1;
+  });
+}
+
+int rr_buffer_read(const rr_buffer* src, uint64_t offset, void* dst,
+                   size_t bytes) {
+  return rr::translate_exceptions([&] {
+    const auto& buffer = *rr::require(src, "src");
+    rr::require_range(offset, bytes, buffer.data.size());
+    if (bytes == 0) {
+      return;
+    }
+    copy_sync(rr::require(dst, "dst"),
+              static_cast<const char*>(buffer.data.data()) + offset, bytes,
+              cudaMemcpyDeviceToHost, buffer);
+  });
+}
+
+int rr_buffer_write(rr_buffer* dst, uint64_t offset, const void* src,
+                    size_t bytes) {
+  return rr::translate_exceptions([&] {
+    auto& buffer = *rr::require(dst, "dst");
+    rr::require_range(offset, bytes, buffer.data.size());
+    if (bytes == 0) {
+      return;
+    }
+    copy_sync(static_cast<char*>(buffer.data.data()) + offset,
+              rr::require(src, "src"), bytes, cudaMemcpyHostToDevice, buffer);
   });
 }
 }
