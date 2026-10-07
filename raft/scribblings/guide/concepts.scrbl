@@ -57,8 +57,6 @@ arrays for exactly one native call. The finalizer stays the backstop.
 
 @section[#:tag "concepts-using"]{Using Arrays}
 
-@subsection[#:tag "concepts-using-arrays"]{Arrays}
-
 A conversion from Racket data infers the dtype, @racket['int64] for exact
 integers and @racket['float64] otherwise, unless @racket[#:dtype] names one,
 and packs it in @racket[#:layout]. An array prints its dtype, shape, layout,
@@ -98,7 +96,7 @@ vectors, @racket[f32vector]s, @racket[f64vector]s, byte strings and
 @racketmodname[math/array] arrays by the same rules (@secref["moving-data"]), and a native binding hands arrays to its C++ inside
 @racket[with-array-views] (@racketmodname[raft/unsafe], @secref["downstream"]).
 
-@subsection[#:tag "concepts-using-resources"]{Resources}
+@section[#:tag "concepts-using-resources"]{Resources}
 
 @racket[device-resources] makes resources with a stream of their own;
 @racket[current-device-resources] is the thread's default for a device, which
