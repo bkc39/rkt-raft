@@ -63,8 +63,3 @@ To see the GPU and the driver, ask the driver:
 
 Racket's @racket[device-count] and @racket[device-properties] @status{L2}
 arrive with the rest of the core module.
-
-@section[#:tag "gs-examples"]{How the examples in this manual run}
-
-Every Racket example is evaluated when the manual is built, on the GPU, and a
-test pins what each one shows.
