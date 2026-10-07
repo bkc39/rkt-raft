@@ -10,6 +10,7 @@
                   filled-rectangle
                   frame
                   hc-append
+                  ht-append
                   inset
                   lc-find
                   pict-height
@@ -62,24 +63,21 @@
         (words "GC finalizer, after the last reference:")
         (words "set the device, free on the stream")))
 
-(define left-width
-  (apply max (map pict-width (list call (hc-append 20 view-a view-b) buffer resources scoped))))
-(define right-width (max (pict-width pool) (pict-width finalizer)))
-
-(define (row left right)
-  (define height (max (pict-height left) (pict-height right)))
-  (hc-append 120
-             (cc-superimpose (blank left-width height) left)
-             (cc-superimpose (blank right-width height) right)))
-
-(define grid
+(define left-lane
   (vc-append 38
-             (row (heading "Racket heap") (heading "GPU memory"))
-             (row call (blank))
-             (row (hc-append 20 view-a view-b) (blank))
-             (row buffer pool)
-             (row resources finalizer)
-             (row scoped (blank))))
+             call
+             (hc-append 20 view-a view-b)
+             buffer
+             (ht-append 60 (vc-append 38 resources scoped) finalizer)))
+
+(define canvas
+  (ht-append 110
+             (vc-append 12 (heading "Racket heap") left-lane)
+             (vc-append 12
+                        (heading "GPU memory")
+                        (blank 0 (- (pict-height (vc-append 38 call (hc-append 20 view-a view-b))) 0))
+                        (blank 0 26)
+                        pool)))
 
 (define (arrow p from find-from to find-to note #:x [x 0] #:y [y 0])
   (pin-arrow-line 8
@@ -94,13 +92,13 @@
                   #:line-width 1.2))
 
 (define lifetime-diagram
-  (let* ([p grid]
-         [p (arrow p call cb-find view-a ct-find "returns" #:x -35)]
+  (let* ([p canvas]
+         [p (arrow p call cb-find view-a ct-find "returns" #:x -40)]
          [p (arrow p view-a cb-find buffer ct-find "")]
-         [p (arrow p view-b cb-find buffer ct-find "share" #:x 40)]
-         [p (arrow p buffer rc-find pool lc-find "allocates on r's stream" #:y -10)]
-         [p (arrow p buffer cb-find resources ct-find "keeps alive" #:x 45)]
-         [p (arrow p buffer rc-find finalizer lc-find "last reference dropped" #:y 14)]
-         [p (arrow p finalizer ct-find pool cb-find "frees in stream order" #:x 80)]
+         [p (arrow p view-b cb-find buffer ct-find "")]
+         [p (arrow p buffer rc-find pool lc-find "allocates on r's stream" #:y -12)]
+         [p (arrow p buffer cb-find resources ct-find "keeps alive" #:x -55)]
+         [p (arrow p buffer cb-find finalizer ct-find "last reference dropped" #:x 95)]
+         [p (arrow p finalizer rc-find pool cb-find "frees in stream order" #:x 85 #:y 10)]
          [p (arrow p scoped ct-find resources cb-find "")])
     (inset p 10)))
