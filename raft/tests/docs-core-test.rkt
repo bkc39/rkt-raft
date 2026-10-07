@@ -309,3 +309,14 @@
                                                   who)])
                   (resources-sync! (released-resources)))
                 "resources-sync!"))
+
+(test-gpu "concepts: making and using resources"
+  (define r (device-resources))
+  (check-equal? (printed r) "#<device-resources device 0>")
+  (check-equal? (resources-device r) 0)
+  (check-true (eq? (current-device-resources) (current-device-resources)))
+  (check-false (eq? r (current-device-resources)))
+  (check-equal? (with-device-resources ([scoped (device-resources #:device 0)])
+                  (resources-sync! scoped)
+                  (resources-device scoped))
+                0))
