@@ -8,8 +8,7 @@
 Every RAFT operation runs with a @tech{resources} object: a device, a CUDA
 @tech{stream} and the library handles it needs. This chapter builds one batch
 program around them: workers spread over the GPUs, each timing its batches on
-resources of its own, and a report of the workers that failed. Array
-operations arrive in the next chapter @status{L1b}, so here a batch only
+resources of its own, and a report of the workers that failed. A batch
 checks its rows.
 
 @section[#:tag "res-devices"]{Finding the GPU}
@@ -42,8 +41,7 @@ r
 (eq? r (current-device-resources 0))
 ]
 
-They are not the thread's default, @racket[current-device-resources], which
-array operations @status{L1b} fall back to without @racket[#:resources].
+They are not the thread's default, @racket[current-device-resources].
 Owning its resources lets a worker release them without taking the default
 from other code on its thread.
 
@@ -139,18 +137,6 @@ watches for a thread that dies without answering:
 
 The channel carries an exception back as a thunk, and calling the thunk
 re-raises it.
-
-@section[#:tag "res-memory"]{Where device memory comes from}
-
-Device memory comes from RMM, whose current memory resource is per device and
-shared by every library in the process, cuML included. The first resources
-made on a device replace RMM's default (@tt{cudaMalloc}, which synchronizes
-the device) with a stream-ordered @tt{cudaMallocAsync} pool. Choosing another
-resource from Racket arrives later @status{L2}.
-
-A resource installed by anything else is left alone, except a plain
-@tt{rmm::mr::cuda_memory_resource}, which looks like the default; see
-@secref["ref-core-memory"].
 
 @section[#:tag "res-errors"]{Reporting failed workers}
 

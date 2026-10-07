@@ -135,7 +135,7 @@ Waiting in a thread of its own:
 
 Returns the calling thread's default resources for @racket[device], creating
 them on first use, or again after they are released. Operations given no
-@racket[#:resources] @status{L1b} use it. Each Racket thread has its own, so
+@racket[#:resources] use it. Each Racket thread has its own, so
 threads never share a stream by accident.
 
 @examples[#:eval ev
@@ -171,9 +171,7 @@ before
 Binds each @racket[id] as by @racket[let*], evaluates the @racket[body]s, and
 releases every bound resources object when control leaves the form by return,
 raise or escape. Release is idempotent; re-entering the body by a
-continuation raises @racket[exn:fail:raft] of kind @racket['logic]. Arrays
-allocated with the resources @status{L1b} keep the stream and handles alive
-until the last of them is freed.
+continuation raises @racket[exn:fail:raft] of kind @racket['logic].
 
 The finalizer alone is correct: it releases unreachable resources at some
 collection. The form gives their lifetime a clear timeline, a release at a
@@ -254,8 +252,7 @@ the process. The first resources made on a device replace RMM's default
 resource, a stream-ordered @tt{cudaMallocAsync} pool. Any other resource,
 installed before or after, is left alone; a plain
 @tt{rmm::mr::cuda_memory_resource} set beforehand looks like the default and is
-replaced. A device without memory-pool support keeps the default. Choosing a
-resource from Racket arrives later @status{L2}.
+replaced. A device without memory-pool support keeps the default.
 
 @section[#:tag "ref-core-errors"]{Errors}
 
