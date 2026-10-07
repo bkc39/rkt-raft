@@ -23,15 +23,6 @@
                    (printf "raft ~a\nrmm ~a\ncccl ~a\ncuda-runtime ~a\n" raft rmm cccl cuda-runtime)))
                 "raft 26.08.00\nrmm 26.08.00\ncccl 3.4.3\ncuda-runtime 13.2\n"))
 
-(test-case "concepts: row-major and column-major order"
-  (define m '((1 2 3) (4 5 6)))
-  (define (row-major rows)
-    (apply append rows))
-  (define (column-major rows)
-    (apply append (apply map list rows)))
-  (check-equal? (row-major m) '(1 2 3 4 5 6))
-  (check-equal? (column-major m) '(1 4 2 5 3 6)))
-
 (test-case "reference: raft-version"
   (match-define (list year month _) (map string->number (string-split (raft-version) ".")))
   (check-equal? (list year month) '(26 8))

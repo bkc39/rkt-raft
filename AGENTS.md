@@ -637,6 +637,10 @@ the binding census), `racket-review`, `racket-version` (at least 9.3),
   by bold text (License, Acknowledgements, AI Disclosure) on the landing page
   (`raft.scrbl`), before the table of contents, the same on every leg; not
   sections. The per-component licences live in `README.md` (Licences).
+- **Concepts' lifetime figure is a pict** (`guide/lifetime-diagram.rkt`,
+  `pict-lib` a build dependency), rendered to an image by Scribble.
+  `render-docs.sh` ignores the lab host's `Fontconfig warning:` cache-version
+  line that drawing it prints.
 - **The owner reviews each leg's docs.** Every leg adds its own guide chapter
   and reference section. A guide chapter is a tutorial on realistic client
   code, evaluated live.

@@ -17,7 +17,7 @@ raco scribble --htmls ++xref-in setup/xref load-collections-xref \
   --dest "$dest" raft/scribblings/raft.scrbl 2>&1 | tee "$log"
 
 status=0
-if grep -iE "undefined tag|badlink|multiple times|warning" "$log"; then
+if grep -v "^Fontconfig warning: " "$log" | grep -iE "undefined tag|badlink|multiple times|warning"; then
   echo "render-docs: Scribble warned (above)" >&2
   status=1
 fi
