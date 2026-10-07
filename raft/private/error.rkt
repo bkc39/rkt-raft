@@ -1,7 +1,12 @@
 #lang racket/base
 
 (require (only-in ffi/unsafe/atomic call-as-atomic)
-         (only-in "exn.rkt" exn:fail:raft exn:fail:raft-kind exn:fail:raft? struct:exn:fail:raft)
+         (only-in "exn.rkt"
+                  exn:fail:raft
+                  exn:fail:raft-kind
+                  exn:fail:raft?
+                  raise-raft
+                  struct:exn:fail:raft)
          (only-in "foreign/core.rkt" rr-last-error rr-last-error-kind))
 
 (provide call/raft
@@ -17,4 +22,4 @@
        (if result
            (values result #f #f)
            (values #f (bytes->string/utf-8 (rr-last-error) #\uFFFD) (rr-last-error-kind))))))
-  (or result (raise (exn:fail:raft (format "~a: ~a" who message) (current-continuation-marks) kind))))
+  (or result (raise-raft who kind "~a" message)))

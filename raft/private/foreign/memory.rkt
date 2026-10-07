@@ -6,6 +6,7 @@
 
 (provide buffer-allocator
          buffer-drop-count
+         released?
          release-failure-count
          resources-allocator
          resources-drop-count
@@ -15,9 +16,12 @@
 ;; A released handle is retagged: releasing it again does nothing, and any
 ;; other use raises exn:fail:raft before reaching freed memory. A handle of the
 ;; wrong type fails its type's tag check here, before the finalizer is dropped.
+(define (released? handle)
+  (cpointer-has-tag? handle released-tag))
+
 (define (release-once release-native)
   ((deallocator) (lambda (handle)
-                   (unless (cpointer-has-tag? handle released-tag)
+                   (unless (released? handle)
                      (release-native handle)
                      (set-cpointer-tag! handle released-tag)))))
 

@@ -9,10 +9,11 @@
 #include <raft/core/resource/resource_types.hpp>
 #include <raft/version_config.hpp>
 #include <rmm/version_config.hpp>
-#include <string>
 
 #include "detail/error.hpp"
 #include "detail/handles.hpp"
+#include "detail/internal_api.h"
+#include "detail/memory_resource.hpp"
 
 namespace {
 
@@ -31,15 +32,6 @@ const rr_abi_tag abi_tag = {
     .resource_types = raft::resource::resource_type::LAST_KEY,
     .handle_size = sizeof(raft::handle_t),
 };
-
-void require_device(int32_t device) {
-  int count = 0;
-  rr::cuda_check(cudaGetDeviceCount(&count), "cudaGetDeviceCount");
-  if (device < 0 || device >= count) {
-    throw rr::logic_error("no device " + std::to_string(device) + " among " +
-                          std::to_string(count));
-  }
-}
 
 constexpr std::size_t version_text_capacity = 16;
 
@@ -78,8 +70,9 @@ int rr_resources_create(int32_t device, rr_resources** out) {
   return rr::translate_exceptions([&] {
     auto& result = *rr::require(out, "out");
     result = nullptr;
-    require_device(device);
+    rr::require_device(device);
     const rr::device_guard guard{device};
+    rr::install_default_memory_resource(device);
     auto owner = std::make_shared<rr::owned_handle>();
     std::shared_ptr<raft::handle_t> handle(owner, &owner->handle);
     result = new rr_resources{device, std::move(handle)};
@@ -91,6 +84,23 @@ int rr_resources_sync(rr_resources* resources) {
     auto& r = *rr::require(resources, "resources");
     const rr::device_guard guard{r.device};
     raft::resource::sync_stream(*r.handle);
+  });
+}
+
+int rr_resources_ready(rr_resources* resources, int32_t* out) {
+  return rr::translate_exceptions([&] {
+    auto& ready = *rr::require(out, "out");
+    ready = 0;
+    auto& r = *rr::require(resources, "resources");
+    const rr::device_guard guard{r.device};
+    const cudaError_t status =
+        cudaStreamQuery(raft::resource::get_cuda_stream(*r.handle));
+    if (status == cudaErrorNotReady) {
+      static_cast<void>(cudaGetLastError());
+      return;
+    }
+    rr::cuda_check(status, "cudaStreamQuery");
+    ready = 1;
   });
 }
 }
