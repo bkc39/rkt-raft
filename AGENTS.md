@@ -131,7 +131,7 @@ plans/scoping-plan.md         the approved plan (revision 5), as Markdown
    GPU and driver state (its CUDA stream, the cuBLAS, cuSOLVER and cuSPARSE
    handles RAFT creates on first use) that the tracing GC cannot see and
    would otherwise free only eventually, in no particular order. The manual
-   says so where readers meet it (Concepts, *How memory is reclaimed*).
+   says so where readers meet it (Concepts).
    `with-release` expands into a call of the procedure `call-with-release`
    (owner review of #11), which holds the `dynamic-wind`, the re-entry
    refusal and the release-once, so each binding expands to one call and one
@@ -670,9 +670,8 @@ the binding census), `racket-review`, `racket-version` (at least 9.3),
 
 - One manual, `raft/scribblings/raft.scrbl`: a guide (chapters under
   `guide/`) and a reference (one section per module under `reference/`).
-  `utils.rkt` holds `make-raft-eval`, `make-downstream-eval`, `listing`,
-  `excerpt` (a listing read from a repository file) and the `status` marker
-  for names that arrive in a later leg.
+  `utils.rkt` holds `make-raft-eval`, `make-downstream-eval`, `listing` and
+  `excerpt` (a listing read from a repository file).
 - **The manual assumes a catalog install** (`raco pkg install raft`; what
   that still needs is #24) and mentions no Nix at all: no dev shell, flake,
   `nix build`, `packages.*`, test-running or rendering instructions. Those
@@ -687,6 +686,10 @@ the binding census), `racket-review`, `racket-version` (at least 9.3),
   by bold text (License, Acknowledgements, AI Disclosure) on the landing page
   (`raft.scrbl`), before the table of contents, the same on every leg; not
   sections. The per-component licences live in `README.md` (Licences).
+- **The manual describes the current library as final**: no leg names,
+  `@status` markers or future-work references (no "arrives later", no
+  forward issue links). Each leg's manual describes that leg's library as
+  complete and never mentions what an upper leg adds.
 - **Concepts' lifetime figure is a pict** (`guide/lifetime-diagram.rkt`,
   `pict-lib` a build dependency), rendered to an image by Scribble.
   `render-docs.sh` ignores the lab host's `Fontconfig warning:` cache-version

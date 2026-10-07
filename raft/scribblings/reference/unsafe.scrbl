@@ -290,7 +290,7 @@ void** out)} sets @racket[out] to @tt{NULL}, then to the
        (list @tt{void* data} "0" "the first element, base plus byte offset already applied")
        (list @tt{int32_t dtype} "8" @elem{@tt{RR_DTYPE_FLOAT32} 0, @tt{FLOAT64} 1,
                                           @tt{INT32} 2, @tt{INT64} 3})
-       (list @tt{int32_t memory} "12" @elem{@tt{RR_MEMORY_DEVICE} (2) for every array today})
+       (list @tt{int32_t memory} "12" @elem{@tt{RR_MEMORY_DEVICE} (2) for every array})
        (list @tt{int32_t device} "16" "the CUDA device")
        (list @tt{int32_t rank} "20" @elem{0 to @tt{RR_MAX_RANK} (8)})
        (list @tt{int64_t shape[8]} "24" "the extents; entries past the rank are 0")
@@ -392,5 +392,4 @@ this module; and the rules a downstream entry point keeps: run inside
 @tt{translate_exceptions}, select the handle's device, refuse arrays on
 another device, read arrays only through @tt{view.hpp}, and synchronise the
 handle's stream on every exit. A change to any of them is a new ABI version,
-with the canary changed in the same pull request. int8, uint8 and half
-arrays, which cuVS takes, need new dtype codes and so ABI version 2 (#8).
+with the canary changed in the same pull request.

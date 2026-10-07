@@ -10,15 +10,14 @@ This library provides an array data structure that can run on CUDA devices.
 There are three key types of objects:
 
 @itemlist[
- @item{@deftech{buffer}: one RMM allocation in GPU memory, with its
-       device, byte size and @deftech{phantom bytes}. It owns the memory, and
-       its finalizer frees it.}
- @item{@deftech{array}: a device vector or matrix, a typed and shaped
-       view of a buffer (@deftech{dtype}, shape, @deftech{strides}, offset).
-       Several arrays can share one buffer.}
- @item{@deftech{resources}: a @tt{raft::handle_t} on one GPU, owning a
-       CUDA @deftech{stream} (an ordered queue of GPU work) and the cuBLAS,
-       cuSOLVER and cuSPARSE handles. Every array and every operation runs on
+ @item{@deftech{buffer}: one RMM allocation in GPU memory, with its device,
+       byte size and @deftech{phantom bytes}. It owns the memory, and its
+       finalizer frees it.}
+ @item{@deftech{array}: a device vector or matrix, a typed and shaped view of a
+       buffer (@deftech{dtype}, shape, @deftech{strides}, offset).}
+ @item{@deftech{resources}: a @tt{raft::handle_t} on one GPU, owning a CUDA
+       @deftech{stream} (an ordered queue of GPU work) and the cuBLAS, cuSOLVER
+       and cuSPARSE handles. Every array and every operation runs on
        resources, by default the thread's.}]
 
 How do these differ from Racket arrays or vectors?
@@ -36,9 +35,6 @@ How do these differ from Racket arrays or vectors?
        and @racket[contiguous] copies.}
  @item{@bold{Strides count elements.} A 2-by-3 matrix has strides
        @racket['(3 1)] row-major and @racket['(1 2)] column-major.}
- @item{@bold{Views share a buffer.} Slicing or transposing @status{L3} makes a
-       new array without a copy; the buffer lives while any array over it
-       does.}
  @item{@bold{The collector cannot see device memory.} A buffer's phantom bytes
        make the device memory it holds bring collections.}]
 
@@ -50,10 +46,10 @@ collector and back.}}
 You never free an array. The finalizer is the default and is correct on its
 own: each buffer is released once, on its own device and stream, from
 whatever OS thread runs it. It has no timeline, though: it runs at some
-collection after the last use. The @tt{with-} forms give one.
-@racket[with-device-resources] releases resources when its body
-returns, raises, escapes or yields, and @racket[with-array-views] holds
-arrays for exactly one native call. The finalizer stays the backstop.
+collection after the last use. The @tt{with-} forms give one. @racket[with-device-resources] releases resources when its body returns,
+raises, escapes or yields, and @racket[with-array-views] holds arrays for
+exactly one native call. The finalizer stays the
+backstop.
 
 @section[#:tag "concepts-using"]{Using Arrays}
 

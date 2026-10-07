@@ -46,7 +46,6 @@
                   sandbox-path-permissions
                   sandbox-security-guard)
          (only-in racket/string string-join string-prefix?)
-         (only-in scribble/core color-property style)
          ;; whole-module: both are re-exported to every chapter
          scribble/example
          scribble/manual)
@@ -75,8 +74,7 @@
          excerpt
          listing
          make-downstream-eval
-         make-raft-eval
-         status)
+         make-raft-eval)
 
 (define (make-raft-eval)
   (parameterize ([sandbox-output 'string]
@@ -115,6 +113,3 @@
   (unless span
     (error 'excerpt "~a has no line ~s after ~s" file to from))
   (listing language (string-join (take (drop lines start) (+ before span 1)) "\n")))
-
-(define (status leg)
-  (elem #:style (style #f (list (color-property "gray"))) leg))

@@ -67,8 +67,8 @@ initialising.
 @section[#:tag "arrays-layout"]{Column-major for the solver}
 
 Least squares predicts petal width from the first three measurements, and
-cuML's solvers read column-major input. Taking columns of a device matrix
-arrives later @status{L3}, so the features come from @racket[samples]:
+cuML's solvers read column-major input. The features come from
+@racket[samples]:
 
 @examples[#:eval ev #:label #f
 (define feature-rows (map (lambda (row) (take row 3)) samples))
@@ -137,5 +137,4 @@ bytes}, so GPU memory held brings collections sooner:
 (< (- (current-memory-use) before) (* 1024 1024))
 ]
 
-The memory comes back at a collection after the last use. A form that frees
-an array at a known point arrives later @status{L3}.
+The memory comes back at a collection after the last use.

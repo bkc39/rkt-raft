@@ -187,8 +187,8 @@ resource, so k-means' workspace comes from raft's pool and returns to it:
 ]
 
 This needs RMM's per-device registry to be one symbol shared by
-@tt{libkmeans_canary.so} and @tt{libcuml.so}, which the canary's tests check
-(#10).
+@tt{libkmeans_canary.so} and @tt{libcuml.so}, which the canary's tests
+check.
 
 @section[#:tag "downstream-abi"]{Versions in lockstep}
 
@@ -213,19 +213,8 @@ that differs. The tag compares release numbers and the handle's size, and
 says nothing of the RAFT that @tt{libcuml.so} was built with; hence the rule
 is one set of RAPIDS libraries and headers, not merely matching tags.
 
-@section[#:tag "downstream-next"]{What is frozen, and what comes next}
+@section[#:tag "downstream-next"]{What is frozen}
 
 ABI version 1 freezes the interface the canary uses (@secref["ref-unsafe-c"]
 lists it). A change bumps the version in @racket[raft-abi] and the canary in
 the same pull request, so a stale library is refused at load.
-
-The cuML binding is its own package, built against the same RAPIDS
-libraries and headers, and follows the canary's pattern. It starts by growing the canary into a
-full k-means binding (@tt{fit_predict}, @tt{transform}, the @tt{int64_t}
-overloads), then adds DBSCAN, agglomerative clustering and HDBSCAN.
-
-Three things change around it without changing this interface: contracts
-arrive in a later leg; the stream API (@status{L2, #13}) will let chained
-calls skip the synchronisation on each exit; and a long call, which
-@racket[status-checker] runs in atomic mode, will learn to release the place
-(#21).

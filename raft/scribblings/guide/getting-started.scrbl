@@ -64,7 +64,7 @@ Last, @racket[device-count] checks that the driver sees a GPU:
 ]
 
 If it raises @racket[exn:fail:raft] instead (no driver, too old a driver, or
-no device), nothing else in this manual will run. Until
-@racket[device-properties] @status{L2} names the GPU, ask the driver:
+no device), nothing else in this manual will run. To name the GPU, ask the
+driver:
 
 @commandline{nvidia-smi --query-gpu=name,driver_version,compute_cap --format=csv}
