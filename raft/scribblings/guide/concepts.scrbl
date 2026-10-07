@@ -55,9 +55,7 @@ collection after the last use. The @tt{with-} forms give one.
 returns, raises, escapes or yields, and @racket[with-array-views] @status{L1d} holds
 arrays for exactly one native call. The finalizer stays the backstop.
 
-@section[#:tag "concepts-using"]{Using Arrays}
-
-@subsection[#:tag "concepts-using-resources"]{Resources}
+@section[#:tag "concepts-using-resources"]{Resources}
 
 @racket[device-resources] makes resources with a stream of their own;
 @racket[current-device-resources] is the thread's default for a device, which
