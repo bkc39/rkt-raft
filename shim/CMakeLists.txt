@@ -105,11 +105,12 @@ if(BUILD_TESTING)
     src/detail/error.cpp
     src/detail/view.cpp
     tests/error_test.cpp
+    tests/headers_test.cpp
     tests/view_test.cpp
   )
   target_include_directories(raftrkt_error_tests
     PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include ${CMAKE_CURRENT_SOURCE_DIR}/src)
-  target_link_libraries(raftrkt_error_tests PRIVATE raft::raft GTest::gtest_main)
+  target_link_libraries(raftrkt_error_tests PRIVATE raft::raft CUDA::cusparse GTest::gtest_main)
   raftrkt_enable_warnings(raftrkt_error_tests)
   raftrkt_apply_nix_cflags(raftrkt_error_tests)
   gtest_discover_tests(raftrkt_error_tests DISCOVERY_MODE PRE_TEST)
@@ -135,6 +136,9 @@ install(TARGETS raftrkt
   ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
 )
 install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+set(RAFTRKT_CMAKE_DIR "${CMAKE_INSTALL_LIBDIR}/cmake/raftrkt" CACHE PATH
+    "Where raftrkt-config.cmake is installed")
+install(FILES cmake/raftrkt-config.cmake DESTINATION ${RAFTRKT_CMAKE_DIR})
 
 if(BUILD_TESTING AND DEFINED RAFTRKT_TESTS_PREFIX)
   install(TARGETS raftrkt_tests raftrkt_error_tests raftrkt_probe

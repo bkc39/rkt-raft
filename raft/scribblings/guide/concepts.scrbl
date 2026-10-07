@@ -47,7 +47,8 @@ You never free an array. The finalizer is the default and is correct on its
 own: each buffer is released once, on its own device and stream, from
 whatever OS thread runs it. It has no timeline, though: it runs at some
 collection after the last use. The @tt{with-} forms give one. @racket[with-device-resources] releases resources when its body returns,
-raises, escapes or yields. The finalizer stays the
+raises, escapes or yields, and @racket[with-array-views] holds arrays for
+exactly one native call. The finalizer stays the
 backstop.
 
 @section[#:tag "concepts-using"]{Using Arrays}
@@ -88,7 +89,8 @@ What an array answers, and how its values come back:
 @secref["ref-array"] documents every operation, and @secref["arrays"]
 prepares a dataset with them. @racketmodname[raft/compat] converts vectors, nested
 vectors, @racket[f32vector]s, @racket[f64vector]s, byte strings and
-@racketmodname[math/array] arrays by the same rules (@secref["moving-data"]).
+@racketmodname[math/array] arrays by the same rules (@secref["moving-data"]), and a native binding hands arrays to its C++ inside
+@racket[with-array-views] (@racketmodname[raft/unsafe], @secref["downstream"]).
 
 @section[#:tag "concepts-using-resources"]{Resources}
 

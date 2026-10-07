@@ -55,7 +55,7 @@ The pattern names only the fields it needs.
 
 @racket['cuda-runtime] is the CUDA runtime the library was compiled with. A
 native binding built on this one, such as cuML's, checks at load that its
-headers match (@racket[raft-abi]).
+headers match (@racket[raft-abi], @secref["downstream-abi"]).
 
 Last, @racket[device-count] checks that the driver sees a GPU:
 

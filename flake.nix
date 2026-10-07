@@ -29,7 +29,11 @@
         config.allowUnfree = true;
       };
       inherit (pkgs) lib;
-      cudaPackages = pkgs.cudaPackages_13;
+      # libcuvs needs nvJitLink 13.3's versioned symbols, and only one
+      # libnvJitLink.so.13 loads per process, so every library gets 13.3's.
+      cudaPackages = pkgs.cudaPackages_13.overrideScope (
+        _: _: { inherit (pkgs.cudaPackages_13_3) libnvjitlink; }
+      );
       racket = pkgs.racket;
 
       rapids = pkgs.callPackage ./nix/rapids.nix { inherit cudaPackages; };
@@ -50,6 +54,7 @@
         src = ./shim;
         outputs = [
           "out"
+          "dev"
           "tests"
         ];
         nativeBuildInputs = [
@@ -58,7 +63,7 @@
           cudaPackages.cuda_nvcc
         ];
         buildInputs = [
-          rapids
+          rapids.core
           pkgs.gtest
         ]
         ++ cudaDevLibs;
@@ -66,6 +71,7 @@
           "-DBUILD_TESTING=ON"
           "-DCMAKE_CUDA_ARCHITECTURES=${cudaArchitectures}"
           "-DRAFTRKT_TESTS_PREFIX=${placeholder "tests"}"
+          "-DRAFTRKT_CMAKE_DIR=${placeholder "dev"}/lib/cmake/raftrkt"
         ];
         preBuild = capJobs;
         doCheck = true;
@@ -76,6 +82,50 @@
           runHook postCheck
         '';
         passthru = { inherit rapids; };
+      };
+
+      canarySource = lib.fileset.toSource {
+        root = ./downstream/kmeans-canary;
+        fileset = lib.fileset.unions [
+          ./downstream/kmeans-canary/.clang-tidy
+          ./downstream/kmeans-canary/CMakeLists.txt
+          ./downstream/kmeans-canary/include
+          ./downstream/kmeans-canary/src
+          ./downstream/kmeans-canary/tests
+        ];
+      };
+
+      kmeansCanary = cudaPackages.backendStdenv.mkDerivation {
+        pname = "kmeans-canary";
+        inherit version;
+        src = canarySource;
+        outputs = [
+          "out"
+          "tests"
+        ];
+        nativeBuildInputs = [
+          pkgs.cmake
+          pkgs.ninja
+          cudaPackages.cuda_nvcc
+        ];
+        buildInputs = [
+          rapids
+          shim
+          shim.dev
+          pkgs.gtest
+        ]
+        ++ cudaDevLibs;
+        cmakeFlags = [
+          "-DBUILD_TESTING=ON"
+          "-DKC_TESTS_PREFIX=${placeholder "tests"}"
+        ];
+        preBuild = capJobs;
+        doCheck = true;
+        checkPhase = ''
+          runHook preCheck
+          ./kmeans_canary_tests
+          runHook postCheck
+        '';
       };
 
       # An in-place write rewrites pages a live process has mapped (rktorch
@@ -147,6 +197,7 @@
             stdenv
             fetchurl
             autoPatchelfHook
+            zlib
             ;
           inherit rapids cudaPackages;
         };
@@ -182,36 +233,50 @@
           (
             python.pkgs.pylibraft-cu13.version == rapids.version
             && python.pkgs.rmm-cu13.version == rapids.version
+            && python.pkgs.cuml-cu13.version == rapids.version
           )
           (
-            "the twins' pylibraft/rmm wheels must be the RAPIDS release the "
-            + "shim links ("
+            "the twins' pylibraft/rmm/cuml wheels must be the RAPIDS release the "
+            + "shims link ("
             + rapids.version
             + ")"
           );
         (python.withPackages (ps: [
+          ps.cuml-cu13
           ps.cupy-cuda13x
           ps.numpy
           ps.pylibraft-cu13
           ps.rmm-cu13
+          ps.scikit-learn
         ])).override
           {
             makeWrapperArgs = [ "--set CUDA_PATH ${cudaHome}" ];
           };
 
-      lineCount = pkgs.runCommand "rkt-raft-line-count" { src = ./shim; } ''
-        failed=0
-        while IFS= read -r file; do
-          lines=$(wc -l < "$file")
-          if [ "$lines" -gt 500 ]; then
-            echo "ERROR: $file has $lines lines; the limit is 500" >&2
-            failed=1
-          fi
-        done < <(find $src -type f \( -name '*.c' -o -name '*.h' -o -name '*.hpp' \
-                   -o -name '*.cpp' -o -name '*.cu' \))
-        [ "$failed" = 0 ] || exit 1
-        touch $out
-      '';
+      lineCount =
+        pkgs.runCommand "rkt-raft-line-count"
+          {
+            src = lib.fileset.toSource {
+              root = ./.;
+              fileset = lib.fileset.unions [
+                ./shim
+                ./downstream
+              ];
+            };
+          }
+          ''
+            failed=0
+            while IFS= read -r file; do
+              lines=$(wc -l < "$file")
+              if [ "$lines" -gt 500 ]; then
+                echo "ERROR: $file has $lines lines; the limit is 500" >&2
+                failed=1
+              fi
+            done < <(find $src -type f \( -name '*.c' -o -name '*.h' -o -name '*.hpp' \
+                       -o -name '*.cpp' -o -name '*.cu' \))
+            [ "$failed" = 0 ] || exit 1
+            touch $out
+          '';
 
       clangTidy = shim.overrideAttrs (old: {
         pname = "raftrkt-clang-tidy";
@@ -221,6 +286,21 @@
           "-DBUILD_TESTING=ON"
           "-DCMAKE_CUDA_ARCHITECTURES=${cudaArchitectures}"
         ];
+        buildPhase = ''
+          runHook preBuild
+          ${capJobs}
+          cmake --build . --target tidy
+          runHook postBuild
+        '';
+        doCheck = false;
+        installPhase = "touch $out";
+      });
+
+      canaryTidy = kmeansCanary.overrideAttrs (old: {
+        pname = "kmeans-canary-clang-tidy";
+        outputs = [ "out" ];
+        nativeBuildInputs = old.nativeBuildInputs ++ [ pkgs.clang-tools ];
+        cmakeFlags = [ "-DBUILD_TESTING=ON" ];
         buildPhase = ''
           runHook preBuild
           ${capJobs}
@@ -334,14 +414,17 @@
         if [ "$_stage_failed" != 0 ]; then
           echo "  *** libraftrkt was NOT staged; raft will load a stale shim or none." >&2
         fi
-        _info_hash=$(sha256sum raft/info.rkt | cut -c1-16)
+        _canary_pkg="$PWD/downstream/kmeans-canary/kmeans-canary"
+        _info_hash=$(cat raft/info.rkt "$_canary_pkg/info.rkt" | sha256sum | cut -c1-16)
         _pkg_stamp="$PLTUSERHOME/.raft-installed-$_info_hash"
         if [ ! -f "$_pkg_stamp" ]; then
-          echo "Installing raft into $PLTUSERHOME (link mode)"
+          echo "Installing raft and kmeans-canary into $PLTUSERHOME (link mode)"
           rm -f "$PLTUSERHOME"/.raft-installed-* 2>/dev/null || true
           if raco pkg install --batch --auto --no-setup --link --scope user \
                --skip-installed --name raft "$PWD/raft" \
-             && raco setup --no-docs --pkgs raft; then
+             && raco pkg install --batch --auto --no-setup --link --scope user \
+                  --skip-installed --name kmeans-canary "$_canary_pkg" \
+             && raco setup --no-docs --pkgs raft kmeans-canary; then
             touch "$_pkg_stamp"
           else
             echo "raft setup FAILED; not stamped, so the next shell entry retries" >&2
@@ -412,6 +495,9 @@
         export RAFT_SHIM_TESTS="${shim.tests}/bin"
         export RAFT_SHIM_PROBE="${shim.tests}/lib/libraftrkt_probe.so"
         export RAFT_SHIM_SANITIZED_TESTS="${shimSanitizers.tests}/bin"
+        export RAFT_KMEANS_CANARY="${kmeansCanary}/lib/libkmeans_canary.so"
+        export RAFT_KMEANS_CANARY_TESTS="${kmeansCanary.tests}/bin"
+        export RAFT_RAPIDS_PREFIX="${rapids}"
         export RAFT_ASAN_OPTIONS="${sanitizerOptions.asan}"
         export RAFT_UBSAN_OPTIONS="${sanitizerOptions.ubsan}"
         export CMAKE_BUILD_PARALLEL_LEVEL=${toString buildJobs}
@@ -422,6 +508,8 @@
         default = racketPackage;
         racket = racketPackage;
         inherit rapids shim;
+        raft-dev = shim.dev;
+        kmeans-canary = kmeansCanary;
         python-twins = pythonEnv;
         copy-native-libs = pkgs.writeShellApplication {
           name = "copy-native-libs";
@@ -455,6 +543,8 @@
         formatting = treefmtEval.config.build.check self;
         c-headers = cHeaders;
         clang-tidy = clangTidy;
+        clang-tidy-canary = canaryTidy;
+        kmeans-canary = kmeansCanary;
         line-count = lineCount;
         racket-version = racketVersion;
         no-syntax-rule = grepGate "no-syntax-rule" "no-syntax-rule.sh";

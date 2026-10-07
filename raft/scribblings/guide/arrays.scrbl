@@ -6,7 +6,10 @@
 @title[#:tag "arrays"]{Device arrays}
 
 A @tech{device array} is a matrix or a vector in GPU memory. This chapter
-prepares a small dataset on the GPU; each section adds to the one before.
+prepares a small dataset for two cuML algorithms, k-means and least squares;
+each section adds to the one before. The cuML calls live in a separate
+package, built on @racketmodname[raft/unsafe]; @secref["downstream"] builds a
+small one for k-means.
 
 @section[#:tag "arrays-upload"]{A dataset on the GPU}
 

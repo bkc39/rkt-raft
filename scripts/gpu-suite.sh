@@ -5,6 +5,7 @@ cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
 : "${RAFT_SHIM_TESTS:?run inside nix develop}"
 : "${RAFT_SHIM_SANITIZED_TESTS:?run inside nix develop}"
+: "${RAFT_KMEANS_CANARY_TESTS:?run inside nix develop}"
 
 log=$(mktemp)
 racket_log=$(mktemp)
@@ -13,6 +14,9 @@ trap 'rm -f "$log" "$racket_log"' EXIT
 echo "== shim gtests"
 "$RAFT_SHIM_TESTS/raftrkt_tests" --gtest_brief=1 | tee -a "$log"
 "$RAFT_SHIM_TESTS/raftrkt_error_tests" --gtest_brief=1 | tee -a "$log"
+
+echo "== k-means canary gtests (libraftrkt, the frozen headers and libcuml together)"
+"$RAFT_KMEANS_CANARY_TESTS/kmeans_canary_tests" --gtest_brief=1 | tee -a "$log"
 
 echo "== shim gtests under ASAN and UBSAN"
 for t in raftrkt_tests raftrkt_error_tests; do
@@ -29,6 +33,8 @@ memcheck=(compute-sanitizer --tool memcheck --leak-check full --error-exitcode 1
   "$RAFT_SHIM_TESTS/raftrkt_tests" --gtest_brief=1 --gtest_filter="$deliberate" | tee -a "$log"
 "${memcheck[@]}" --report-api-errors explicit \
   "$RAFT_SHIM_TESTS/raftrkt_error_tests" --gtest_brief=1 | tee -a "$log"
+"${memcheck[@]}" --report-api-errors explicit \
+  "$RAFT_KMEANS_CANARY_TESTS/kmeans_canary_tests" --gtest_brief=1 | tee -a "$log"
 
 echo "== LD_BIND_NOW load of the staged shim"
 case ":$LD_LIBRARY_PATH:" in
@@ -40,14 +46,18 @@ esac
 LD_BIND_NOW=1 racket -l racket/base -l ffi/unsafe \
   -e '(void (ffi-lib (simplify-path (build-path "raft" "native-libs" "libraftrkt"))))' \
   -e '(displayln "libraftrkt: every symbol bound")'
+LD_BIND_NOW=1 racket -l racket/base -l ffi/unsafe \
+  -e '(void (ffi-lib (getenv "RAFT_KMEANS_CANARY")))' \
+  -e '(displayln "libkmeans_canary and libcuml: every symbol bound")'
 
 echo "== Racket tests"
-raco make -v raft/main.rkt scripts/check-bindings.rkt
-raco test raft >"$racket_log" 2>&1 || {
+canary=downstream/kmeans-canary/kmeans-canary
+raco make -v raft/main.rkt raft/unsafe.rkt scripts/check-bindings.rkt "$canary/main.rkt"
+raco test raft "$canary" >"$racket_log" 2>&1 || {
   cat "$racket_log"
   exit 1
 }
-grep -E "^SKIP|tests? passed|failure" "$racket_log"
+grep -E "^SKIP|^twin |^memory: |^pool: |tests? passed|failure" "$racket_log"
 cat "$racket_log" >>"$log"
 
 echo "== binding census"
