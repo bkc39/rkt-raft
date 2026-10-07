@@ -418,6 +418,8 @@ cannot hold (a complex number, an out-of-range integer, a non-finite value
 for an integer type, a finite value too large for a float type) raises
 @racket[exn:fail:raft]. Coming back, the conversions wait for the array's
 stream; float elements become flonums, integer elements exact integers.
+@racketmodname[raft/compat] adds other Racket containers by the same rules
+(@secref["ref-compat"]).
 
 @defproc[(list->device-vector [xs (listof real?)]
                               [#:dtype dtype (or/c #f 'float32 'float64 'int32 'int64) #f]

@@ -1,7 +1,6 @@
 #lang racket/base
 
 (require (only-in racket/flonum for/flvector flvector-length in-flvector make-flvector)
-         (only-in racket/list append*)
          (only-in racket/match match-define)
          (only-in "private/array.rkt"
                   allocate-array
@@ -19,6 +18,7 @@
                   write-array!)
          (only-in "private/pack.rkt"
                   infer-dtype
+                  infer-rows-dtype
                   matrix-shape
                   pack-matrix
                   pack-vector
@@ -102,7 +102,7 @@
   (define who 'list*->device-matrix)
   (define extents (matrix-shape who rows))
   (define m
-    (allocate-array who resources (or element-type (infer-dtype who (append* rows))) order extents))
+    (allocate-array who resources (or element-type (infer-rows-dtype who rows)) order extents))
   (write-array!
    who
    m

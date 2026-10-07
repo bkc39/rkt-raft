@@ -1,12 +1,20 @@
 #lang racket/base
 
-(require (for-label raft
+(require (for-label ffi/vector
+                    json
+                    math/array
+                    math/matrix
+                    raft
+                    raft/compat
                     racket/base
+                    racket/file
                     racket/flonum
                     racket/format
                     racket/list
                     racket/match
-                    racket/string)
+                    racket/port
+                    racket/string
+                    racket/vector)
          (only-in racket/sandbox
                   sandbox-error-output
                   sandbox-eval-limits
@@ -20,13 +28,21 @@
 
 (provide (all-from-out scribble/example)
          (all-from-out scribble/manual)
-         (for-label (all-from-out raft
+         (for-label (all-from-out ffi/vector
+                                  json
+                                  math/array
+                                  math/matrix
+                                  raft
+                                  raft/compat
                                   racket/base
+                                  racket/file
                                   racket/flonum
                                   racket/format
                                   racket/list
                                   racket/match
-                                  racket/string))
+                                  racket/port
+                                  racket/string
+                                  racket/vector))
          make-raft-eval)
 
 (define (make-raft-eval)
