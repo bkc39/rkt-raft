@@ -30,7 +30,9 @@ The examples below share these values:
 size counts as @tech{phantom bytes}.
 
 @bold{Printing.} An array prints its dtype, shape, layout and device, then
-its values (summarised beyond 1000 elements), waiting for its stream.
+its values, waiting for its stream. An axis longer than 20, and every axis of
+an array over 1000 elements, shows its first and last three entries around
+@tt{...}.
 Printing never raises; unreadable values print as
 @tt{<values unavailable: ...>}.
 

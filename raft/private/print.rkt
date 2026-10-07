@@ -12,10 +12,15 @@
          summarised?)
 
 (define threshold 1000)
+(define axis-threshold 20)
 (define edge-items 3)
 
+(define (axis-summarised? n shape)
+  (and (> n (* 2 edge-items)) (or (> n axis-threshold) (> (apply * shape) threshold))))
+
 (define (summarised? shape)
-  (> (apply * shape) threshold))
+  (for/or ([n (in-list shape)])
+    (axis-summarised? n shape)))
 
 (define (float32->string x)
   (if (or (zero? x) (nan? x) (infinite? x))
@@ -29,8 +34,8 @@
       (float32->string x)
       (number->string x)))
 
-(define (axis-indices n summarise?)
-  (if (and summarise? (> n (* 2 edge-items)))
+(define (axis-indices n shape)
+  (if (axis-summarised? n shape)
       (append (range edge-items) '(...) (range (- n edge-items) n))
       (range n)))
 
@@ -49,7 +54,6 @@
     (max width (string-length cell))))
 
 (define (array-text dtype shape ref)
-  (define summarise? (summarised? shape))
   (define (cell . indices)
     (if (memq '... indices)
         '...
@@ -57,12 +61,12 @@
   (match shape
     [(list n)
      (define cells
-       (for/list ([i (in-list (axis-indices n summarise?))])
+       (for/list ([i (in-list (axis-indices n shape))])
          (cell i)))
      (string-append "[" (cells-text cells (widest (list cells))) "]")]
     [(list rows cols)
-     (define row-indices (axis-indices rows summarise?))
-     (define col-indices (axis-indices cols summarise?))
+     (define row-indices (axis-indices rows shape))
+     (define col-indices (axis-indices cols shape))
      (define grid
        (for/list ([i (in-list row-indices)])
          (if (eq? i '...)

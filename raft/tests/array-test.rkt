@@ -2,6 +2,7 @@
 
 (require (only-in racket/flonum flvector in-flvector)
          (only-in racket/list range)
+         (only-in racket/string string-split)
          (only-in rackunit check-eq? check-equal? check-exn check-false check-pred check-true)
          (only-in "../main.rkt"
                   contiguous
@@ -264,6 +265,29 @@
                                "  [3900 3901 3902 ... 3927 3928 3929]]>"))
   (check-equal? (format "~a" (list->device-vector (range 2000)))
                 "#<device-vector int64[2000] cuda:0 [   0    1    2 ... 1997 1998 1999]>"))
+
+(test-gpu "an axis longer than 20 prints by its edges"
+  (check-equal? (format "~a"
+                        (list*->device-matrix (for/list ([i (in-range 500)])
+                                                (list i (* 2 i)))
+                                              #:dtype 'float32))
+                (string-append "#<device-matrix float32[500×2] row-major cuda:0\n"
+                               " [[  0.0   0.0]\n"
+                               "  [  1.0   2.0]\n"
+                               "  [  2.0   4.0]\n"
+                               "  ...\n"
+                               "  [497.0 994.0]\n"
+                               "  [498.0 996.0]\n"
+                               "  [499.0 998.0]]>"))
+  (check-equal? (format "~a" (list->device-vector (range 1000) #:dtype 'int32))
+                "#<device-vector int32[1000] cuda:0 [  0   1   2 ... 997 998 999]>")
+  (check-equal? (format "~a" (list->device-vector (range 21) #:dtype 'int32))
+                "#<device-vector int32[21] cuda:0 [ 0  1  2 ... 18 19 20]>")
+  (check-equal? (format "~a" (list->device-vector (range 20) #:dtype 'int32))
+                (string-append "#<device-vector int32[20] cuda:0 "
+                               "[ 0  1  2  3  4  5  6  7  8  9 10 11 12 13 14 15 16 17 18 19]>"))
+  (define big (device-matrix 1000 1000))
+  (check-true (<= (length (cdr (string-split (format "~a" big) "\n"))) 7)))
 
 (test-gpu "a buffer registers phantom bytes at its allocation's size"
   (define bytes (* 4096 4096 4))
