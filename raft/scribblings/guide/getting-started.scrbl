@@ -60,6 +60,3 @@ headers match (@racket[raft-abi]).
 To see the GPU and the driver, ask the driver:
 
 @commandline{nvidia-smi --query-gpu=name,driver_version,compute_cap --format=csv}
-
-Racket's @racket[device-count] and @racket[device-properties] @status{L2}
-arrive with the rest of the core module.

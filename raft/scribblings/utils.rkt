@@ -12,7 +12,6 @@
                   sandbox-output
                   sandbox-path-permissions
                   sandbox-security-guard)
-         (only-in scribble/core color-property style)
          ;; whole-module: both are re-exported to every chapter
          scribble/example
          scribble/manual)
@@ -20,8 +19,7 @@
 (provide (all-from-out scribble/example)
          (all-from-out scribble/manual)
          (for-label (all-from-out raft racket/base racket/format racket/match racket/string))
-         make-raft-eval
-         status)
+         make-raft-eval)
 
 (define (make-raft-eval)
   (parameterize ([sandbox-output 'string]
@@ -34,6 +32,3 @@
                               racket/format
                               racket/match
                               racket/string))))
-
-(define (status leg)
-  (elem #:style (style #f (list (color-property "gray"))) leg))
