@@ -68,8 +68,3 @@ no device), nothing else in this manual will run. Until
 @racket[device-properties] @status{L2} names the GPU, ask the driver:
 
 @commandline{nvidia-smi --query-gpu=name,driver_version,compute_cap --format=csv}
-
-@section[#:tag "gs-examples"]{How the examples in this manual run}
-
-Every Racket example is evaluated when the manual is built, on the GPU, and a
-test pins what each one shows.
