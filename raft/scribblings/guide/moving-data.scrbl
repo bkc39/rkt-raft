@@ -16,8 +16,8 @@
 
 This chapter follows one program that puts its inputs on the GPU in the form
 cuML takes, from a text file, a @racketmodname[math/matrix] matrix and an
-@racket[f64vector], and brings results back. The cuML calls themselves come
-later @status{L1d}. The conversions come from @racketmodname[raft/compat]:
+@racket[f64vector], and brings results back. The conversions come from
+@racketmodname[raft/compat]:
 
 @racketblock[
 (require raft raft/compat

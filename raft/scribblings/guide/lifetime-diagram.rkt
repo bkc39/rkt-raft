@@ -45,17 +45,12 @@
 
 (define call (node racket-fill (code "(device-matrix 1000 128 #:resources r)")))
 (define view-a (node racket-fill (words "array: shape, strides,") (words "offset, dtype")))
-(define view-b (node racket-fill (words "another array over") (words "the same buffer")))
 (define buffer
   (node racket-fill
         (words "buffer: native handle, device, bytes")
         (words "phantom bytes: the GC sees the size")))
 (define resources (node racket-fill (words "resources r: a CUDA stream,") (words "library handles")))
-(define scoped
-  (node release-fill
-        (hc-append (code "with-device-resources") (words ": releases r at body exit"))
-        (hc-append (code "with-array-views") (words ": holds the arrays for a native"))
-        (words "call, then clears its views")))
+(define scoped (node release-fill (code "with-device-resources") (words "releases r at body exit")))
 (define pool
   (node gpu-fill (words "RMM async pool on the device") (code "cudaMallocAsync / cudaFreeAsync")))
 (define finalizer
@@ -64,18 +59,14 @@
         (words "set the device, free on the stream")))
 
 (define left-lane
-  (vc-append 38
-             call
-             (hc-append 20 view-a view-b)
-             buffer
-             (ht-append 60 (vc-append 38 resources scoped) finalizer)))
+  (vc-append 38 call view-a buffer (ht-append 60 (vc-append 38 resources scoped) finalizer)))
 
 (define canvas
   (ht-append 110
              (vc-append 12 (heading "Racket heap") left-lane)
              (vc-append 12
                         (heading "GPU memory")
-                        (blank 0 (- (pict-height (vc-append 38 call (hc-append 20 view-a view-b))) 0))
+                        (blank 0 (pict-height (vc-append 38 call view-a)))
                         (blank 0 26)
                         pool)))
 
@@ -95,7 +86,6 @@
   (let* ([p canvas]
          [p (arrow p call cb-find view-a ct-find "returns" #:x -40)]
          [p (arrow p view-a cb-find buffer ct-find "")]
-         [p (arrow p view-b cb-find buffer ct-find "")]
          [p (arrow p buffer rc-find pool lc-find "allocates on r's stream" #:y -12)]
          [p (arrow p buffer cb-find resources ct-find "keeps alive" #:x -55)]
          [p (arrow p buffer cb-find finalizer ct-find "last reference dropped" #:x 95)]

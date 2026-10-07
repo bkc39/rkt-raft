@@ -73,7 +73,7 @@ Coming back, a conversion waits for the work queued on the array's stream;
 floating-point elements become flonums, integers exact integers.
 
 @bold{Rank.} Device arrays have one or two axes; any other inferred rank
-raises @racket[exn:fail:raft]. Higher ranks arrive later @status{L3}.
+raises @racket[exn:fail:raft].
 
 @bold{Speed.} An @racket[flvector], flonum array or @racket[f64vector] sent as
 @racket['float64], an @racket[f32vector] sent as @racket['float32], and a byte
@@ -640,8 +640,7 @@ A @racket[build-array] table, read element by element:
 (array->device-array distances-table #:dtype 'float32)
 ]
 
-Columns sliced on the host first, since device arrays cannot be sliced yet
-@status{L3}:
+Columns sliced on the host first:
 
 @examples[#:eval ev #:label #f
 (define measurements (flarray #[#[5.1 3.5 1.4] #[7.0 3.2 4.7] #[6.3 3.3 6.0]]))

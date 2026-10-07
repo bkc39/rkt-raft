@@ -35,8 +35,8 @@ Printing never raises; unreadable values print as
 @tt{<values unavailable: ...>}.
 
 @bold{Errors.} An unknown dtype or layout, or a negative extent, raises
-@racket[exn:fail:raft] of kind @racket['logic]. There are no contracts yet,
-so an argument of the wrong kind may raise a different error.
+@racket[exn:fail:raft] of kind @racket['logic]. An argument of the wrong
+kind may raise a different error.
 
 @section[#:tag "ref-array-make"]{Making arrays}
 

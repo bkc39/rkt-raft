@@ -255,8 +255,7 @@ the process. The first resources made on a device replace RMM's default
 resource, a stream-ordered @tt{cudaMallocAsync} pool. Any other resource,
 installed before or after, is left alone; a plain
 @tt{rmm::mr::cuda_memory_resource} set beforehand looks like the default and is
-replaced. A device without memory-pool support keeps the default. Choosing a
-resource from Racket arrives later @status{L2}.
+replaced. A device without memory-pool support keeps the default.
 
 @section[#:tag "ref-core-errors"]{Errors}
 

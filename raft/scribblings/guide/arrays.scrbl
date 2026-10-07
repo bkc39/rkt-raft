@@ -6,9 +6,7 @@
 @title[#:tag "arrays"]{Device arrays}
 
 A @tech{device array} is a matrix or a vector in GPU memory. This chapter
-prepares a small dataset for two cuML algorithms, k-means and least squares;
-each section adds to the one before. The cuML calls live in a separate
-package, through an interface that arrives later @status{L1d}.
+prepares a small dataset on the GPU; each section adds to the one before.
 
 @section[#:tag "arrays-upload"]{A dataset on the GPU}
 
@@ -66,8 +64,8 @@ initialising.
 @section[#:tag "arrays-layout"]{Column-major for the solver}
 
 Least squares predicts petal width from the first three measurements, and
-cuML's solvers read column-major input. Taking columns of a device matrix
-arrives later @status{L3}, so the features come from @racket[samples]:
+cuML's solvers read column-major input. The features come from
+@racket[samples]:
 
 @examples[#:eval ev #:label #f
 (define feature-rows (map (lambda (row) (take row 3)) samples))
@@ -136,5 +134,4 @@ bytes}, so GPU memory held brings collections sooner:
 (< (- (current-memory-use) before) (* 1024 1024))
 ]
 
-The memory comes back at a collection after the last use. A form that frees
-an array at a known point arrives later @status{L3}.
+The memory comes back at a collection after the last use.
