@@ -35,8 +35,8 @@ Printing never raises; unreadable values print as
 @tt{<values unavailable: ...>}.
 
 @bold{Errors.} An unknown dtype or layout, or a negative extent, raises
-@racket[exn:fail:raft] of kind @racket['logic]. There are no contracts yet,
-so an argument of the wrong kind may raise a different error.
+@racket[exn:fail:raft] of kind @racket['logic]. An argument of the wrong
+kind may raise a different error.
 
 @section[#:tag "ref-array-make"]{Making arrays}
 
@@ -416,7 +416,6 @@ cannot hold (a complex number, an out-of-range integer, a non-finite value
 for an integer type, a finite value too large for a float type) raises
 @racket[exn:fail:raft]. Coming back, the conversions wait for the array's
 stream; float elements become flonums, integer elements exact integers.
-@tt{raft/compat} @status{L1c} adds other Racket containers.
 
 @defproc[(list->device-vector [xs (listof real?)]
                               [#:dtype dtype (or/c #f 'float32 'float64 'int32 'int64) #f]
