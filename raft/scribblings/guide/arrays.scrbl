@@ -6,30 +6,43 @@
 @title[#:tag "arrays"]{Device arrays}
 
 A @tech{device array} is a matrix or a vector in GPU memory. This chapter
-prepares a small dataset on the GPU; each section adds to the one before.
+loads a dataset, puts it on the GPU, inspects it, changes its layout, brings
+values back and lets it go.
 
 @section[#:tag "arrays-upload"]{A dataset on the GPU}
 
-Six of Fisher's iris flowers, four measurements each, in the
-@racket['float32] cuML works in:
+The @tt{datasets} package loads Fisher's iris flowers as a Polars
+dataframe:
 
 @examples[#:eval ev #:label #f
-(define samples
-  '((5.1 3.5 1.4 0.2)
-    (4.9 3.0 1.4 0.2)
-    (7.0 3.2 4.7 1.4)
-    (6.4 3.2 4.5 1.5)
-    (6.3 3.3 6.0 2.5)
-    (5.8 2.7 5.1 1.9)))
-(define X (list*->device-matrix samples #:dtype 'float32))
+(require datasets
+         (only-in polars in-dataframe-columns series->list))
+(define iris (load-iris))
+iris
+]
+
+The four measurement columns, as a list of rows:
+
+@examples[#:eval ev #:label #f
+(define measurements '("sepal-length" "sepal-width" "petal-length" "petal-width"))
+(define rows
+  (apply map
+         list
+         (for/list ([column (in-dataframe-columns iris #:columns measurements)])
+           (series->list column))))
+(length rows)
+(take rows 3)
+]
+
+On the GPU, as a @racket['float32] matrix:
+
+@examples[#:eval ev #:label #f
+(define X (list*->device-matrix rows #:dtype 'float32))
 X
 ]
 
-Printing copies the values back, so it waits for the GPU.
-
-@section[#:tag "arrays-inspect"]{What the program made}
-
-Before handing @racket[X] to a library, the program checks it:
+Printing copies the values back, so it waits for the GPU. The matrix knows
+its shape, element type, layout and strides:
 
 @examples[#:eval ev #:label #f
 (shape X)
@@ -39,48 +52,23 @@ Before handing @racket[X] to a library, the program checks it:
 (numel X)
 ]
 
-Each row is contiguous: the next element along a row is 1 away, the next
-row 4 away.
+Each row is contiguous: the next element along a row is 1 away, the next row
+4 away. Strides count elements, not bytes.
 
-Strides count elements, not bytes.
+@section[#:tag "arrays-layout"]{Changing the layout}
 
-@section[#:tag "arrays-outputs"]{Room for k-means' answers}
-
-RAFT and cuML write into arrays the caller allocates. k-means with three
-clusters writes an @racket['int32] label per sample and three centroids:
+@racket[contiguous] copies a matrix into the other layout on the GPU:
 
 @examples[#:eval ev #:label #f
-(define k 3)
-(match-define (list n d) (shape X))
-(define labels (device-vector n #:dtype 'int32))
-(define centroids (device-matrix k d))
-(list (shape labels) (dtype labels))
-(list (shape centroids) (dtype centroids) (layout centroids))
-]
-
-@racket[device-vector] and @racket[device-matrix] allocate without
-initialising.
-
-@section[#:tag "arrays-layout"]{Column-major for the solver}
-
-Least squares predicts petal width from the first three measurements, and
-cuML's solvers read column-major input. The features come from
-@racket[samples]:
-
-@examples[#:eval ev #:label #f
-(define feature-rows (map (lambda (row) (take row 3)) samples))
-(define features (list*->device-matrix feature-rows #:dtype 'float32))
-(define F (contiguous features #:layout 'col-major))
-F
+(define F (contiguous X #:layout 'col-major))
 (layout F)
 (strides F)
 (contiguous? F #:layout 'col-major)
-(equal? (device-matrix->list* F) (device-matrix->list* features))
+(equal? (device-matrix->list* F) (device-matrix->list* X))
 ]
 
-Same matrix, different memory order. A column-major solver handed the
-row-major buffer would silently read wrong numbers. @racket[contiguous]
-copies on the GPU, and only when it has to:
+Same values, different memory order. @racket[contiguous] copies only when it
+has to:
 
 @examples[#:eval ev #:label #f
 (eq? (contiguous F #:layout 'col-major) F)
@@ -90,32 +78,32 @@ copies on the GPU, and only when it has to:
 Data from Racket can be packed column-major on the host instead:
 
 @examples[#:eval ev #:label #f
-(define F* (list*->device-matrix feature-rows #:dtype 'float32 #:layout 'col-major))
+(define F* (list*->device-matrix rows #:dtype 'float32 #:layout 'col-major))
 (strides F*)
 (equal? (device-matrix->list* F*) (device-matrix->list* F))
 ]
 
 @section[#:tag "arrays-back"]{Bringing values back}
 
-The solver's targets, the petal widths, come from an @racket[flvector]:
+The petal widths, from an @racket[flvector]:
 
 @examples[#:eval ev #:label #f
 (define widths
-  (for/flvector ([row (in-list samples)])
+  (for/flvector ([row (in-list rows)])
     (last row)))
 (define y (flvector->device-vector widths #:dtype 'float32))
 y
-(device-vector->flvector y)
+(take (device-vector->list y) 4)
 ]
 
-Float elements come back as flonums, integer elements as exact integers.
-A @racket['float32] cannot hold 0.2 exactly, so what comes back is the
-nearest @racket['float32], widened; keep exact values in
-@racket['float64], the type inferred for @racket[samples]:
+Float elements come back as flonums, integer elements as exact integers. A
+@racket['float32] cannot hold 0.2 exactly, so what comes back is the nearest
+@racket['float32], widened; keep exact values in @racket['float64], the type
+inferred for @racket[rows]:
 
 @examples[#:eval ev #:label #f
-(first (device-matrix->list* F))
-(first (device-matrix->list* (list*->device-matrix samples)))
+(first (device-matrix->list* X))
+(first (device-matrix->list* (list*->device-matrix rows)))
 ]
 
 @section[#:tag "arrays-memory"]{Letting go}

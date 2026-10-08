@@ -1,12 +1,14 @@
 #lang racket/base
 
-(require (only-in racket/flonum ->fl fl* fl+ flsqrt flvector for/flvector in-flvector)
+(require (only-in datasets load-iris)
+         (only-in polars in-dataframe-columns series->list)
+         (only-in racket/flonum ->fl fl* fl+ flsqrt flvector for/flvector in-flvector)
          (only-in racket/format ~a)
-         (only-in racket/list count first last second take)
+         (only-in racket/list count first last make-list second take)
          (only-in racket/match match-define)
          (only-in racket/port with-output-to-string)
          (only-in racket/string string-join string-split)
-         (only-in rackunit check-equal? check-exn check-false check-true)
+         (only-in rackunit check-equal? check-exn check-false check-true test-case)
          (only-in "../main.rkt"
                   contiguous
                   contiguous?
@@ -46,67 +48,76 @@
                       (6.3 3.3 6.0 2.5)
                       (5.8 2.7 5.1 1.9)))
 
-(define (first-three rows)
-  (map (lambda (row) (take row 3)) rows))
+(define measurements '("sepal-length" "sepal-width" "petal-length" "petal-width"))
+
+(define (iris-rows)
+  (apply map
+         list
+         (for/list ([column (in-dataframe-columns (load-iris) #:columns measurements)])
+           (series->list column))))
+
+(test-case "arrays guide: the iris dataframe and its rows"
+  (check-equal? (printed (load-iris))
+                (string-append
+                 "shape: (150, 5)\n"
+                 "┌──────────────┬─────────────┬──────────────┬─────────────┬────────────────┐\n"
+                 "│ sepal-length ┆ sepal-width ┆ petal-length ┆ petal-width ┆ species        │\n"
+                 "│ ---          ┆ ---         ┆ ---          ┆ ---         ┆ ---            │\n"
+                 "│ f64          ┆ f64         ┆ f64          ┆ f64         ┆ str            │\n"
+                 "╞══════════════╪═════════════╪══════════════╪═════════════╪════════════════╡\n"
+                 "│ 5.1          ┆ 3.5         ┆ 1.4          ┆ 0.2         ┆ Iris-setosa    │\n"
+                 "│ 4.9          ┆ 3.0         ┆ 1.4          ┆ 0.2         ┆ Iris-setosa    │\n"
+                 "│ 4.7          ┆ 3.2         ┆ 1.3          ┆ 0.2         ┆ Iris-setosa    │\n"
+                 "│ 4.6          ┆ 3.1         ┆ 1.5          ┆ 0.2         ┆ Iris-setosa    │\n"
+                 "│ 5.0          ┆ 3.6         ┆ 1.4          ┆ 0.2         ┆ Iris-setosa    │\n"
+                 "│ …            ┆ …           ┆ …            ┆ …           ┆ …              │\n"
+                 "│ 6.7          ┆ 3.0         ┆ 5.2          ┆ 2.3         ┆ Iris-virginica │\n"
+                 "│ 6.3          ┆ 2.5         ┆ 5.0          ┆ 1.9         ┆ Iris-virginica │\n"
+                 "│ 6.5          ┆ 3.0         ┆ 5.2          ┆ 2.0         ┆ Iris-virginica │\n"
+                 "│ 6.2          ┆ 3.4         ┆ 5.4          ┆ 2.3         ┆ Iris-virginica │\n"
+                 "│ 5.9          ┆ 3.0         ┆ 5.1          ┆ 1.8         ┆ Iris-virginica │\n"
+                 "└──────────────┴─────────────┴──────────────┴─────────────┴────────────────┘"))
+  (define rows (iris-rows))
+  (check-equal? (length rows) 150)
+  (check-equal? (take rows 3) '((5.1 3.5 1.4 0.2) (4.9 3.0 1.4 0.2) (4.7 3.2 1.3 0.2))))
 
 (test-gpu "arrays guide: a dataset on the GPU"
-  (define X (list*->device-matrix iris #:dtype 'float32))
+  (define X (list*->device-matrix (iris-rows) #:dtype 'float32))
   (check-equal? (printed X)
-                (string-append "#<device-matrix float32[6×4] row-major cuda:0\n"
+                (string-append "#<device-matrix float32[150×4] row-major cuda:0\n"
                                " [[5.1 3.5 1.4 0.2]\n"
                                "  [4.9 3.0 1.4 0.2]\n"
-                               "  [7.0 3.2 4.7 1.4]\n"
-                               "  [6.4 3.2 4.5 1.5]\n"
-                               "  [6.3 3.3 6.0 2.5]\n"
-                               "  [5.8 2.7 5.1 1.9]]>")))
-
-(test-gpu "arrays guide: what the program made"
-  (define X (list*->device-matrix iris #:dtype 'float32))
+                               "  [4.7 3.2 1.3 0.2]\n"
+                               "  ...\n"
+                               "  [6.5 3.0 5.2 2.0]\n"
+                               "  [6.2 3.4 5.4 2.3]\n"
+                               "  [5.9 3.0 5.1 1.8]]>"))
   (check-equal? (list (shape X) (dtype X) (layout X) (strides X) (numel X))
-                '((6 4) float32 row-major (4 1) 24)))
+                '((150 4) float32 row-major (4 1) 600)))
 
-(test-gpu "arrays guide: room for k-means' answers"
-  (define X (list*->device-matrix iris #:dtype 'float32))
-  (define k 3)
-  (match-define (list n d) (shape X))
-  (define labels (device-vector n #:dtype 'int32))
-  (define centroids (device-matrix k d))
-  (check-equal? (list (shape labels) (dtype labels)) '((6) int32))
-  (check-equal? (list (shape centroids) (dtype centroids) (layout centroids))
-                '((3 4) float32 row-major)))
-
-(test-gpu "arrays guide: column-major for the solver"
-  (define X (list*->device-matrix iris #:dtype 'float32))
-  (define features (list*->device-matrix (first-three iris) #:dtype 'float32))
-  (define F (contiguous features #:layout 'col-major))
-  (check-equal? (printed F)
-                (string-append "#<device-matrix float32[6×3] col-major cuda:0\n"
-                               " [[5.1 3.5 1.4]\n"
-                               "  [4.9 3.0 1.4]\n"
-                               "  [7.0 3.2 4.7]\n"
-                               "  [6.4 3.2 4.5]\n"
-                               "  [6.3 3.3 6.0]\n"
-                               "  [5.8 2.7 5.1]]>"))
-  (check-equal? (list (layout F) (strides F)) '(col-major (1 6)))
+(test-gpu "arrays guide: changing the layout"
+  (define rows (iris-rows))
+  (define X (list*->device-matrix rows #:dtype 'float32))
+  (define F (contiguous X #:layout 'col-major))
+  (check-equal? (list (layout F) (strides F)) '(col-major (1 150)))
   (check-true (contiguous? F #:layout 'col-major))
-  (check-true (equal? (device-matrix->list* F) (device-matrix->list* features)))
+  (check-true (equal? (device-matrix->list* F) (device-matrix->list* X)))
   (check-true (eq? (contiguous F #:layout 'col-major) F))
   (check-true (eq? (contiguous X) X))
-  (define F* (list*->device-matrix (first-three iris) #:dtype 'float32 #:layout 'col-major))
-  (check-equal? (strides F*) '(1 6))
+  (define F* (list*->device-matrix rows #:dtype 'float32 #:layout 'col-major))
+  (check-equal? (strides F*) '(1 150))
   (check-true (equal? (device-matrix->list* F*) (device-matrix->list* F))))
 
 (test-gpu "arrays guide: bringing values back"
-  (define widths (for/flvector ([row (in-list iris)]) (last row)))
+  (define rows (iris-rows))
+  (define widths (for/flvector ([row (in-list rows)]) (last row)))
   (define y (flvector->device-vector widths #:dtype 'float32))
-  (check-equal? (printed y) "#<device-vector float32[6] cuda:0 [0.2 0.2 1.4 1.5 2.5 1.9]>")
-  (check-equal?
-   (flvector->list (device-vector->flvector y))
-   '(0.20000000298023224 0.20000000298023224 1.399999976158142 1.5 2.5 1.899999976158142))
-  (define F
-    (contiguous (list*->device-matrix (first-three iris) #:dtype 'float32) #:layout 'col-major))
-  (check-equal? (first (device-matrix->list* F)) '(5.099999904632568 3.5 1.399999976158142))
-  (check-equal? (first (device-matrix->list* (list*->device-matrix iris))) '(5.1 3.5 1.4 0.2)))
+  (check-equal? (printed y) "#<device-vector float32[150] cuda:0 [0.2 0.2 0.2 ... 2.0 2.3 1.8]>")
+  (check-equal? (take (device-vector->list y) 4) (make-list 4 0.20000000298023224))
+  (define X (list*->device-matrix rows #:dtype 'float32))
+  (check-equal? (first (device-matrix->list* X))
+                '(5.099999904632568 3.5 1.399999976158142 0.20000000298023224))
+  (check-equal? (first (device-matrix->list* (list*->device-matrix rows))) '(5.1 3.5 1.4 0.2)))
 
 (test-gpu "arrays guide: letting go"
   (drain-finalizers!)

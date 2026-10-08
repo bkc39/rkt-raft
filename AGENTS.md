@@ -622,6 +622,13 @@ the binding census), `racket-review`, `racket-version` (at least 9.3),
   `@status` markers or future-work references (no "arrives later", no
   forward issue links). Each leg's manual describes that leg's library as
   complete and never mentions what an upper leg adds.
+- **The Device arrays chapter loads iris** from `datasets` through `polars`,
+  both build dependencies (the docs tests require them, so
+  `--unused-pkg-deps` sees them used). The sandboxed builds cannot reach the
+  catalog, so the flake installs both offline from glmnet's pins
+  (`installDocsDeps`: the `rkt-polars`, `datasets-src`, `data-frame-src` and
+  `al2-test-runner-src` inputs), and the dev shell does the same. They are
+  installed without docs, so the manual does not link their names.
 - **Concepts' lifetime figure is a pict** (`guide/lifetime-diagram.rkt`,
   `pict-lib` a build dependency), rendered to an image by Scribble.
   `render-docs.sh` ignores the lab host's `Fontconfig warning:` cache-version
