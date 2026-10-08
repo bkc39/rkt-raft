@@ -57,6 +57,7 @@
            (series->list column))))
 
 (test-case "arrays guide: the iris dataframe and its rows"
+  (putenv "POLARS_TABLE_WIDTH" "100")
   (check-equal? (printed (load-iris))
                 (string-append
                  "shape: (150, 5)\n"

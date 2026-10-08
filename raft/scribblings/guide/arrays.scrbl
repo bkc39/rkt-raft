@@ -14,6 +14,10 @@ values back and lets it go.
 The @tt{datasets} package loads Fisher's iris flowers as a Polars
 dataframe:
 
+@examples[#:eval ev #:hidden
+(putenv "POLARS_TABLE_WIDTH" "100")
+]
+
 @examples[#:eval ev #:label #f
 (require datasets
          (only-in polars in-dataframe-columns series->list))
