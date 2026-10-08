@@ -1,7 +1,7 @@
 #lang racket/base
 
 (require (only-in ffi/unsafe/atomic in-atomic-mode?)
-         (only-in ffi/vector f64vector)
+         (only-in racket/flonum flvector)
          (only-in rackunit check-equal? check-exn check-pred check-regexp-match check-true test-case)
          (only-in "../private/error.rkt" call/raft exn:fail:raft-kind exn:fail:raft?)
          (only-in "../private/foreign/array.rkt" rr-buffer-alloc rr-copy-h2d)
@@ -41,7 +41,7 @@
   (with-release ([resources (new-resources) rr-resources-free]
                  [buffer (new-buffer resources 8) rr-buffer-free])
     (check-exn #rx"^copy: 16 bytes do not fit a buffer of 8 bytes$"
-               (lambda () (call/raft 'copy (lambda () (rr-copy-h2d buffer (f64vector 1.0 2.0))))))))
+               (lambda () (call/raft 'copy (lambda () (rr-copy-h2d buffer (flvector 1.0 2.0))))))))
 
 (test-case "the call and the error read share one atomic section"
   (check-true (call/raft 'atomic in-atomic-mode?)))

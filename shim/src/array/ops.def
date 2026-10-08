@@ -1,0 +1,1 @@
+RR_OP(array, contiguous, RR_ALL_DTYPES, RR_ALL_LAYOUTS)

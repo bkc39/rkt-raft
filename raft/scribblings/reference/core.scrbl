@@ -134,8 +134,9 @@ Waiting in a thread of its own:
          device-resources?]{
 
 Returns the calling thread's default resources for @racket[device], creating
-them on first use, or again after they are released. Operations given no
-@racket[#:resources] use it. Each Racket thread has its own, so
+them on first use, or again after they are released. The array constructors
+and conversions of @racketmodname[raft/array] use it when given no
+@racket[#:resources]. Each Racket thread has its own, so
 threads never share a stream by accident.
 
 @examples[#:eval ev
@@ -171,7 +172,9 @@ before
 Binds each @racket[id] as by @racket[let*], evaluates the @racket[body]s, and
 releases every bound resources object when control leaves the form by return,
 raise or escape. Release is idempotent; re-entering the body by a
-continuation raises @racket[exn:fail:raft] of kind @racket['logic].
+continuation raises @racket[exn:fail:raft] of kind @racket['logic]. A
+@tech{device array} allocated with the resources keeps the stream and
+handles alive until it is freed.
 
 The finalizer alone is correct: it releases unreachable resources at some
 collection. The form gives their lifetime a clear timeline, a release at a

@@ -5,6 +5,23 @@
     nixpkgs.url = "github:NixOS/nixpkgs/07e1d92cdc0ed416cfa11ff3ca40d17e61cfba7a";
     treefmt-nix.url = "github:numtide/treefmt-nix";
     treefmt-nix.inputs.nixpkgs.follows = "nixpkgs";
+    # polars (rkt-polars) and datasets, which the Device arrays chapter loads,
+    # at glmnet's pins. The sandboxed builds cannot reach the package catalog,
+    # so they install these from source; rkt-polars' nixpkgs is not followed,
+    # since its racket-deps hash is taken with its own Racket.
+    rkt-polars.url = "github:bkc39/rkt-polars/9d1555e1515837b5bfd7ae7e829dfc996e81eb23";
+    datasets-src = {
+      url = "github:bkc39/datasets/007c85a57b4e5c638227c5e7b90c50ce18cc63fd";
+      flake = false;
+    };
+    data-frame-src = {
+      url = "github:alex-hhh/data-frame/ab3980c4da5a99d2b79172a32b9cb86b2c2b63b4";
+      flake = false;
+    };
+    al2-test-runner-src = {
+      url = "github:alex-hhh/al2-test-runner/b6757271932151dff6507ee6f1b690d0268da808";
+      flake = false;
+    };
   };
 
   outputs =
@@ -12,6 +29,10 @@
       self,
       nixpkgs,
       treefmt-nix,
+      rkt-polars,
+      datasets-src,
+      data-frame-src,
+      al2-test-runner-src,
     }:
     let
       system = "x86_64-linux";
@@ -101,6 +122,31 @@
         done
       '';
 
+      # polars and its dependency closure, then datasets, offline into
+      # $PLTUSERHOME (glmnet's recipe). polars' dependencies are set up first:
+      # setup copies tzdata's zoneinfo where gregor, which polars loads, finds
+      # it. polars is installed from a writable copy of its source with the
+      # prebuilt Linux library already in native-libs/ and no candidates/, so
+      # its pre-install hook leaves the library be.
+      installDocsDeps = skip: ''
+        raco pkg install --batch --copy --no-docs --scope user ${skip} \
+          ${rkt-polars.packages.${system}.racket-deps}/*/
+        _polars_src="$(mktemp -d)/polars"
+        cp -r ${rkt-polars}/polars "$_polars_src"
+        chmod -R u+w "$_polars_src"
+        cp ${rkt-polars}/polars/native-libs/candidates/linux/libcompat.so "$_polars_src/native-libs/"
+        rm -rf "$_polars_src/native-libs/candidates"
+        raco pkg install --batch --copy --no-docs --scope user ${skip} --name polars "$_polars_src"
+        raco pkg install --batch --deps fail --no-setup --copy --scope user ${skip} \
+          --name al2-test-runner ${al2-test-runner-src}
+        raco pkg install --batch --deps fail --no-setup --copy --scope user ${skip} \
+          --name data-frame ${data-frame-src}
+        raco pkg install --batch --deps fail --no-setup --copy --scope user ${skip} \
+          --name datasets-core ${datasets-src}/datasets-core
+        raco pkg install --batch --deps fail --no-setup --copy --scope user ${skip} \
+          --name datasets ${datasets-src}/datasets
+      '';
+
       racketPackage = pkgs.stdenv.mkDerivation {
         pname = "rkt-raft";
         inherit version;
@@ -118,6 +164,7 @@
           mkdir -p $PLTUSERHOME
           ${stageNativeLibs shim}
           [ "$_stage_failed" = 0 ] || exit 1
+          ${installDocsDeps ""}
           raco pkg install --batch --deps fail --no-setup --copy --scope user \
             --name raft ./raft
           raco setup --no-docs --check-pkg-deps --unused-pkg-deps --pkgs raft
@@ -266,6 +313,7 @@
           mkdir -p $PLTUSERHOME
           raco pkg install --batch --copy --no-docs --deps fail --scope user \
             ${racketTools.sources}/*/
+          ${installDocsDeps ""}
           raco pkg install --batch --no-docs --no-setup --deps fail --scope user \
             --link --name raft-lint ./lint
           raco pkg install --batch --no-docs --no-setup --deps fail --scope user \
@@ -339,6 +387,7 @@
         if [ ! -f "$_pkg_stamp" ]; then
           echo "Installing raft into $PLTUSERHOME (link mode)"
           rm -f "$PLTUSERHOME"/.raft-installed-* 2>/dev/null || true
+          ${installDocsDeps "--skip-installed"}
           if raco pkg install --batch --auto --no-setup --link --scope user \
                --skip-installed --name raft "$PWD/raft" \
              && raco setup --no-docs --pkgs raft; then

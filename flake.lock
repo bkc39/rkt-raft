@@ -1,5 +1,56 @@
 {
   "nodes": {
+    "al2-test-runner-src": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1598584755,
+        "narHash": "sha256-/sUmGp7odmi6baDsJeN8oN7AAa6ojWQD1aynA4UL2us=",
+        "owner": "alex-hhh",
+        "repo": "al2-test-runner",
+        "rev": "b6757271932151dff6507ee6f1b690d0268da808",
+        "type": "github"
+      },
+      "original": {
+        "owner": "alex-hhh",
+        "repo": "al2-test-runner",
+        "rev": "b6757271932151dff6507ee6f1b690d0268da808",
+        "type": "github"
+      }
+    },
+    "data-frame-src": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1787141646,
+        "narHash": "sha256-AE3M0JM2qQ2FIjDuunV3GEIuKyDyZw4qZYnSGLgGFJo=",
+        "owner": "alex-hhh",
+        "repo": "data-frame",
+        "rev": "ab3980c4da5a99d2b79172a32b9cb86b2c2b63b4",
+        "type": "github"
+      },
+      "original": {
+        "owner": "alex-hhh",
+        "repo": "data-frame",
+        "rev": "ab3980c4da5a99d2b79172a32b9cb86b2c2b63b4",
+        "type": "github"
+      }
+    },
+    "datasets-src": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1791056085,
+        "narHash": "sha256-EQi2aAxFKGl/G1ZaK7dDvLFlzvM3S21i7mKjd59p/0Y=",
+        "owner": "bkc39",
+        "repo": "datasets",
+        "rev": "007c85a57b4e5c638227c5e7b90c50ce18cc63fd",
+        "type": "github"
+      },
+      "original": {
+        "owner": "bkc39",
+        "repo": "datasets",
+        "rev": "007c85a57b4e5c638227c5e7b90c50ce18cc63fd",
+        "type": "github"
+      }
+    },
     "nixpkgs": {
       "locked": {
         "lastModified": 1787172299,
@@ -16,9 +67,48 @@
         "type": "github"
       }
     },
+    "nixpkgs_2": {
+      "locked": {
+        "lastModified": 1789632929,
+        "narHash": "sha256-RjR8AyvGlWuw16XRj7C1YDEw4E27ciuyPeB2nDMzgTU=",
+        "owner": "NixOS",
+        "repo": "nixpkgs",
+        "rev": "a32edd7654519351e48e80372a928df336394670",
+        "type": "github"
+      },
+      "original": {
+        "owner": "NixOS",
+        "ref": "nixpkgs-unstable",
+        "repo": "nixpkgs",
+        "type": "github"
+      }
+    },
+    "rkt-polars": {
+      "inputs": {
+        "nixpkgs": "nixpkgs_2"
+      },
+      "locked": {
+        "lastModified": 1790782830,
+        "narHash": "sha256-kPWCTilTDesg5ah12N+PfWjPHdUwEskobAIrJjhZWag=",
+        "owner": "bkc39",
+        "repo": "rkt-polars",
+        "rev": "9d1555e1515837b5bfd7ae7e829dfc996e81eb23",
+        "type": "github"
+      },
+      "original": {
+        "owner": "bkc39",
+        "repo": "rkt-polars",
+        "rev": "9d1555e1515837b5bfd7ae7e829dfc996e81eb23",
+        "type": "github"
+      }
+    },
     "root": {
       "inputs": {
+        "al2-test-runner-src": "al2-test-runner-src",
+        "data-frame-src": "data-frame-src",
+        "datasets-src": "datasets-src",
         "nixpkgs": "nixpkgs",
+        "rkt-polars": "rkt-polars",
         "treefmt-nix": "treefmt-nix"
       }
     },
