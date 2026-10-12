@@ -1,9 +1,12 @@
 #lang racket/base
 (require (only-in ffi/unsafe/atomic call-as-atomic)
          (only-in kmeans-canary/private/native call/kc kc-pool-bytes)
-         (only-in racket/match match-define))
+         (only-in racket/match match-define)
+         (only-in raft current-device-resources))
 
 (define calls 20000)
+
+(void (current-device-resources))
 
 (define (ns-per-call call)
   (call)

@@ -46,3 +46,25 @@ A dash means the same time as the flonum array, through which every
   `math/matrix`, is read through a Typed Racket contract, about 0.6 µs an
   element; built in Typed Racket and converted with `array->flarray` there,
   1000×1000 takes 80 ms against 710 (`typed-arrays.rkt`).
+
+## Downstream calls
+
+```bash
+racket bench/status-checker.rkt   # ns per call of the canary's kc_pool_bytes
+```
+
+The median of five runs of 20,000 calls, after a warm-up. RTX 3090 Ti,
+Racket 9.3 CS, 2026-10-12, for #15.
+
+| kc_pool_bytes through | ns/call |
+|---|---:|
+| the bare _fun | 258 |
+| call-as-atomic (status-checker before #21) | 1055 |
+| status-checker (an OS thread per call) | 35040 |
+
+- Starting an OS thread for each call costs about 34 µs over the
+  `call-as-atomic` checker. A one-second `kmeans-fit` does not notice; a
+  downstream making many short calls does.
+- During a one-second `kmeans-fit` a 10 ms ticker thread ran 95 to 99 times
+  (none through `call-as-atomic`), and a break sent 50 ms in was raised at
+  967 ms, when the fit returned.
