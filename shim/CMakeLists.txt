@@ -43,6 +43,7 @@ add_library(raftrkt SHARED
   src/array/array.cpp
   src/array/buffer.cpp
   src/array/copy.cu
+  src/array/deposit.cpp
   src/core/core.cpp
   src/core/memory.cpp
   src/core/memory_resource.cpp

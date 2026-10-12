@@ -5,6 +5,7 @@
 #include <array>
 #include <cstdint>
 #include <cstring>
+#include <initializer_list>
 #include <memory>
 #include <numeric>
 #include <raft/core/handle.hpp>
@@ -97,10 +98,10 @@ void fill(const session& s, tally& t) {
                             stream.value()),
             cudaSuccess);
   ASSERT_EQ(cudaStreamSynchronize(stream.value()), cudaSuccess);
-  raftrkt::deposit(s.record, "out", *s.handle, std::move(o),
-                   {raftrkt::region(o->matrix.data(), rows, cols,
-                                    raftrkt::layout::row_major),
-                    raftrkt::region(o->indices)});
+  const std::initializer_list<rr_view> regions{
+      raftrkt::region(o->matrix.data(), rows, cols, raftrkt::layout::row_major),
+      raftrkt::region(o->indices)};
+  raftrkt::deposit(s.record, "out", *s.handle, std::move(o), regions);
 }
 
 std::string failure(int status) {

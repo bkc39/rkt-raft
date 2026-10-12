@@ -17,12 +17,22 @@ std::atomic<uint64_t>& buffer_drops() noexcept {
   return count;
 }
 
-namespace {
+std::atomic<uint64_t>& holder_drops() noexcept {
+  static std::atomic<uint64_t> count{0};
+  return count;
+}
+
+std::atomic<uint64_t>& owner_releases() noexcept {
+  static std::atomic<uint64_t> count{0};
+  return count;
+}
 
 std::atomic<uint64_t>& release_failures() noexcept {
   static std::atomic<uint64_t> count{0};
   return count;
 }
+
+namespace {
 
 // A release that cannot select its device leaks and is counted: unwinding
 // into a finalizer would abort the process.
@@ -54,12 +64,24 @@ void rr_buffer_free(rr_buffer* buffer) {
   rr::release_on_device(buffer, rr::buffer_drops());
 }
 
+void rr_holder_free(rr_holder* holder) {
+  rr::release_on_device(holder, rr::holder_drops());
+}
+
 uint64_t rr_resources_drop_count(void) {
   return rr::resources_drops().load(std::memory_order_relaxed);
 }
 
 uint64_t rr_buffer_drop_count(void) {
   return rr::buffer_drops().load(std::memory_order_relaxed);
+}
+
+uint64_t rr_holder_drop_count(void) {
+  return rr::holder_drops().load(std::memory_order_relaxed);
+}
+
+uint64_t rr_owner_release_count(void) {
+  return rr::owner_releases().load(std::memory_order_relaxed);
 }
 
 uint64_t rr_release_failure_count(void) {
