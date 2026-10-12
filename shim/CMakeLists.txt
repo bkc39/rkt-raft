@@ -90,6 +90,7 @@ if(BUILD_TESTING)
     tests/array_test.cpp
     tests/core_test.cpp
     tests/cuda_language_test.cu
+    tests/deposit_test.cpp
     tests/memory_test.cpp
     tests/resources_test.cpp
     $<TARGET_OBJECTS:raftrkt_c_api_compile_test>
@@ -104,6 +105,7 @@ if(BUILD_TESTING)
     src/detail/dtype.cpp
     src/detail/error.cpp
     src/detail/view.cpp
+    tests/deposit_header_test.cpp
     tests/error_test.cpp
     tests/headers_test.cpp
     tests/view_test.cpp

@@ -45,6 +45,8 @@ The examples call the canary's library: set @tt{RAFT_KMEANS_CANARY} to
         _pointer _pointer _pointer _pointer _int32 _pointer
         (inertia : (_ptr o _double atomic-interior))
         -> (status : _int) -> (values status inertia)))
+(define-kc kc-cluster-members
+  (_fun #:blocking? #t _pointer _pointer _pointer _int32 _pointer -> _int))
 ]
 
 @section[#:tag "ref-unsafe-status"]{Checking native calls}
@@ -283,6 +285,68 @@ is refused:
    (check 'kmeans-predict (lambda () (kc-predict handle c stale #f 1 y)))))
 ]}
 
+@section[#:tag "ref-unsafe-deposits"]{Outputs sized by the call}
+
+Some native calls allocate outputs whose size only the call knows, such as
+HDBSCAN's condensed tree. A deposit is a record the call fills with that
+memory and with the owner that frees it; raft then turns each region into an
+array.
+
+@defproc[(deposit [#:resources resources device-resources? (current-device-resources)]) deposit?]{
+
+Returns an empty deposit on @racket[resources]: a record into which a native
+call puts device memory it allocated, with the owner that frees it. Its
+arrays come from @racket[deposit->list].}
+
+@defproc[(deposit? [v any/c]) boolean?]{
+
+Recognises deposits.}
+
+@defform[(with-deposits ([id deposit-expr] ...) body ...+)
+         #:contracts ([deposit-expr deposit?])]{
+
+Binds each @racket[id] to a pointer to the deposit's @tt{rr_deposit}
+(@secref["ref-unsafe-c"]) for the extent of the @racket[body]s, and holds
+the deposit reachable, even across a killed caller's call. Every exit closes
+the deposit: a native call can no longer fill it, and a deposit left empty
+holds no arrays. A closed or already filled deposit raises
+@racket[exn:fail:raft] of kind @racket['logic]. Make the deposit on the
+resources the call runs on. Two identical @racket[id]s are a syntax error.}
+
+@defproc[(deposit->list [d deposit?]) (listof (or/c device-vector? device-matrix?))]{
+
+Returns the arrays of @racket[d]'s regions, in order, with the shapes,
+layouts and dtypes the native call recorded: the same arrays on every call.
+Each holds the native owner: it is freed, exactly once, when the deposit and
+all its arrays are gone, on the deposit's stream, and it outlives the
+resources object it was made from. An open deposit raises
+@racket[exn:fail:raft] of kind @racket['logic].}
+
+@examples[#:eval ev
+(define members (deposit))
+(with-deposits ([out members])
+  (with-array-views #:resources [handle (current-device-resources)] ([x X] [y labels])
+    (check 'cluster-members (lambda () (kc-cluster-members handle x y 0 out)))))
+(match-define (list indices rows) (deposit->list members))
+(list (dtype indices) (dtype rows) (= (car (shape rows)) (car (shape indices))))
+(eq? indices (first (deposit->list members)))
+]
+
+A deposit is converted after its form, it is filled once, and it belongs to
+the resources it was made on:
+
+@examples[#:eval ev #:label #f
+(define pending (deposit))
+(eval:error (with-deposits ([out pending]) (deposit->list pending)))
+(deposit->list pending)
+(eval:error (with-deposits ([out members]) out))
+(define elsewhere (deposit #:resources other))
+(eval:error
+ (with-deposits ([out elsewhere])
+   (with-array-views #:resources [handle (current-device-resources)] ([x X] [y labels])
+     (check 'cluster-members (lambda () (kc-cluster-members handle x y 0 out))))))
+]
+
 @section[#:tag "ref-unsafe-c"]{The C interface}
 
 The C side is the public C headers of @tt{libraftrkt} (@tt{core.h},
@@ -402,6 +466,56 @@ T* centers = raftrkt::matrix_data<T, int>(centroids, "centroids", raftrkt::layou
 auto m = raftrkt::matrix_view<const float, raft::col_major, int64_t>(a, "A");
 }|
 
+@bold{@tt{raftrkt/deposit.h}.} An @tt{rr_deposit} is 1256 bytes. raft
+fills the first three fields when it makes the deposit; the native call fills
+the rest:
+
+@tabular[#:sep @hspace[2]
+         #:style 'boxed
+         #:row-properties '(bottom-border ())
+ (list (list @bold{Field} @bold{Offset} @bold{Meaning})
+       (list @tt{const void* handle} "0" @elem{the @tt{raft::handle_t*} of the deposit's resources})
+       (list @tt{int32_t device} "8" "the CUDA device")
+       (list @tt{int32_t state} "12" @elem{@tt{RR_DEPOSIT_OPEN} 0, @tt{FILLED} 1, @tt{CLOSED} 2})
+       (list @tt{void* owner} "16" "what frees the regions' memory")
+       (list @tt{rr_release_fn release} "24" @elem{@tt{void (*)(void* owner)}})
+       (list @tt{int32_t count} "32" @elem{0 to @tt{RR_MAX_REGIONS} (8)})
+       (list @tt{rr_view regions[8]} "40" "each a device view of rank 1 or 2"))]
+
+Once the record is filled, it owns the owner, and @tt{libraftrkt} calls
+@tt{release(owner)} exactly once. @tt{release} runs on any OS thread, with
+the deposit's device current and its @tt{raft::handle_t} still alive, and may
+run concurrently with the library's other calls; it must not throw or call
+Racket. Every region lies in memory the owner frees, on the handle's stream,
+and its contents are complete when the call returns.
+
+@bold{@tt{raftrkt/deposit.hpp}.} Header-only, like @tt{view.hpp}:
+
+@itemlist[
+ @item{@tt{rr_view raftrkt::region(rmm::device_uvector<T>& v)},
+       @tt{region(T* data, int64_t n)} and @tt{region(T* data, int64_t rows,
+       int64_t cols, raftrkt::layout l)}: a vector or a matrix with
+       canonical strides, for @tt{T} one of the four element types.}
+ @item{@tt{void raftrkt::deposit(rr_deposit* into, const char* name, const
+       raft::handle_t& handle, std::unique_ptr<Owner>&& owner,
+       std::initializer_list<rr_view> regions)}: refuses, in order, a
+       @tt{NULL} record, a record that is not open (@tt{"out: already
+       filled"}, @tt{"out: closed"}), a record on other resources than
+       @tt{handle}'s, no owner, more than 8 regions, a region of another
+       rank, element type, layout or alignment, or without data, overlapping
+       regions, and memory that is not on the record's device. A refusal
+       throws @tt{raftrkt::logic_error}, touches nothing, and leaves the
+       owner to the caller's @tt{unique_ptr}. Otherwise it fills the record
+       and takes the owner.}]
+
+@listing["C++"]|{
+auto owner = std::make_unique<members<T>>(handle, m, d);
+// The regions read owner before deposit takes it: std::move is only a cast.
+raftrkt::deposit(out, "out", handle, std::move(owner),
+                 {raftrkt::region(owner->indices),
+                  raftrkt::region(owner->rows.data(), m, d, raftrkt::layout::row_major)});
+}|
+
 @bold{What is frozen.} @tt{rr_view}, @tt{RR_MAX_RANK} and the dtype and memory
 codes; @tt{rr_buffer_view}; @tt{rr_resources_handle}; @tt{rr_abi_tag},
 @tt{rr_abi} and @tt{RR_ABI_VERSION}; the status codes, error kinds and
@@ -409,5 +523,10 @@ codes; @tt{rr_buffer_view}; @tt{rr_resources_handle}; @tt{rr_abi_tag},
 this module; and the rules a downstream entry point keeps: run inside
 @tt{translate_exceptions}, select the handle's device, refuse arrays on
 another device, read arrays only through @tt{view.hpp}, and synchronise the
-handle's stream on every exit. A change to any of them is a new ABI version,
-with the canary changed in the same pull request.
+handle's stream on every exit. Additions at version 1 (#22):
+@tt{rr_deposit}, @tt{RR_MAX_REGIONS}, the @tt{RR_DEPOSIT_*} states,
+@tt{rr_release_fn}, @tt{deposit.hpp}, and @racket[deposit], @racket[deposit?],
+@racket[with-deposits] and @racket[deposit->list]; a downstream detects them
+by requiring @racketmodname[raft] version 0.2, or with
+@tt{__has_include(<raftrkt/deposit.hpp>)}. A change to any of them is a new
+ABI version, with the canary changed in the same pull request.

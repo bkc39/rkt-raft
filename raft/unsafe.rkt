@@ -5,6 +5,7 @@
          ;; whole-module: it also provides syntax/parse at phase 1
          syntax/parse/define
          (only-in "private/array.rkt" settled-view)
+         (only-in "private/deposit.rkt" close-deposit! deposit deposit->list deposit-record deposit?)
          (only-in "private/error.rkt" call/raft exn:fail:raft)
          (only-in "private/foreign/array.rkt" clear-view! keep-reachable)
          (only-in "private/foreign/core.rkt" rr-abi rr-resources-handle)
@@ -12,10 +13,14 @@
          (only-in "private/resource.rkt" drop-owner! hold-owner! with-release)
          (only-in "private/resources.rkt" resources-handle))
 
-(provide raft-abi-pointer
+(provide deposit
+         deposit->list
+         deposit?
+         raft-abi-pointer
          resources->handle-pointer
          status-checker
-         with-array-views)
+         with-array-views
+         with-deposits)
 
 (define (raft-abi-pointer)
   (rr-abi))
@@ -91,3 +96,22 @@
      ((~? [handle (hold-owner! (handle-for 'with-array-views r) r) (handle-release r)])
       [b.name (and a (hold-owner! (settled-view 'with-array-views a) a)) (view-release a)] ...)
      body ...)))
+
+(begin-for-syntax
+  (define-syntax-class deposit-binding
+    #:description "a [name deposit-expr] binding"
+    (pattern [name:id deposit:expr])))
+
+(define (deposit-release d) ;; noqa
+  (lambda (record)
+    (drop-owner! record)
+    (close-deposit! d)
+    (keep-reachable d)))
+
+(define-syntax-parse-rule (with-deposits (b:deposit-binding ...) body:expr ...+)
+  #:fail-when (check-duplicate-identifier (syntax->list #'(b.name ...))) "duplicate binding name"
+  #:with (d ...) (generate-temporaries #'(b.name ...))
+  (let ([d b.deposit] ...)
+    (with-release #:who 'with-deposits
+                  ([b.name (hold-owner! (deposit-record 'with-deposits d) d) (deposit-release d)] ...)
+                  body ...)))

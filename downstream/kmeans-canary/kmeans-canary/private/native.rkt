@@ -19,10 +19,13 @@
 (provide call/kc
          canary-path
          kc-check-abi
+         kc-cluster-members
          kc-current-is-async
          kc-device-memory
          kc-fit
          kc-make-blobs
+         kc-owner-drop-count
+         kc-owner-stale-count
          kc-pool-bytes
          kc-pool-reset-high
          kc-predict)
@@ -81,6 +84,12 @@
 (define-kc kc-make-blobs
   (_fun #:blocking? #t _pointer _pointer _pointer _int32 _double _int32 _double _double _uint64
         -> _int))
+
+(define-kc kc-cluster-members
+  (_fun #:blocking? #t _pointer _pointer _pointer _int32 _pointer -> _int))
+
+(define-kc kc-owner-drop-count (_fun -> _uint64))
+(define-kc kc-owner-stale-count (_fun -> _uint64))
 
 (define-kc kc-current-is-async
   (_fun _int32 (out : (_ptr o _int32)) -> (status : _int) -> (values status (= out 1))))

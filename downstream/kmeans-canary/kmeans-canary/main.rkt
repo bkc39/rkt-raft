@@ -14,6 +14,7 @@
          (only-in "private/native.rkt" call/kc kc-fit kc-make-blobs kc-predict))
 
 (provide blobs
+         cluster-members
          kmeans-fit
          kmeans-predict)
 
@@ -99,3 +100,6 @@
                       ([c centroids] [x X] [w sample-weight] [y labels])
       (call/kc 'kmeans-predict (lambda () (kc-predict handle c x w (if normalize? 1 0) y)))))
   (values labels inertia))
+
+(define (cluster-members X labels cluster #:resources [resources (current-device-resources)]) ;; noqa
+  (error 'unimplemented))

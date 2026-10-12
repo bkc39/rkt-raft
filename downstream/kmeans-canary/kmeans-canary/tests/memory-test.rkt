@@ -4,11 +4,15 @@
          (only-in racket/port with-output-to-string)
          (only-in racket/system system*)
          (only-in rackunit check-equal? check-true)
-         (only-in raft shape)
-         (only-in raft/private/foreign/memory buffer-drop-count release-failure-count)
+         (only-in raft device-resources shape with-device-resources)
+         (only-in raft/private/foreign/memory
+                  buffer-drop-count
+                  owner-release-count
+                  release-failure-count)
          (only-in raft/tests/private/collect collect-until drain-finalizers!)
          (only-in raft/tests/private/probe test-pools)
-         (only-in "../main.rkt" blobs kmeans-fit kmeans-predict)
+         (only-in "../main.rkt" blobs cluster-members kmeans-fit kmeans-predict)
+         (only-in "../private/native.rkt" kc-owner-drop-count kc-owner-stale-count)
          (only-in "../pool.rkt" canary-device-memory canary-pool-bytes))
 
 (define fits 1000)
@@ -85,3 +89,46 @@
            (- (caddr baseline) settled-free)
            (other-processes)))
   (check-equal? (map shape (list X truth)) '((2000 8) (2000)) "the data stayed live throughout"))
+
+(define member-cycles 1000)
+
+(test-pools "1,000 cluster-members cycles leave the pool flat and release every owner once"
+  (define-values (X labels) (blobs 2000 8 #:centers 5 #:cluster-std 0.7 #:seed 3))
+  (for ([_ (in-range 10)])
+    (cluster-members X labels 1))
+  (define kept
+    (box (call-with-values (lambda ()
+                             (with-device-resources ([r (device-resources)])
+                               (cluster-members X labels 2 #:resources r)))
+                           list)))
+  (check-equal? (car (shape (car (unbox kept)))) (car (shape (cadr (unbox kept)))))
+  (define stale (kc-owner-stale-count))
+  (define failures (release-failure-count))
+  (define baseline (pool-sample))
+  (define drops (kc-owner-drop-count))
+  (define releases (owner-release-count))
+  (for ([i (in-range member-cycles)])
+    (cluster-members X labels (modulo i 5)))
+  (check-true (collect-until (lambda ()
+                               (and (>= (owner-release-count) (+ releases member-cycles))
+                                    (>= (kc-owner-drop-count) (+ drops member-cycles))))))
+  (define after (pool-sample))
+  (printf
+   "memory: ~a cluster-members cycles; pool used ~a bytes before, ~a after; reserved ~a before, ~a after; ~a owners released, ~a dropped by the canary, ~a stale; ~a release failures\n"
+   member-cycles
+   (car baseline)
+   (car after)
+   (cadr baseline)
+   (cadr after)
+   (- (owner-release-count) releases)
+   (- (kc-owner-drop-count) drops)
+   (- (kc-owner-stale-count) stale)
+   (- (release-failure-count) failures))
+  (check-equal? (- (owner-release-count) releases) member-cycles)
+  (check-equal? (- (kc-owner-drop-count) drops) member-cycles)
+  (check-equal? (car after) (car baseline) "pool use returns to the baseline after a collection")
+  (check-equal? (cadr after) (cadr baseline) "the pool reserves no more than after warm-up")
+  (check-equal? (- (release-failure-count) failures) 0)
+  (set-box! kept #f)
+  (check-true (collect-until (lambda () (>= (kc-owner-drop-count) (+ drops member-cycles 1)))))
+  (check-equal? (- (kc-owner-stale-count) stale) 0 "an owner whose resources went first finds its handle alive"))

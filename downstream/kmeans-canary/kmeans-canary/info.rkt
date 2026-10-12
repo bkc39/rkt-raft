@@ -3,7 +3,7 @@
 #|review: ignore|#
 
 (define collection "kmeans-canary")
-(define deps '("base" "raft"))
+(define deps '("base" ("raft" #:version "0.2")))
 (define build-deps '("rackunit-lib"))
 (define pkg-desc "The k-means canary: a minimal cuML binding on raft's frozen downstream interface")
 (define license 'Apache-2.0)

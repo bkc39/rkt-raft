@@ -7,7 +7,7 @@
          (only-in rackunit check-equal? check-true)
          (only-in raft device-matrix->list* device-vector->list list*->device-matrix)
          (only-in raft/tests/private/python-env close? run-twin test-twin)
-         (only-in "../main.rkt" blobs kmeans-fit kmeans-predict))
+         (only-in "../main.rkt" blobs cluster-members kmeans-fit kmeans-predict))
 
 (define-runtime-path twin "python/kmeans_twin.py")
 
@@ -110,3 +110,31 @@
     (check-equal? (length (remove-duplicates inertias))
                   (length overlapping-seeds)
                   (format "the seed changes the ~a result on the same overlapping blobs" init))))
+
+(define member-clusters 3)
+
+(define (members-case element-type)
+  (define-values (X _truth)
+    (blobs 300 2 #:centers member-clusters #:cluster-std 0.5 #:seed 9 #:dtype element-type))
+  (define-values (centroids _inertia _n-iter) (kmeans-fit X #:n-clusters member-clusters #:seed 2))
+  (define-values (labels _score) (kmeans-predict centroids X))
+  (for/list ([c (in-range (add1 member-clusters))])
+    (define-values (indices rows) (cluster-members X labels c))
+    (list (hasheq 'op "members"
+                  'X (device-matrix->list* X)
+                  'dtype (symbol->string element-type)
+                  'labels (device-vector->list labels)
+                  'cluster c)
+          (device-vector->list indices)
+          (device-matrix->list* rows))))
+
+(test-twin "cluster-members agrees with NumPy's flatnonzero and row selection"
+  (define cases (append (members-case 'float32) (members-case 'float64)))
+  (define results (hash-ref (run-twin twin (hasheq 'cases (map first cases))) 'results))
+  (for ([case (in-list cases)]
+        [twin (in-list results)])
+    (match-define (list spec indices rows) case)
+    (define label (format "~a cluster ~a" (hash-ref spec 'dtype) (hash-ref spec 'cluster)))
+    (printf "twin members ~a: ~a members\n" label (length indices))
+    (check-equal? indices (hash-ref twin 'indices) label)
+    (check-equal? rows (hash-ref twin 'rows) label)))

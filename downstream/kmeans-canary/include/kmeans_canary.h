@@ -5,6 +5,7 @@
 
 #include "raftrkt/abi.h"
 #include "raftrkt/array.h"
+#include "raftrkt/deposit.h"
 
 #ifdef __GNUC__
 #define KC_API __attribute__((visibility("default")))
@@ -39,6 +40,12 @@ KC_API int kc_make_blobs(void* handle, const rr_view* out,
                          double cluster_std, int32_t shuffle,
                          double center_box_min, double center_box_max,
                          uint64_t seed);
+
+KC_API int kc_cluster_members(void* handle, const rr_view* x,
+                              const rr_view* labels, int32_t cluster,
+                              rr_deposit* out);
+KC_API uint64_t kc_owner_drop_count(void);
+KC_API uint64_t kc_owner_stale_count(void);
 
 KC_API int kc_current_is_async(int32_t device, int32_t* out);
 KC_API int kc_pool_bytes(int32_t device, int64_t* used, int64_t* high,
