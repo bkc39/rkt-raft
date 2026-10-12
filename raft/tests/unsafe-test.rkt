@@ -1,11 +1,22 @@
 #lang racket/base
 
-(require (only-in ffi/unsafe _int32 _int64 cpointer? ptr-equal? ptr-ref)
+(require (only-in ffi/unsafe
+                  _fun
+                  _int
+                  _int32
+                  _int64
+                  _uint32
+                  _uintptr
+                  cpointer?
+                  get-ffi-obj
+                  ptr-equal?
+                  ptr-ref)
          (only-in racket/generator in-generator yield)
          (only-in rackunit
                   check-equal?
                   check-exn
                   check-false
+                  check-not-equal?
                   check-not-false
                   check-pred
                   check-true
@@ -18,6 +29,7 @@
                   device-vector
                   exn:fail:raft
                   exn:fail:raft-kind
+                  exn:fail:raft?
                   list*->device-matrix
                   raft-abi
                   raft-abi-handle-size
@@ -207,6 +219,97 @@
                     (lambda () 0)))
   (check 'demo (lambda () 0))
   (check-equal? reads 0))
+
+;; libc, which the Racket process links
+(define os-thread-id (get-ffi-obj "pthread_self" #f (_fun -> _uintptr)))
+(define sleep-microseconds (get-ffi-obj "usleep" #f (_fun #:blocking? #t _uint32 -> _int)))
+
+(test-case "status-checker calls the thunk and reads the error on one other OS thread"
+  (define call-thread (box #f))
+  (define read-thread (box #f))
+  (define check
+    (status-checker (lambda ()
+                      (set-box! read-thread (os-thread-id))
+                      #"failed")
+                    (lambda () 1)))
+  (check-raft-error 'out-of-memory
+                    "demo: failed"
+                    (lambda ()
+                      (check 'demo
+                             (lambda ()
+                               (set-box! call-thread (os-thread-id))
+                               1))))
+  (check-equal? (unbox read-thread) (unbox call-thread))
+  (check-not-equal? (unbox call-thread) (os-thread-id)))
+
+(test-case "concurrent failures each read the error of their own call"
+  (define check
+    (status-checker (lambda () (string->bytes/utf-8 (number->string (os-thread-id)))) (lambda () 3)))
+  (define (fail-and-compare)
+    (define caller (box #f))
+    (with-handlers ([exn:fail:raft? (lambda (e)
+                                      (equal? (exn-message e) (format "call: ~a" (unbox caller))))])
+      (check 'call
+             (lambda ()
+               (set-box! caller (os-thread-id))
+               (sleep-microseconds 20000)
+               1))))
+  (define callers
+    (for/list ([_ (in-range 4)])
+      (thread (lambda () (for/and ([_ (in-range 10)]) (fail-and-compare))))))
+  (for ([caller (in-list callers)])
+    (thread-wait caller))
+  (check-true (for/and ([_ (in-range 4)]) (fail-and-compare))))
+
+(test-case "status-checker raises the thunk's own exception on the caller's thread"
+  (define check (checker #"unused" 0))
+  (check-exn #rx"^usleep: given value does not fit primitive C type"
+             (lambda () (check 'demo (lambda () (sleep-microseconds -1)))))
+  (check-exn #rx"^demo: contract violation"
+             (lambda () (check 'demo (lambda () (raise-argument-error 'demo "fixnum?" 'x)))))
+  (check-exn #rx"arity mismatch" (lambda () (check 'demo (lambda () (values))))))
+
+(test-case "other Racket threads run during a blocking call"
+  (define ticks 0)
+  (define ticker
+    (thread (lambda ()
+              (let loop ()
+                (sleep 0.01)
+                (set! ticks (add1 ticks))
+                (loop)))))
+  ((checker #"unused" 0) 'demo (lambda () (sleep-microseconds 300000)))
+  (kill-thread ticker)
+  (check-true (> ticks 10) (format "~a ticks in 300 ms" ticks)))
+
+(test-case "a break during the call is raised once the call returns"
+  (define start (current-inexact-milliseconds))
+  (define outcome (box #f))
+  (define caller
+    (thread (lambda ()
+              (with-handlers ([exn:break? (lambda (_)
+                                            (set-box! outcome
+                                                      (- (current-inexact-milliseconds) start)))])
+                ((checker #"unused" 0) 'demo (lambda () (sleep-microseconds 300000)))
+                (set-box! outcome 'returned)))))
+  (sleep 0.05)
+  (break-thread caller)
+  (thread-wait caller)
+  (check-pred real? (unbox outcome))
+  (check-true (>= (unbox outcome) 300) (format "the break arrived at ~a ms" (unbox outcome))))
+
+(test-case "with breaks disabled a break stays pending past the call"
+  (define outcome (box #f))
+  (define caller
+    (thread (lambda ()
+              (with-handlers ([exn:break? (lambda (_) (set-box! outcome (cons 'broken (unbox outcome))))])
+                (parameterize-break #f
+                  ((checker #"unused" 0) 'demo (lambda () (sleep-microseconds 100000)))
+                  (set-box! outcome '(returned)))
+                (sync never-evt)))))
+  (sleep 0.02)
+  (break-thread caller)
+  (check-not-false (sync/timeout 5 caller))
+  (check-equal? (unbox outcome) '(broken returned)))
 
 (test-gpu "the handle pointer and views of the default resources work together"
   (define r (current-device-resources))

@@ -1,7 +1,9 @@
 #lang racket/base
 
 (require (for-syntax racket/base)
-         (only-in ffi/unsafe/atomic call-as-atomic)
+         (only-in ffi/unsafe/os-async-channel make-os-async-channel os-async-channel-put)
+         (only-in ffi/unsafe/os-thread call-in-os-thread)
+         (only-in racket/match match)
          ;; whole-module: it also provides syntax/parse at phase 1
          syntax/parse/define
          (only-in "private/array.rkt" settled-view)
@@ -39,19 +41,43 @@
       (bytes->string/utf-8 message #\uFFFD)
       (format "~a" message)))
 
+(define (fresh-message message)
+  (if (bytes? message)
+      (bytes-copy message)
+      message))
+
+(define ((call-reading-error thunk last-error last-error-kind))
+  (call/ec (lambda (escape)
+             (call-with-exception-handler
+              (lambda (e) (escape (list 'raised e)))
+              (lambda ()
+                (call-with-values thunk
+                                  (lambda (status . results)
+                                    (if (eqv? status 0)
+                                        (list 'ok results)
+                                        (list 'failed
+                                              (fresh-message (last-error))
+                                              (last-error-kind))))))))))
+
+(define (deliver-pending-break)
+  (parameterize-break (break-enabled)
+    (void)))
+
+(define (call-in-os-thread/wait call)
+  (define channel (make-os-async-channel))
+  (call-in-os-thread (lambda () (os-async-channel-put channel (call))))
+  (begin0 (parameterize-break #f
+            (sync channel))
+    (deliver-pending-break)))
+
 (define ((status-checker last-error last-error-kind #:exn [exn exn:fail:raft]) who thunk)
-  (define-values (results message kind)
-    (call-as-atomic (lambda ()
-                      (call-with-values thunk
-                                        (lambda (status . results)
-                                          (if (eqv? status 0)
-                                              (values results #f #f)
-                                              (values #f (last-error) (last-error-kind))))))))
-  (unless results
-    (raise (exn (format "~a: ~a" who (message->string message))
-                (current-continuation-marks)
-                (kind->symbol kind))))
-  (apply values results))
+  (match (call-in-os-thread/wait (call-reading-error thunk last-error last-error-kind))
+    [(list 'ok results) (apply values results)]
+    [(list 'raised e) (raise e)]
+    [(list 'failed message kind)
+     (raise (exn (format "~a: ~a" who (message->string message))
+                 (current-continuation-marks)
+                 (kind->symbol kind)))]))
 
 (define (view-release a) ;; noqa
   (lambda (view) (clear-view! view a)))
