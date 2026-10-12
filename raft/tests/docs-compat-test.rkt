@@ -1,6 +1,7 @@
 #lang racket/base
 
-(require (only-in ffi/vector
+(require (only-in datasets load-iris)
+         (only-in ffi/vector
                   f32vector
                   f32vector->list
                   f32vector-length
@@ -48,10 +49,9 @@
                   matrix-transpose
                   matrix?
                   row-matrix)
+         (only-in polars in-dataframe-columns series->list)
          (only-in racket/file display-to-file file->bytes make-temporary-file)
          (only-in racket/list first index-of last remove-duplicates take)
-         (only-in racket/port port->lines)
-         (only-in racket/string string-split)
          (only-in racket/vector vector-argmax vector-map vector-member vector-sort)
          (only-in rackunit check-equal? check-true)
          (only-in "../compat.rkt"
@@ -326,47 +326,26 @@
   (define scaled (array-scale (device-array->array (vector->device-vector #(1.0 2.0 3.0))) 10.0))
   (check-equal? (device-vector->list (array->device-array scaled)) '(10.0 20.0 30.0)))
 
-(define csv
-  (string-append "sepal_length,sepal_width,petal_length,petal_width,species\n"
-                 "5.1,3.5,1.4,0.2,setosa\n"
-                 "4.9,3.0,1.4,0.2,setosa\n"
-                 "7.0,3.2,4.7,1.4,versicolor\n"
-                 "6.4,3.2,4.5,1.5,versicolor\n"
-                 "6.3,3.3,6.0,2.5,virginica\n"
-                 "5.8,2.7,5.1,1.9,virginica\n"))
-
-(define table
-  (for/list ([line (in-list (cdr (port->lines (open-input-string csv))))])
-    (string-split line ",")))
+(define iris (load-iris))
 
 (define rows
-  (for/list ([fields (in-list table)])
-    (map string->number (take fields 4))))
+  (apply map
+         list
+         (for/list ([column (in-dataframe-columns
+                             iris
+                             #:columns '("sepal-length" "sepal-width" "petal-length" "petal-width"))])
+           (series->list column))))
 
-(define species (map last table))
+(define species
+  (for/first ([column (in-dataframe-columns iris #:columns '("species"))])
+    (series->list column)))
+
 (define names (remove-duplicates species))
 
 (define (labels-of)
   (vector->device-vector (for/vector ([s (in-list species)])
                            (index-of names s))
                          #:dtype 'int32))
-
-(test-gpu "moving-data guide: rows from a text file"
-  (check-equal? (printed (list*->device-array rows #:dtype 'float32))
-                (lines "#<device-matrix float32[6×4] row-major cuda:0"
-                       " [[5.1 3.5 1.4 0.2]"
-                       "  [4.9 3.0 1.4 0.2]"
-                       "  [7.0 3.2 4.7 1.4]"
-                       "  [6.4 3.2 4.5 1.5]"
-                       "  [6.3 3.3 6.0 2.5]"
-                       "  [5.8 2.7 5.1 1.9]]>"))
-  (check-equal? (printed (labels-of)) "#<device-vector int32[6] cuda:0 [0 0 1 1 2 2]>"))
-
-(test-gpu "moving-data guide: choosing float32"
-  (check-equal? (dtype (list*->device-array rows)) 'float64)
-  (check-equal? (dtype (list*->device-array '((1 2) (3 4)))) 'int64)
-  (check-equal? (first (device-array->list* (list*->device-array rows #:dtype 'float32)))
-                '(5.099999904632568 3.5 1.399999976158142 0.20000000298023224)))
 
 (define M (list*->matrix rows))
 (define n (matrix-num-rows M))
@@ -376,48 +355,41 @@
   (define centered (matrix- samples (matrix* (make-matrix n 1 1) means)))
   (matrix-scale (matrix* (matrix-transpose centered) centered) (/ 1.0 (sub1 n))))
 
-(test-gpu "moving-data guide: a matrix computed on the host"
-  (define covariance (covariance-of M))
-  (define C (matrix->device-matrix covariance #:dtype 'float32))
-  (check-equal? (printed C)
-                (lines "#<device-matrix float32[4×4] row-major cuda:0"
-                       " [[ 0.6536667      0.011      1.281  0.5223333]"
-                       "  [     0.011      0.075     -0.131     -0.059]"
-                       "  [     1.281     -0.131      3.867      1.787]"
-                       "  [ 0.5223333     -0.059      1.787 0.85366666]]>"))
-  (define C* (device-matrix->matrix C))
-  (check-equal? (array-shape C*) #(4 4))
-  (check-true (matrix? C*))
-  (check-true (< (array-all-max (array-abs (array- C* covariance))) 1e-6)))
-
 (define (weights-of)
-  (define weights (make-f64vector n))
-  (for ([i (in-range n)])
-    (f64vector-set! weights i (if (< i 2) 2.0 1.0)))
+  (define weights (make-f64vector n 1.0))
+  (f64vector-set! weights 0 2.0)
   weights)
 
-(test-gpu "moving-data guide: weights from foreign code"
+(test-gpu "arrays guide: other forms of Racket data"
+  (check-equal? (list (shape (list*->device-array rows)) (shape (list*->device-array (first rows))))
+                '((150 4) (4)))
+  (check-equal? (printed (labels-of)) "#<device-vector int32[150] cuda:0 [0 0 0 ... 2 2 2]>")
+  (define covariance (covariance-of M))
+  (check-equal? (printed (matrix->device-matrix covariance #:dtype 'float32))
+                (lines "#<device-matrix float32[4×4] row-major cuda:0"
+                       " [[   0.6856935 -0.042434003    1.2743155    0.5162707]"
+                       "  [-0.042434003   0.18997942  -0.32965636  -0.12163937]"
+                       "  [   1.2743155  -0.32965636     3.116278    1.2956094]"
+                       "  [   0.5162707  -0.12163937    1.2956094    0.5810063]]>"))
   (check-equal? (printed (f64vector->device-vector (weights-of) #:dtype 'float32))
-                "#<device-vector float32[6] cuda:0 [2.0 2.0 1.0 1.0 1.0 1.0]>"))
+                "#<device-vector float32[150] cuda:0 [2.0 1.0 1.0 ... 1.0 1.0 1.0]>"))
 
-(test-gpu "moving-data guide: a layout for the solver"
-  (define F (list*->device-array rows #:dtype 'float32 #:layout 'col-major))
-  (check-equal? (list (contiguous? F #:layout 'col-major) (strides F)) '(#t (1 6)))
-  (define F* (matrix->device-matrix M #:dtype 'float32 #:layout 'col-major))
-  (check-equal? (device-array->list* F) (device-array->list* F*)))
-
-(test-gpu "moving-data guide: results back in Racket"
-  (define X* (device-array->array (list*->device-array rows #:dtype 'float32)))
-  (check-equal? (array->list* (array-scale (array-axis-sum X* 0) (/ 1.0 n)))
-                '(5.916666746139526 3.150000015894572 3.849999944368998 1.283333326379458))
+(test-gpu "arrays guide: bringing other forms back"
+  (define covariance (covariance-of M))
+  (define C (matrix->device-matrix covariance #:dtype 'float32))
+  (check-true (< (array-all-max (array-abs (array- (device-matrix->matrix C) covariance))) 1e-6))
+  (define X (list*->device-array rows #:dtype 'float32))
+  (check-equal? (array->list* (array-scale (array-axis-sum (device-array->array X) 0) (/ 1.0 n)))
+                '(5.843333326975505 3.057333335876465 3.757999988396963 1.1993333247800668))
   (define counts (make-vector (length names) 0))
   (for ([label (in-vector (device-vector->vector (labels-of)))])
     (vector-set! counts label (add1 (vector-ref counts label))))
-  (check-equal? counts #(2 2 2))
+  (check-equal? counts #(50 50 50))
   (define w (f64vector->device-vector (weights-of) #:dtype 'float32))
   (define saved (make-temporary-file))
   (display-to-file (device-vector->bytes w) saved #:exists 'truncate)
-  (check-equal? (file-size saved) 24)
-  (check-equal? (device-vector->list (bytes->device-vector (file->bytes saved) #:dtype 'float32))
-                '(2.0 2.0 1.0 1.0 1.0 1.0))
+  (check-equal? (file-size saved) 600)
+  (check-equal?
+   (take (device-vector->list (bytes->device-vector (file->bytes saved) #:dtype 'float32)) 3)
+   '(2.0 1.0 1.0))
   (delete-file saved))

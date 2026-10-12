@@ -78,6 +78,7 @@ raft/                         the Racket package and collection
   scribblings/                the manual: guide/ chapters, reference/ sections
   tests/                      raco tests; tests/private/ the harness; tests/python/ the twins
 scripts/                      gates, the GPU suite, the docs render, the binding census
+bench/README.md               how to run the benchmarks, and the last measured table (#25)
 bench/conversions.rkt         the conversion speed table (raft/compat), 10^6 elements
 bench/typed-arrays.rkt        math/array arrays built in Typed Racket against untyped (typed-table.rkt)
 downstream/kmeans-canary/     the k-means canary, a minimal cuML binding (packages.kmeans-canary)
@@ -221,9 +222,10 @@ plans/scoping-plan.md         the approved plan (revision 5), as Markdown
     (`docs-test.rkt` for leg 0's pages, `docs-core-test.rkt` for
     `raft/core`'s reference and the *Resources and the GPU* chapter,
     `docs-array-test.rkt` for `raft/array`'s and *Device arrays*,
-   `docs-compat-test.rkt` for `raft/compat`'s and *Moving data between
-   Racket and the GPU*, `docs-unsafe-test.rkt` for `raft/unsafe`'s and
-   *Building on raft*, which need the canary and print SKIP without it).
+   `docs-compat-test.rkt` for `raft/compat`'s and the *Device arrays*
+   chapter's other forms of Racket data, `docs-unsafe-test.rkt` for
+   `raft/unsafe`'s and *Building on raft*, which need the canary and print
+   SKIP without it).
 15. **Every review finding is addressed**, from reviewer agents and from bots
     (`chatgpt-codex-connector[bot]` leaves inline comments): fixed with a
     test, or explained with evidence. No silent deferrals.
@@ -690,6 +692,13 @@ the binding census), `racket-review`, `racket-version` (at least 9.3),
   `@status` markers or future-work references (no "arrives later", no
   forward issue links). Each leg's manual describes that leg's library as
   complete and never mentions what an upper leg adds.
+- **The Device arrays chapter loads iris** from `datasets` through `polars`,
+  both build dependencies (the docs tests require them, so
+  `--unused-pkg-deps` sees them used). The sandboxed builds cannot reach the
+  catalog, so the flake installs both offline from glmnet's pins
+  (`installDocsDeps`: the `rkt-polars`, `datasets-src`, `data-frame-src` and
+  `al2-test-runner-src` inputs), and the dev shell does the same. They are
+  installed without docs, so the manual does not link their names.
 - **Concepts' lifetime figure is a pict** (`guide/lifetime-diagram.rkt`,
   `pict-lib` a build dependency), rendered to an image by Scribble.
   `render-docs.sh` ignores the lab host's `Fontconfig warning:` cache-version
