@@ -64,7 +64,8 @@
   (for ([c (in-range k)])
     (define-values (_indices rows) (cluster-members X labels c))
     (define-values (predicted _score) (kmeans-predict centroids rows))
-    (check-true (andmap (lambda (l) (= l c)) (device-vector->list predicted)) (format "cluster ~a" c))))
+    (check-true (andmap (lambda (l) (= l c)) (device-vector->list predicted))
+                (format "cluster ~a" c))))
 
 (test-gpu "law 16: a deposit on other resources is refused and its owner dropped by the canary"
   (define-values (X labels _centroids) (labelled 'float32))
@@ -72,12 +73,13 @@
   (drain-finalizers!)
   (define drops (kc-owner-drop-count))
   (define releases (owner-release-count))
-  (check-raft-error 'logic
-                    "cluster-members: out: on resources other than the call's"
-                    (lambda ()
-                      (with-deposits ([out elsewhere])
-                        (with-array-views #:resources [h (current-device-resources)] ([x X] [y labels])
-                          (call/kc 'cluster-members (lambda () (kc-cluster-members h x y 0 out)))))))
+  (check-raft-error
+   'logic
+   "cluster-members: out: on resources other than the call's"
+   (lambda ()
+     (with-deposits ([out elsewhere])
+                    (with-array-views #:resources [h (current-device-resources)] ([x X] [y labels])
+                      (call/kc 'cluster-members (lambda () (kc-cluster-members h x y 0 out)))))))
   (check-equal? (- (kc-owner-drop-count) drops) 1)
   (drain-finalizers!)
   (check-equal? (- (owner-release-count) releases) 0))

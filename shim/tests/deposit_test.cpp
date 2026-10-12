@@ -1,3 +1,5 @@
+#include "raftrkt/deposit.hpp"
+
 #include <cuda_runtime_api.h>
 #include <gtest/gtest.h>
 
@@ -18,7 +20,6 @@
 #include "detail/deposit_api.h"
 #include "gpu.hpp"
 #include "raftrkt/c_api.h"
-#include "raftrkt/deposit.hpp"
 
 namespace {
 
@@ -90,13 +91,14 @@ void fill(const session& s, tally& t) {
   const auto stream = raft::resource::get_cuda_stream(*s.handle);
   const std::vector<float> m = iota<float>(matrix_size);
   const std::vector<int64_t> i = iota<int64_t>(index_count);
-  ASSERT_EQ(cudaMemcpyAsync(o->matrix.data(), m.data(), m.size() * sizeof(float),
-                            cudaMemcpyHostToDevice, stream.value()),
-            cudaSuccess);
-  ASSERT_EQ(cudaMemcpyAsync(o->indices.data(), i.data(),
-                            i.size() * sizeof(int64_t), cudaMemcpyHostToDevice,
-                            stream.value()),
-            cudaSuccess);
+  ASSERT_EQ(
+      cudaMemcpyAsync(o->matrix.data(), m.data(), m.size() * sizeof(float),
+                      cudaMemcpyHostToDevice, stream.value()),
+      cudaSuccess);
+  ASSERT_EQ(
+      cudaMemcpyAsync(o->indices.data(), i.data(), i.size() * sizeof(int64_t),
+                      cudaMemcpyHostToDevice, stream.value()),
+      cudaSuccess);
   ASSERT_EQ(cudaStreamSynchronize(stream.value()), cudaSuccess);
   const std::initializer_list<rr_view> regions{
       raftrkt::region(o->matrix.data(), rows, cols, raftrkt::layout::row_major),
@@ -105,7 +107,8 @@ void fill(const session& s, tally& t) {
 }
 
 std::string failure(int status) {
-  return status == RR_OK ? std::string("no refusal") : std::string(rr_last_error());
+  return status == RR_OK ? std::string("no refusal")
+                         : std::string(rr_last_error());
 }
 
 struct counters {
@@ -124,21 +127,25 @@ TEST(Deposit, AHolderGoesFromOpenToFilledToClosed) {
   EXPECT_EQ(s.record->handle, s.handle);
   EXPECT_EQ(s.record->device, 0);
   int32_t count = -1;
-  EXPECT_EQ(failure(rr_holder_count(s.holder, &count)), "the deposit is still open");
+  EXPECT_EQ(failure(rr_holder_count(s.holder, &count)),
+            "the deposit is still open");
   fill(s, t);
   EXPECT_EQ(s.record->state, RR_DEPOSIT_FILLED);
   rr_deposit* again = nullptr;
-  EXPECT_EQ(failure(rr_holder_record(s.holder, &again)), "the deposit is already filled");
+  EXPECT_EQ(failure(rr_holder_record(s.holder, &again)),
+            "the deposit is already filled");
   EXPECT_EQ(again, nullptr);
   EXPECT_EQ(rr_holder_close(s.holder), RR_OK);
   EXPECT_EQ(rr_holder_close(s.holder), RR_OK);
   EXPECT_EQ(s.record->state, RR_DEPOSIT_CLOSED);
-  EXPECT_EQ(failure(rr_holder_record(s.holder, &again)), "the deposit is closed");
+  EXPECT_EQ(failure(rr_holder_record(s.holder, &again)),
+            "the deposit is closed");
   ASSERT_EQ(rr_holder_count(s.holder, &count), RR_OK) << rr_last_error();
   EXPECT_EQ(count, 2);
   rr_view view{};
   rr_buffer* first = nullptr;
-  ASSERT_EQ(rr_holder_adopt(s.holder, 0, &view, &first), RR_OK) << rr_last_error();
+  ASSERT_EQ(rr_holder_adopt(s.holder, 0, &view, &first), RR_OK)
+      << rr_last_error();
   EXPECT_EQ(view.dtype, RR_DTYPE_FLOAT32);
   EXPECT_EQ(view.rank, 2);
   EXPECT_EQ(view.shape[0], rows);
@@ -155,7 +162,8 @@ TEST(Deposit, AHolderGoesFromOpenToFilledToClosed) {
             "the deposit has no region -1; it holds 2");
   EXPECT_EQ(twice, nullptr);
   rr_buffer* second = nullptr;
-  ASSERT_EQ(rr_holder_adopt(s.holder, 1, &view, &second), RR_OK) << rr_last_error();
+  ASSERT_EQ(rr_holder_adopt(s.holder, 1, &view, &second), RR_OK)
+      << rr_last_error();
   EXPECT_EQ(view.dtype, RR_DTYPE_INT64);
   EXPECT_EQ(view.shape[0], index_count);
   rr_holder_free(s.holder);
@@ -178,42 +186,52 @@ TEST(Deposit, AdoptedBuffersReadWriteViewAndCopyLikeAnyOther) {
   fill(s, t);
   rr_view matrix_view{};
   rr_buffer* matrix = nullptr;
-  ASSERT_EQ(rr_holder_adopt(s.holder, 0, &matrix_view, &matrix), RR_OK) << rr_last_error();
+  ASSERT_EQ(rr_holder_adopt(s.holder, 0, &matrix_view, &matrix), RR_OK)
+      << rr_last_error();
   rr_view index_view{};
   rr_buffer* indices = nullptr;
-  ASSERT_EQ(rr_holder_adopt(s.holder, 1, &index_view, &indices), RR_OK) << rr_last_error();
+  ASSERT_EQ(rr_holder_adopt(s.holder, 1, &index_view, &indices), RR_OK)
+      << rr_last_error();
   int32_t ready = 0;
   ASSERT_EQ(rr_buffer_ready(matrix, &ready), RR_OK);
   EXPECT_EQ(ready, 1);
   std::vector<int64_t> read_indices(index_count);
-  ASSERT_EQ(rr_copy_d2h(read_indices.data(), indices, read_indices.size() * sizeof(int64_t)),
+  ASSERT_EQ(rr_copy_d2h(read_indices.data(), indices,
+                        read_indices.size() * sizeof(int64_t)),
             RR_OK);
   EXPECT_EQ(read_indices, iota<int64_t>(index_count));
   std::vector<float> written(matrix_size);
   std::transform(written.begin(), written.end(), written.begin(),
                  [n = 0.0F](float) mutable { return written_base + n++; });
-  ASSERT_EQ(rr_buffer_write(matrix, 0, written.data(), written.size() * sizeof(float)),
+  ASSERT_EQ(rr_buffer_write(matrix, 0, written.data(),
+                            written.size() * sizeof(float)),
             RR_OK);
   std::vector<float> read(matrix_size);
-  ASSERT_EQ(rr_buffer_read(matrix, 0, read.data(), read.size() * sizeof(float)), RR_OK);
+  ASSERT_EQ(rr_buffer_read(matrix, 0, read.data(), read.size() * sizeof(float)),
+            RR_OK);
   EXPECT_EQ(read, written);
-  EXPECT_NE(rr_buffer_read(matrix, sizeof(float), read.data(), read.size() * sizeof(float)),
+  EXPECT_NE(rr_buffer_read(matrix, sizeof(float), read.data(),
+                           read.size() * sizeof(float)),
             RR_OK);
   rr_view window{};
   window.dtype = RR_DTYPE_FLOAT32;
   window.rank = 1;
   window.shape[0] = view_length;
   window.strides[0] = 1;
-  ASSERT_EQ(rr_buffer_view(matrix, view_offset_elements * sizeof(float), &window), RR_OK);
+  ASSERT_EQ(
+      rr_buffer_view(matrix, view_offset_elements * sizeof(float), &window),
+      RR_OK);
   EXPECT_EQ(static_cast<const float*>(window.data),
             static_cast<const float*>(matrix_view.data) + view_offset_elements);
   rr_view transposed{};
   rr_buffer* copy = nullptr;
-  ASSERT_EQ(rr_array_contiguous(matrix, 0, &matrix_view, "col-major", &transposed, &copy),
+  ASSERT_EQ(rr_array_contiguous(matrix, 0, &matrix_view, "col-major",
+                                &transposed, &copy),
             RR_OK)
       << rr_last_error();
   std::vector<float> col(matrix_size);
-  ASSERT_EQ(rr_buffer_read(copy, 0, col.data(), col.size() * sizeof(float)), RR_OK);
+  ASSERT_EQ(rr_buffer_read(copy, 0, col.data(), col.size() * sizeof(float)),
+            RR_OK);
   for (int64_t i = 0; i < rows; ++i) {
     for (int64_t j = 0; j < cols; ++j) {
       EXPECT_EQ(col[static_cast<std::size_t>(j * rows + i)],
@@ -265,7 +283,9 @@ void release_as(void* owned) {
 
 struct host_block {
   explicit host_block(tally& t) : counts(&t) {}
-  ~host_block() { ++counts->drops; }
+  ~host_block() {
+    ++counts->drops;
+  }
   host_block(const host_block&) = delete;
   host_block& operator=(const host_block&) = delete;
   host_block(host_block&&) = delete;
@@ -298,7 +318,8 @@ TEST(Deposit, ARecordFilledByHandIsCheckedAgainAtAdoption) {
     EXPECT_EQ(failure(rr_holder_adopt(s.holder, 0, &view, &out)),
               "region 0: expected rank 1 or 2, got rank 3");
     s.record->count = RR_MAX_REGIONS + 1;
-    EXPECT_EQ(failure(rr_holder_count(s.holder, &count)), "9 regions; the most is 8");
+    EXPECT_EQ(failure(rr_holder_count(s.holder, &count)),
+              "9 regions; the most is 8");
     rr_holder_free(s.holder);
     rr_resources_free(s.resources);
   }
@@ -308,7 +329,8 @@ TEST(Deposit, ARecordFilledByHandIsCheckedAgainAtAdoption) {
     session s = open_session();
     auto o = std::make_unique<owner>(*s.handle, device_tally);
     s.record->regions[0] = raftrkt::region(
-        reinterpret_cast<float*>(reinterpret_cast<char*>(o->matrix.data()) + 1), 2);
+        reinterpret_cast<float*>(reinterpret_cast<char*>(o->matrix.data()) + 1),
+        2);
     s.record->owner = o.release();
     s.record->release = release_as<owner>;
     s.record->count = 1;
@@ -336,7 +358,8 @@ TEST(Deposit, EveryOrderOfFreeingReleasesTheOwnerOnceWithItsHandleAlive) {
     std::array<rr_buffer*, 2> buffers{};
     for (int32_t i = 0; i < 2; ++i) {
       rr_view view{};
-      ASSERT_EQ(rr_holder_adopt(s.holder, i, &view, &buffers.at(static_cast<std::size_t>(i))),
+      ASSERT_EQ(rr_holder_adopt(s.holder, i, &view,
+                                &buffers.at(static_cast<std::size_t>(i))),
                 RR_OK)
           << rr_last_error();
     }

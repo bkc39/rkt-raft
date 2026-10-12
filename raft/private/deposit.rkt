@@ -25,10 +25,10 @@
   (lambda (d port _mode) (fprintf port "#<deposit device ~a>" (deposit-device d))))
 
 (define (deposit #:resources [resources (current-device-resources)]) ;; noqa
-  (holder->deposit
-   (call/raft 'deposit (lambda () (rr-holder-create (resources-handle 'deposit resources))))
-   (resources-device resources)
-   #f))
+  (holder->deposit (call/raft 'deposit
+                              (lambda () (rr-holder-create (resources-handle 'deposit resources))))
+                   (resources-device resources)
+                   #f))
 
 (define (deposit-record who d)
   (call/raft who (lambda () (rr-holder-record (deposit-handle d)))))

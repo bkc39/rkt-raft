@@ -10,12 +10,11 @@
 #include <mutex>
 #include <raft/core/handle.hpp>
 #include <raft/core/resource/cuda_stream.hpp>
-#include <rmm/device_buffer.hpp>
 #include <rmm/cuda_device.hpp>
+#include <rmm/device_buffer.hpp>
 #include <rmm/mr/cuda_async_memory_resource.hpp>
 #include <rmm/mr/per_device_resource.hpp>
 #include <rmm/resource_ref.hpp>
-
 #include <string>
 #include <vector>
 
@@ -47,13 +46,14 @@ void wait_for_gate() {
   g.opened.wait_for(lock, hold_limit, [&] { return g.open; });
 }
 
-void CUDART_CB wait_for_release(void* /*unused*/) { wait_for_gate(); }
+void CUDART_CB wait_for_release(void* /*unused*/) {
+  wait_for_gate();
+}
 
 const rmm::mr::cuda_async_memory_resource* current_async(
     rmm::device_async_resource_ref& ref) {
   return cuda::mr::resource_cast<rmm::mr::cuda_async_memory_resource>(&ref);
 }
-
 
 constexpr uint32_t col_major_flag = 1U;
 constexpr uint32_t fail_after_flag = 2U;
@@ -138,8 +138,7 @@ std::unique_ptr<probe_owner> made(const raft::handle_t& handle,
                                 : raftrkt::layout::row_major;
   for (int64_t r = 0; r < q.count; ++r) {
     const std::vector<T> values = pattern<T>(q, r);
-    auto& block =
-        owner->blocks.emplace_back(values.size() * sizeof(T), stream);
+    auto& block = owner->blocks.emplace_back(values.size() * sizeof(T), stream);
     raftrkt::cuda_check(
         cudaMemcpyAsync(block.data(), values.data(), block.size(),
                         cudaMemcpyHostToDevice, stream.value()),
@@ -192,7 +191,8 @@ void deposited(rr_deposit* out, const raft::handle_t& handle,
                        {r[0], r[1], r[2], r[3], r[4], r[5], r[6], r[7], r[8]});
       return;
     default:
-      throw raftrkt::logic_error("count: the probe deposits 0, 1, 2 or 9 regions");
+      throw raftrkt::logic_error(
+          "count: the probe deposits 0, 1, 2 or 9 regions");
   }
 }
 

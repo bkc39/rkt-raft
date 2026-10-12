@@ -71,7 +71,15 @@
 (define call/probe (status-checker probe-last-error probe-last-error-kind))
 
 (define flag-bits
-  (hasheq 'col-major 1 'fail-after 2 'wait 4 'twice 8 'overlap 16 'raw 32 'misalign 64 'host 128 'rank3 256))
+  (hasheq 'col-major 1
+          'fail-after 2
+          'wait 4
+          'twice 8
+          'overlap 16
+          'raw 32
+          'misalign 64
+          'host 128
+          'rank3 256))
 
 (define (probe-flags . names)
   (apply bitwise-ior 0 (map (lambda (name) (hash-ref flag-bits name)) names)))

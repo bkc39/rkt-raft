@@ -131,4 +131,6 @@
   (check-equal? (- (release-failure-count) failures) 0)
   (set-box! kept #f)
   (check-true (collect-until (lambda () (>= (kc-owner-drop-count) (+ drops member-cycles 1)))))
-  (check-equal? (- (kc-owner-stale-count) stale) 0 "an owner whose resources went first finds its handle alive"))
+  (check-equal? (- (kc-owner-stale-count) stale)
+                0
+                "an owner whose resources went first finds its handle alive"))

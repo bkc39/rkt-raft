@@ -3,13 +3,7 @@
 (require (only-in ffi/unsafe cpointer?)
          (only-in racket/generator in-generator yield)
          (only-in racket/match match-define)
-         (only-in rackunit
-                  check-equal?
-                  check-exn
-                  check-false
-                  check-pred
-                  check-true
-                  test-case)
+         (only-in rackunit check-equal? check-exn check-false check-pred check-true test-case)
          (only-in syntax/macro-testing convert-syntax-error)
          (only-in "../main.rkt"
                   contiguous
@@ -58,9 +52,10 @@
                #:flags [flags 0]
                #:resources [r (current-device-resources)])
   (with-deposits ([out d])
-    (with-array-views #:resources [h r] ()
-      (call/probe 'probe-deposit
-                  (lambda () (probe-deposit h out (dtype->code dt) k rows (or cols -1) flags))))))
+                 (with-array-views #:resources [h r] ()
+                   (call/probe 'probe-deposit
+                               (lambda ()
+                                 (probe-deposit h out (dtype->code dt) k rows (or cols -1) flags))))))
 
 (define (filled dt
                 rows
@@ -72,7 +67,10 @@
   (fill! d dt rows cols #:count k #:flags flags #:resources r)
   d)
 
-(define (pattern dt r rows cols)
+(define (pattern dt
+          r
+          rows
+          cols)
   (define (v x)
     (if (memq dt '(float32 float64))
         (exact->inexact x)
@@ -92,7 +90,12 @@
 (define (check-pattern arrays dt rows cols [label ""])
   (for ([a (in-list arrays)]
         [r (in-naturals)])
-    (check-equal? (contents a) (pattern dt r rows cols) label)))
+    (check-equal? (contents a)
+                  (pattern dt
+                    r
+                    rows
+                    cols)
+                  label)))
 
 (struct counts (owners probe-drops holders buffers failures) #:transparent)
 
@@ -131,7 +134,11 @@
     (check-pattern arrays dt rows cols label)
     (for ([a (in-list arrays)])
       (check-equal? (dtype a) dt label)
-      (check-equal? (shape a) (if cols (list rows cols) (list rows)) label)
+      (check-equal? (shape a)
+                    (if cols
+                        (list rows cols)
+                        (list rows))
+                    label)
       (if cols
           (check-equal? (layout a) (car order) label)
           (check-pred device-vector? a label)))))
@@ -193,15 +200,15 @@
   (released-once "never filled"
                  (lambda ()
                    (define d (deposit))
-                   (with-deposits ([out d])
-                     (check-pred cpointer? out)))
+                   (with-deposits ([out d]) (check-pred cpointer? out)))
                  (counts 0 0 1 0 0))
   (released-once "filled, then the call failed"
                  (lambda ()
                    (define d (deposit))
                    (check-raft-error 'logic
                                      "probe-deposit: failed after filling"
-                                     (lambda () (fill! d 'float32 3 4 #:flags (probe-flags 'fail-after))))
+                                     (lambda ()
+                                       (fill! d 'float32 3 4 #:flags (probe-flags 'fail-after))))
                    (check-pattern (deposit->list d) 'float32 3 4))
                  (counts 1 1 1 2 0)))
 
@@ -259,16 +266,19 @@
                     "deposit->list: the deposit is still open"
                     (lambda () (with-deposits ([out d]) (deposit->list d))))
   (check-equal? (deposit->list d) '())
-  (check-raft-error 'logic "with-deposits: the deposit is closed" (lambda () (with-deposits ([out d]) out)))
-  (define used (filled 'float32 3 4))
-  (check-raft-error 'logic "with-deposits: the deposit is closed" (lambda () (with-deposits ([out used]) out)))
   (check-raft-error 'logic
-                    "with-deposits: cannot re-enter its body after its resources were released"
-                    (lambda ()
-                      (for/list ([v (in-generator (with-deposits ([out (deposit)])
-                                                    (yield out)
-                                                    (yield out)))])
-                        v))))
+                    "with-deposits: the deposit is closed"
+                    (lambda () (with-deposits ([out d]) out)))
+  (define used (filled 'float32 3 4))
+  (check-raft-error 'logic
+                    "with-deposits: the deposit is closed"
+                    (lambda () (with-deposits ([out used]) out)))
+  (check-raft-error
+   'logic
+   "with-deposits: cannot re-enter its body after its resources were released"
+   (lambda ()
+     (for/list ([v (in-generator (with-deposits ([out (deposit)]) (yield out) (yield out)))])
+       v))))
 
 (test-case "law 7: duplicate ids are a syntax error"
   (check-exn #rx"duplicate binding name"
@@ -294,8 +304,7 @@
                  (lambda ()
                    (check-true (probe-hold! (resources-handle 'test r)))
                    (define lost
-                     (thread (lambda ()
-                               (fill! (deposit) 'float32 3 4 #:flags (probe-flags 'wait)))))
+                     (thread (lambda () (fill! (deposit) 'float32 3 4 #:flags (probe-flags 'wait)))))
                    (sleep 0.05)
                    (kill-thread lost)
                    (probe-release!)
@@ -345,7 +354,10 @@
   (check-equal? (array-device m) 0)
   (match-define (list col _) (deposit->list (filled 'int32 3 4 #:flags (probe-flags 'col-major))))
   (check-equal? (device-matrix->list* (contiguous col #:layout 'row-major))
-                (pattern 'int32 0 3 4)))
+                (pattern 'int32
+                  0
+                  3
+                  4)))
 
 (define cycles 1000)
 

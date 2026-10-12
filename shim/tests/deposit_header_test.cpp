@@ -30,7 +30,9 @@ constexpr std::size_t second_offset = 64;
 
 struct counted {
   explicit counted(int& drops) : drops_(&drops) {}
-  ~counted() { ++*drops_; }
+  ~counted() {
+    ++*drops_;
+  }
   counted(const counted&) = delete;
   counted& operator=(const counted&) = delete;
   counted(counted&&) = delete;
@@ -103,15 +105,16 @@ TEST(DepositHeader, RegionsDescribeCanonicalViews) {
   EXPECT_EQ(v.rank, 1);
   EXPECT_EQ(v.shape[0], vector_length);
   EXPECT_EQ(v.strides[0], 1);
-  const rr_view m = raftrkt::region(reinterpret_cast<int64_t*>(storage()),
-                                    rows, cols, raftrkt::layout::col_major);
+  const rr_view m = raftrkt::region(reinterpret_cast<int64_t*>(storage()), rows,
+                                    cols, raftrkt::layout::col_major);
   EXPECT_EQ(m.dtype, RR_DTYPE_INT64);
   EXPECT_EQ(m.rank, 2);
   EXPECT_EQ(m.shape[0], rows);
   EXPECT_EQ(m.shape[1], cols);
   EXPECT_EQ(m.strides[0], 1);
   EXPECT_EQ(m.strides[1], rows);
-  const rr_view e = raftrkt::region(floats(), 0, cols, raftrkt::layout::row_major);
+  const rr_view e =
+      raftrkt::region(floats(), 0, cols, raftrkt::layout::row_major);
   EXPECT_EQ(e.strides[0], 0);
   EXPECT_EQ(e.strides[1], 0);
 }
@@ -158,7 +161,8 @@ TEST(DepositHeader, EachRegionIsCheckedAndNamedByIndex) {
   rr_deposit record = open_record(handle);
   const rr_view ok = raftrkt::region(floats(), 0);
 
-  rr_view rank3 = raftrkt::region(floats(), rows, cols, raftrkt::layout::row_major);
+  rr_view rank3 =
+      raftrkt::region(floats(), rows, cols, raftrkt::layout::row_major);
   rank3.rank = rank_three;
   expect_refused(attempt(&record, handle, {ok, ok, rank3}),
                  "out: region 2: expected rank 1 or 2, got rank 3");
@@ -178,23 +182,25 @@ TEST(DepositHeader, EachRegionIsCheckedAndNamedByIndex) {
   expect_refused(attempt(&record, handle, {negative}),
                  "out: region 0: negative extent -1");
 
-  rr_view strided = raftrkt::region(floats(), rows, cols, raftrkt::layout::row_major);
+  rr_view strided =
+      raftrkt::region(floats(), rows, cols, raftrkt::layout::row_major);
   strided.strides[0] = odd_stride;
   expect_refused(attempt(&record, handle, {strided}),
                  "out: region 0: neither row-major nor col-major");
 
-  const rr_view huge = raftrkt::region(reinterpret_cast<int64_t*>(storage()),
-                                       huge_extent, cols,
-                                       raftrkt::layout::row_major);
+  const rr_view huge =
+      raftrkt::region(reinterpret_cast<int64_t*>(storage()), huge_extent, cols,
+                      raftrkt::layout::row_major);
   expect_refused(attempt(&record, handle, {huge}),
                  "out: region 0: its size overflows");
 
-  const rr_view missing = raftrkt::region(static_cast<float*>(nullptr), vector_length);
+  const rr_view missing =
+      raftrkt::region(static_cast<float*>(nullptr), vector_length);
   expect_refused(attempt(&record, handle, {missing}),
                  "out: region 0: has elements but no data");
 
-  const rr_view misaligned = raftrkt::region(
-      reinterpret_cast<float*>(storage() + 1), vector_length);
+  const rr_view misaligned =
+      raftrkt::region(reinterpret_cast<float*>(storage() + 1), vector_length);
   expect_refused(attempt(&record, handle, {misaligned}),
                  "out: region 0: not aligned to its element size");
 }
@@ -240,9 +246,8 @@ TEST(DepositHeader, EmptyRegionsNeedNoDeviceAndFillTheRecord) {
   rr_deposit record = open_record(handle);
   int drops = 0;
   const rr_view empty_vector = raftrkt::region(floats(), 0);
-  const rr_view empty_matrix =
-      raftrkt::region(static_cast<double*>(nullptr), 0, cols,
-                      raftrkt::layout::row_major);
+  const rr_view empty_matrix = raftrkt::region(
+      static_cast<double*>(nullptr), 0, cols, raftrkt::layout::row_major);
   raftrkt::deposit(&record, "out", handle, std::make_unique<counted>(drops),
                    {empty_vector, empty_matrix});
   EXPECT_EQ(drops, 0);

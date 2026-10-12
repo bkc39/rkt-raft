@@ -70,7 +70,8 @@ inline std::size_t check_region(const std::string& who, const rr_view& view) {
   }
   for (int32_t i = 0; i < view.rank; ++i) {
     if (view.shape[i] < 0) {
-      throw logic_error(who + "negative extent " + std::to_string(view.shape[i]));
+      throw logic_error(who + "negative extent " +
+                        std::to_string(view.shape[i]));
     }
   }
   const std::size_t bytes = region_bytes(who, view);
@@ -81,7 +82,8 @@ inline std::size_t check_region(const std::string& who, const rr_view& view) {
   if (bytes > 0 && view.data == nullptr) {
     throw logic_error(who + "has elements but no data");
   }
-  if (bytes > 0 && reinterpret_cast<std::uintptr_t>(view.data) % itemsize != 0) {
+  if (bytes > 0 &&
+      reinterpret_cast<std::uintptr_t>(view.data) % itemsize != 0) {
     throw logic_error(who + "not aligned to its element size");
   }
   return bytes;
@@ -94,7 +96,8 @@ inline std::string region_name(const std::string& prefix, std::size_t i) {
 inline std::array<std::size_t, RR_MAX_REGIONS> check_regions(
     const std::string& prefix, int64_t count, const rr_view* regions) {
   if (count < 0 || count > RR_MAX_REGIONS) {
-    throw logic_error(prefix + std::to_string(count) + " regions; the most is " +
+    throw logic_error(prefix + std::to_string(count) +
+                      " regions; the most is " +
                       std::to_string(RR_MAX_REGIONS));
   }
   const auto n = static_cast<std::size_t>(count);
@@ -126,8 +129,10 @@ inline void check_device_memory(
     cudaPointerAttributes attributes{};
     cuda_check(cudaPointerGetAttributes(&attributes, regions[i].data),
                "cudaPointerGetAttributes");
-    if (attributes.type != cudaMemoryTypeDevice || attributes.device != device) {
-      throw logic_error(region_name(prefix, i) + ": not device memory on device " +
+    if (attributes.type != cudaMemoryTypeDevice ||
+        attributes.device != device) {
+      throw logic_error(region_name(prefix, i) +
+                        ": not device memory on device " +
                         std::to_string(device));
     }
   }
@@ -195,8 +200,8 @@ void deposit(rr_deposit* into, const char* name, const raft::handle_t& handle,
   record.count = static_cast<int32_t>(count);
   record.release = &detail::release_owner<Owner>;
   record.owner = owner.release();
-  std::atomic_ref<int32_t>(record.state).store(RR_DEPOSIT_FILLED,
-                                               std::memory_order_release);
+  std::atomic_ref<int32_t>(record.state)
+      .store(RR_DEPOSIT_FILLED, std::memory_order_release);
 }
 
 }  // namespace raftrkt

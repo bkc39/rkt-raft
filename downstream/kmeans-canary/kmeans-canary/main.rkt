@@ -104,7 +104,8 @@
 (define (cluster-members X labels cluster #:resources [resources (current-device-resources)])
   (define members (deposit #:resources resources))
   (with-deposits ([out members])
-    (with-array-views #:resources [handle resources] ([x X] [y labels])
-      (call/kc 'cluster-members (lambda () (kc-cluster-members handle x y cluster out)))))
+                 (with-array-views #:resources [handle resources] ([x X] [y labels])
+                   (call/kc 'cluster-members
+                            (lambda () (kc-cluster-members handle x y cluster out)))))
   (match-define (list indices rows) (deposit->list members))
   (values indices rows))

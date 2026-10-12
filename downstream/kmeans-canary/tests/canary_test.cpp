@@ -380,7 +380,8 @@ TEST(Members, ClusterMembersFillsADepositOnTheCallersHandle) {
     for (std::size_t i = 0; i < host_labels.size(); ++i) {
       if (host_labels[i] == c) {
         expected.push_back(static_cast<int64_t>(i));
-        const auto first = host_x.begin() + static_cast<std::ptrdiff_t>(i * features);
+        const auto first =
+            host_x.begin() + static_cast<std::ptrdiff_t>(i * features);
         expected_rows.insert(expected_rows.end(), first, first + features);
       }
     }
@@ -411,20 +412,23 @@ TEST(Members, RefusalsNameTheArgument) {
   const uint64_t drops = kc_owner_drop_count();
   rr_deposit filled = stack_record(res);
   filled.state = RR_DEPOSIT_FILLED;
-  EXPECT_EQ(outcome(kc_cluster_members(res.handle, &x.view, &labels.view, 0, &filled)),
+  EXPECT_EQ(outcome(kc_cluster_members(res.handle, &x.view, &labels.view, 0,
+                                       &filled)),
             "out: already filled");
   rr_deposit foreign = stack_record(other);
-  EXPECT_EQ(outcome(kc_cluster_members(res.handle, &x.view, &labels.view, 0, &foreign)),
+  EXPECT_EQ(outcome(kc_cluster_members(res.handle, &x.view, &labels.view, 0,
+                                       &foreign)),
             "out: on resources other than the call's");
   EXPECT_EQ(kc_owner_drop_count(), drops + 2);
   rr_deposit record = stack_record(res);
-  EXPECT_EQ(outcome(kc_cluster_members(res.handle, &x.view, &short_labels.view, 0,
-                                       &record)),
+  EXPECT_EQ(outcome(kc_cluster_members(res.handle, &x.view, &short_labels.view,
+                                       0, &record)),
             "labels: expected 300 elements, got 4");
-  EXPECT_EQ(outcome(kc_cluster_members(res.handle, &labels.view, &labels.view, 0,
-                                       &record)),
+  EXPECT_EQ(outcome(kc_cluster_members(res.handle, &labels.view, &labels.view,
+                                       0, &record)),
             "X: expected float32 or float64, got int32");
-  EXPECT_EQ(outcome(kc_cluster_members(res.handle, &x.view, &labels.view, 0, nullptr)),
+  EXPECT_EQ(outcome(kc_cluster_members(res.handle, &x.view, &labels.view, 0,
+                                       nullptr)),
             "out is NULL");
   EXPECT_EQ(record.state, RR_DEPOSIT_OPEN);
 }

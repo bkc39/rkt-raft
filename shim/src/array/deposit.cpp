@@ -1,3 +1,5 @@
+#include "raftrkt/deposit.h"
+
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
@@ -8,7 +10,6 @@
 #include "detail/deposit_api.h"
 #include "detail/error.hpp"
 #include "detail/handles.hpp"
-#include "raftrkt/deposit.h"
 #include "raftrkt/deposit.hpp"
 
 namespace rr {

@@ -92,7 +92,8 @@ void cluster_members(const raft::handle_t& handle, const rr_view* x,
   }
   for (std::size_t k = 0; k < m;) {
     std::size_t run = 1;
-    while (k + run < m && picked[k + run] == picked[k] + static_cast<int64_t>(run)) {
+    while (k + run < m &&
+           picked[k + run] == picked[k] + static_cast<int64_t>(run)) {
       ++run;
     }
     raftrkt::cuda_check(
@@ -107,7 +108,8 @@ void cluster_members(const raft::handle_t& handle, const rr_view* x,
   const auto count = static_cast<int64_t>(m);
   const std::initializer_list<rr_view> regions{
       raftrkt::region(owner->indices),
-      raftrkt::region(owner->rows.data(), count, d, raftrkt::layout::row_major)};
+      raftrkt::region(owner->rows.data(), count, d,
+                      raftrkt::layout::row_major)};
   raftrkt::deposit(out, "out", handle, std::move(owner), regions);
 }
 
