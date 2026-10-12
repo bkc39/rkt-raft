@@ -42,6 +42,7 @@
          release-array!
          settled-view
          strides->layout
+         view->array
          write-array!)
 
 (struct buffer (handle device phantom))

@@ -2,15 +2,19 @@
 
 (require (only-in ffi/unsafe _fun _uint64 _void cpointer-has-tag? set-cpointer-tag!)
          (only-in ffi/unsafe/alloc allocator deallocator)
-         (only-in "library.rkt" _rr-buffer _rr-resources define-raft released-tag))
+         (only-in "library.rkt" _rr-buffer _rr-holder _rr-resources define-raft released-tag))
 
 (provide buffer-allocator
          buffer-drop-count
+         holder-allocator
+         holder-drop-count
+         owner-release-count
          released?
          release-failure-count
          resources-allocator
          resources-drop-count
          rr-buffer-free
+         rr-holder-free
          rr-resources-free)
 
 ;; A released handle is retagged: releasing it again does nothing, and any
@@ -33,6 +37,10 @@
   (_fun _rr-buffer -> _void)
   #:wrap release-once)
 
+(define-raft rr-holder-free
+  (_fun _rr-holder -> _void)
+  #:wrap release-once)
+
 (define-raft resources-drop-count
   (_fun -> _uint64)
   #:c-id rr_resources_drop_count)
@@ -41,9 +49,18 @@
   (_fun -> _uint64)
   #:c-id rr_buffer_drop_count)
 
+(define-raft holder-drop-count
+  (_fun -> _uint64)
+  #:c-id rr_holder_drop_count)
+
+(define-raft owner-release-count
+  (_fun -> _uint64)
+  #:c-id rr_owner_release_count)
+
 (define-raft release-failure-count
   (_fun -> _uint64)
   #:c-id rr_release_failure_count)
 
 (define resources-allocator (allocator rr-resources-free))
 (define buffer-allocator (allocator rr-buffer-free))
+(define holder-allocator (allocator rr-holder-free))
