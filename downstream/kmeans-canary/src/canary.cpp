@@ -21,6 +21,7 @@
 namespace {
 
 using kc::logic_error;
+using kc::on_floats;
 using raftrkt::layout;
 
 struct fit_arrays {
@@ -178,20 +179,6 @@ void make_blobs(const raft::handle_t& handle, const blob_arrays& arrays,
       nullptr, static_cast<T>(options.cluster_std), options.shuffle,
       static_cast<T>(options.center_box_min),
       static_cast<T>(options.center_box_max), options.seed);
-}
-
-template <typename Fn>
-void on_floats(const rr_view* x, const char* name, Fn&& fn) {
-  const rr_view& view = *raftrkt::require(x, name);
-  if (view.dtype == RR_DTYPE_FLOAT32) {
-    fn(float{});
-  } else if (view.dtype == RR_DTYPE_FLOAT64) {
-    fn(double{});
-  } else {
-    throw logic_error(std::string(name) +
-                      ": expected float32 or float64, got " +
-                      raftrkt::dtype_name(view.dtype));
-  }
 }
 
 }  // namespace

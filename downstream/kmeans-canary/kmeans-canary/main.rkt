@@ -10,8 +10,8 @@
                   dtype
                   list*->device-matrix
                   shape)
-         (only-in raft/unsafe with-array-views)
-         (only-in "private/native.rkt" call/kc kc-fit kc-make-blobs kc-predict))
+         (only-in raft/unsafe deposit deposit->list with-array-views with-deposits)
+         (only-in "private/native.rkt" call/kc kc-cluster-members kc-fit kc-make-blobs kc-predict))
 
 (provide blobs
          cluster-members
@@ -101,5 +101,10 @@
       (call/kc 'kmeans-predict (lambda () (kc-predict handle c x w (if normalize? 1 0) y)))))
   (values labels inertia))
 
-(define (cluster-members X labels cluster #:resources [resources (current-device-resources)]) ;; noqa
-  (error 'unimplemented))
+(define (cluster-members X labels cluster #:resources [resources (current-device-resources)])
+  (define members (deposit #:resources resources))
+  (with-deposits ([out members])
+    (with-array-views #:resources [handle resources] ([x X] [y labels])
+      (call/kc 'cluster-members (lambda () (kc-cluster-members handle x y cluster out)))))
+  (match-define (list indices rows) (deposit->list members))
+  (values indices rows))

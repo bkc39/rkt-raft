@@ -44,7 +44,11 @@ Parity, §10 Build and §12 Starting cuML work before changing the design.
   point `rr_resources_handle`, the header-only `raftrkt/view.hpp`,
   `raftrkt/error.hpp` and `raftrkt/abi.h` in `packages.raft-dev`, cuML in
   `packages.rapids`, and the k-means canary in `downstream/kmeans-canary/`
-  that proves them against `cuml.cluster.KMeans`.
+  that proves them against `cuml.cluster.KMeans`. #21 moved
+  `status-checker`'s calls to an OS thread of their own. #22 added outputs
+  sized by the call: `deposit`, `deposit?`, `with-deposits` and
+  `deposit->list` in `raft/unsafe`, `raftrkt/deposit.h` and the header-only
+  `raftrkt/deposit.hpp`, and the canary's `cluster-members` (raft 0.2).
 
 ## Layout
 
@@ -66,14 +70,15 @@ shim/                         libraftrkt: C++20 over RAFT's headers (CMake, g++;
   src/detail/dtypes.def       the dtypes: name, C++ type, code
   src/array/ops.def           what the array module instantiates, per op
   tests/                      gtest; GPU cases print SKIP without a device
-  tests/probe/                libraftrkt_probe, a second RMM user for the tests
+  tests/probe/                libraftrkt_probe, a second RMM user for the tests, and a
+                                downstream that fills deposits (rr_probe_deposit)
 raft/                         the Racket package and collection
   main.rkt core.rkt           the public surface
   private/foreign/*.rkt       FFI bindings, one module per shim header
   array.rkt                   raft/array, re-exported by main.rkt
   compat.rkt                  raft/compat, the only module that requires math-lib
   unsafe.rkt                  raft/unsafe, the frozen interface for native bindings
-  private/{abi,error,resource,resources,install-native}.rkt
+  private/{abi,error,resource,resources,install-native,deposit}.rkt
   private/{array,dtype,pack,print}.rkt   arrays over buffers, the tables, packing, printing
   scribblings/                the manual: guide/ chapters, reference/ sections
   tests/                      raco tests; tests/private/ the harness; tests/python/ the twins
@@ -358,7 +363,10 @@ plans/scoping-plan.md         the approved plan (revision 5), as Markdown
   own and is loaded `RTLD_LOCAL` by the Racket tests, as a cuML binding will
   be. It sees the async pool `libraftrkt` installed, and a buffer
   `libraftrkt` allocates shows in that pool's used bytes. L1d repeats the
-  check with the cuML canary. The
+  check with the cuML canary. #22 makes it a downstream too:
+  `rr_probe_deposit` fills a deposit through `deposit.hpp` (or by hand, to
+  test the shim's re-check) with its own error slot and owner counters, so
+  `deposit-test.rkt` drives a second library through `status-checker`. The
   static CUDA runtime that `rmm::rmm` links is hidden with
   `--exclude-libs,ALL`; `--no-undefined` catches a missing library at link
   (except under `RAFTRKT_SANITIZE`, where the sanitizer runtime's symbols
@@ -427,7 +435,11 @@ plans/scoping-plan.md         the approved plan (revision 5), as Markdown
   `void/reference-sink` keeps the array reachable until the post thunk of
   `with-release` runs; the handle comes from `foreign/core.rkt`'s
   `rr-resources-handle`. `status-checker` takes thunks, so it is independent
-  of the FFI a downstream binding uses.
+  of the FFI a downstream binding uses. `with-deposits` takes its records and
+  closes them through `private/deposit.rkt` (the `deposit` struct over an
+  `_rr-holder`, `deposit->list`), which binds `src/detail/deposit_api.h`
+  through `private/foreign/deposit-api.rkt`; the record is the borrowed
+  `_rr-deposit`.
 - `private/resources.rkt`: the `device-resources` struct (with
   `#:omit-define-syntaxes`, so the constructor procedure can carry the
   type's name; the raw constructor is `handle->device-resources`),
@@ -966,6 +978,13 @@ canary changes with it in the same pull request:
 - **Racket** (`raft/unsafe`): `resources->handle-pointer`,
   `with-array-views` (with its `#:resources [handle r]` clause),
   `status-checker`, `raft-abi-pointer`; `core-test.rkt` pins the export set.
+- **Additions at version 1 (#22):** `rr_deposit` (1256 bytes, offsets pinned
+  by `c_api_compile_test.c`), `RR_MAX_REGIONS`, `RR_DEPOSIT_*`,
+  `rr_release_fn`, `raftrkt/deposit.hpp` (`region`, `deposit`), and
+  `deposit`, `deposit?`, `with-deposits`, `deposit->list`. A downstream
+  detects them by requiring `("raft" #:version "0.2")` or with
+  `__has_include(<raftrkt/deposit.hpp>)`; a later change to `rr_deposit`'s
+  layout is version 2.
 
 What a downstream binding must do, which the canary does: compile against `packages.rapids` and
 `packages.raft-dev` of this flake (never another RAPIDS); check the tag at
@@ -975,7 +994,9 @@ reachable for the call; run each entry point inside
 `raftrkt::translate_exceptions` over its own thread-local `error_slot`;
 select the handle's device (`device_scope`) and refuse arrays on another one
 (`require_on_device`); read arrays only through `view.hpp`; allocate outputs
-with raft's constructors on the resources the call runs on; and synchronise
+with raft's constructors on the resources the call runs on, or deposit
+outputs sized by the call (`raftrkt::deposit` into a record from
+`with-deposits`, on the call's handle); and synchronise
 the handle's stream on every exit, a throw included (`sync_guard`), until
 the stream API (#13) gives it events. Internal entry points
 (`src/detail/*_api.h`) are not part of it and may change freely.
@@ -1164,3 +1185,39 @@ since cuSPARSE's error string for it is only "out of memory"). The frozen rule i
   the host copies take `flvector`s from the GC heap, so they cannot be
   blocking; the OS-thread hop costs about 34 µs a call
   (`bench/status-checker.rkt`).
+
+## Decisions recorded in #22
+
+- **A deposit record, not `rr_buffer_adopt(device_buffer&&)`.** A
+  downstream cannot call `libraftrkt` (it does not link it, and `ffi-lib`
+  loads raft locally), cuML keeps HDBSCAN's call-sized outputs in private
+  `device_uvector` members, and an RMM buffer cannot cross a C boundary
+  (its `any_resource` vtable belongs to the allocating library). So raft
+  makes an `rr_deposit` inside an `rr_holder`, and the downstream's header
+  code writes an owner, a release function and up to 8 region views into it,
+  as cuML's Python does with `UnownedMemory(ptr, size, owner)`.
+- **The ABI version stays 1**; the additions are listed as such and raft's
+  package version is 0.2.
+- **`with-deposits` is its own form**, so `with-array-views` stays frozen.
+  It holds the deposit through `hold-owner!` (a killed caller's call can
+  still fill it) and closes it on every exit; a closed record refuses a fill.
+- **Ownership.** The holder and every adopted `rr_buffer` share one
+  `shared_ptr<void>(owner, release)`, made on the first adopt or at holder
+  free; the handle `shared_ptr` is declared before it, so the owner is
+  released, once, with its handle alive, in every order of freeing (the
+  ASAN gtest runs all 6). `rr_owner_release_count` counts releases;
+  `release_on_device` covers holders, so `rr_release_failure_count` counts
+  a holder that could not select its device.
+- **The shim checks a filled record again** at `rr_holder_count` and
+  `rr_holder_adopt` with `deposit.hpp`'s own checks, so a record filled by
+  hand raises `'logic` instead of crashing. Messages name the region, never
+  an `rr_` function.
+- **`deposit->list` adopts every region in one `call-as-atomic`** and caches
+  the list, so two threads get `eq?` arrays. Phantom bytes cover the regions
+  only.
+- **`deposit->owner-pointer`** for opaque state (HDBSCAN's `PredictionData`)
+  waits for rkt-cuml's HDBSCAN prediction leg; it is additive.
+- **The canary's `cluster-members`** gathers on the host side of the copy
+  engine (labels to host, one device-to-device copy per run of rows), since
+  the canary has no CUDA language; its owner holds two `device_uvector`s and
+  the handle, like cuML's outputs.
