@@ -189,6 +189,9 @@ plans/scoping-plan.md         the approved plan (revision 5), as Markdown
      `call/raft` (`raft/private/error.rkt`), which makes the call and reads
      the error message and kind in one `call-as-atomic`: the last-error slot
      belongs to the OS thread, which every Racket thread in the place shares.
+     These calls are short and some take GC-heap memory, so they stay on the
+     place's OS thread; a downstream's calls go through `status-checker`,
+     which moves them to an OS thread of their own (#21).
    - The native drop counters (`rr_resources_drop_count`,
      `rr_buffer_drop_count`) count every release, and
      `rr_release_failure_count` every release that leaked because its device
@@ -995,8 +998,9 @@ the stream API (#13) gives it events. Internal entry points
 - **`status-checker`** is curried, `((status-checker last-error
   last-error-kind #:exn exn) who thunk)`: the thunk's first value is the C
   status and the rest are returned on success, so a `_fun` that answers
-  `(values status out ...)` needs no wrapper. Call and reads share one
-  `call-as-atomic` (the slot is per OS thread). Kind codes 0 to 3 map to
+  `(values status out ...)` needs no wrapper. Call and reads run on one OS
+  thread, since the slot is per OS thread: one `call-as-atomic` in L1d, a
+  fresh OS thread per call since #21. Kind codes 0 to 3 map to
   `exn:fail:raft`'s kinds, anything else is `'generic`; bytes are decoded
   leniently. `#:exn` takes a constructor with `exn:fail:raft`'s fields, so a
   downstream can raise a subtype.
@@ -1091,9 +1095,9 @@ since cuSPARSE's error string for it is only "out of memory"). The frozen rule i
   cudf caps pandas, pyarrow and numba just below the pin's versions, and
   `numba-cuda` 0.30.4 is patched not to register `np.row_stack`, which NumPy
   2.5 removed. Everything the twin runs imports and fits.
-- **`status-checker` runs the whole native call in atomic mode**, so a long
-  call holds up the place and cannot be broken; the options are in #21,
-  to decide with #15.
+- **`status-checker` ran the whole native call in atomic mode**, so a long
+  call held up the place and could not be broken; #21 moved the call to an
+  OS thread of its own (below).
 - **The memory test also samples `cudaMemGetInfo`** (`kc_device_memory`) and
   allows 256 MiB of device-wide drift, since the GPU is shared; the pool's
   own numbers are asserted exactly.
@@ -1113,3 +1117,41 @@ since cuSPARSE's error string for it is only "out of memory"). The frozen rule i
   producing values `ffi/unsafe` accepts, or bump the ABI version;
   `status-checker` takes thunks and is unaffected.
 
+## Decisions recorded in #21
+
+- **`status-checker` calls on a fresh OS thread** (`call-in-os-thread`):
+  the thunk, and after a failure `last-error` and `last-error-kind`, run
+  there, since the slot is per OS thread, and the message is copied to a
+  fresh byte string. The outcome comes back through an
+  `os-async-channel`; raising stays on the caller's thread. Its signature
+  and the frozen ABI version 1 are unchanged, and #15 is unaffected.
+- **Both halves are needed.** A plain `_fun` on another OS thread still
+  stalls the place at its first collection, which waits for the call: in
+  the probe (libc `usleep` of 2 s, a 10 ms ticker and an allocating thread)
+  the ticker ran 2 times of 200, and 197 with `#:blocking? #t`. So a long
+  downstream call is declared `#:blocking? #t` (the canary's `kc_fit`,
+  `kc_predict` and `kc_make_blobs`), and the reference says why.
+- **A blocking call takes only immobile memory.** `(_ptr o t)` allocates
+  `'atomic` memory, which a major collection moves (all 1,000 of 1,000 test
+  allocations moved; none allocated `'atomic-interior`), so the canary's
+  blocking outputs are `(_ptr o t atomic-interior)`. Views are already
+  `'atomic-interior` and handles are native.
+- **The caller waits with breaks disabled**, and a pending break is raised
+  when the call returns: cuML cannot be cancelled, and unwinding
+  `with-array-views` early would free views the call still uses. Leaving
+  `parameterize-break #f` does not deliver a queued break by itself, so the
+  checker re-checks under the caller's own break setting.
+- **An exception the thunk raises** (a `_fun` argument that does not fit
+  its C type, say) is caught on the OS thread and raised again on the
+  caller's; uncaught there, it ends the process. The OS thread runs in
+  atomic mode and its continuation is not a Racket thread's, so the catch
+  is `call/ec` with `call-with-exception-handler` and no break checks.
+- **`call/raft` stays on `call-as-atomic`.** raft's own calls are short,
+  and the host copies take `flvector`s from the GC heap, so they cannot be
+  blocking; a hop to another OS thread would gain nothing for a
+  non-blocking call and costs about 34 µs (`bench/status-checker.rkt`).
+- **Measured** (RTX 3090 Ti): during a one-second `kmeans-fit` a 10 ms
+  ticker ran 95 to 99 times (0 through `call-as-atomic`); a break sent at
+  50 ms was raised at 967 ms, when the fit returned; `kc_pool_bytes` costs
+  258 ns bare, 1,055 ns through the old checker and 35 µs through the new
+  one, the price of starting an OS thread per call.

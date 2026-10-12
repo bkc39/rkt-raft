@@ -32,13 +32,18 @@ The examples call the canary's library: set @tt{RAFT_KMEANS_CANARY} to
 (define-kc kc-last-error-kind (_fun -> _int))
 (define-kc kc-check-abi (_fun _pointer -> _int))
 (define-kc kc-make-blobs
-  (_fun _pointer _pointer _pointer _int32 _double _int32 _double _double _uint64 -> _int))
+  (_fun #:blocking? #t
+        _pointer _pointer _pointer _int32 _double _int32 _double _double _uint64 -> _int))
 (define-kc kc-fit
-  (_fun _pointer _pointer _pointer _pointer _int32 _int32 _double _int32 _double _uint64
-        (inertia : (_ptr o _double)) (n-iter : (_ptr o _int32))
+  (_fun #:blocking? #t
+        _pointer _pointer _pointer _pointer _int32 _int32 _double _int32 _double _uint64
+        (inertia : (_ptr o _double atomic-interior))
+        (n-iter : (_ptr o _int32 atomic-interior))
         -> (status : _int) -> (values status inertia n-iter)))
 (define-kc kc-predict
-  (_fun _pointer _pointer _pointer _pointer _int32 _pointer (inertia : (_ptr o _double))
+  (_fun #:blocking? #t
+        _pointer _pointer _pointer _pointer _int32 _pointer
+        (inertia : (_ptr o _double atomic-interior))
         -> (status : _int) -> (values status inertia)))
 ]
 
@@ -62,10 +67,19 @@ Otherwise it raises @racket[(exn message marks kind)]: the message is
 @racket[last-error] and @racket[last-error-kind] are called only after a
 failure.
 
-The call and both reads run in one @racket[call-as-atomic], because the C
-side keeps its last error per OS thread, which the place's Racket threads
-share. The native call therefore holds up the place's other threads until it
-returns.
+@racket[check] calls @racket[thunk] and reads the error on a fresh OS
+thread (@racket[call-in-os-thread]), since the C side keeps its last error
+per OS thread, and raises on the calling thread. @racket[thunk] runs there in
+atomic mode, so it should make the foreign call and nothing else; an
+exception it raises is raised again on the calling thread. The calling thread
+waits with breaks disabled while the place's other threads run: a break is
+raised when the call returns, and the call's arguments stay reachable until
+then, since a native call cannot be cancelled. A call that can run long must
+be declared @racket[#:blocking? #t]: otherwise the place's next garbage
+collection waits for it. Because a collection can then run during the call,
+a blocking call must not take memory the collector can move, so its
+@racket[_ptr] outputs are allocated @racket['atomic-interior], as the
+bindings above do.
 
 @examples[#:eval ev
 (define check (status-checker kc-last-error kc-last-error-kind))

@@ -18,6 +18,7 @@
                              ptr-set!)
                     ffi/unsafe/define
                     ffi/unsafe/define/conventions
+                    (only-in ffi/unsafe/os-thread call-in-os-thread)
                     ffi/vector
                     json
                     math/array
@@ -55,6 +56,7 @@
          (for-label (all-from-out ffi/unsafe
                                   ffi/unsafe/define
                                   ffi/unsafe/define/conventions
+                                  ffi/unsafe/os-thread
                                   ffi/vector
                                   json
                                   math/array
