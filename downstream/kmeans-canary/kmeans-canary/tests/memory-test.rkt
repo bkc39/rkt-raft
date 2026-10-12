@@ -12,8 +12,8 @@
          (only-in raft/tests/private/collect collect-until drain-finalizers!)
          (only-in raft/tests/private/probe test-pools)
          (only-in "../main.rkt" blobs cluster-members kmeans-fit kmeans-predict)
-         (only-in "../private/native.rkt" kc-owner-drop-count kc-owner-stale-count)
-         (only-in "../pool.rkt" canary-device-memory canary-pool-bytes))
+         (only-in "../pool.rkt" canary-device-memory canary-pool-bytes)
+         (only-in "../private/native.rkt" kc-owner-drop-count kc-owner-stale-count))
 
 (define fits 1000)
 (define buffers-per-fit 2)

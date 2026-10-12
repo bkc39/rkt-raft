@@ -88,6 +88,7 @@
       (device-vector->list a)))
 
 (define (check-pattern arrays dt rows cols [label ""])
+  (check-equal? (length arrays) 2 label)
   (for ([a (in-list arrays)]
         [r (in-naturals)])
     (check-equal? (contents a)
@@ -172,7 +173,8 @@
                    (define d (box (filled 'float32 3 4)))
                    (define arrays (box (deposit->list (unbox d))))
                    (set-box! arrays #f)
-                   (check-equal? (settles-to before (counts 0 0 0 2 0)) (counts 0 0 0 2 0))
+                   (drain-finalizers!)
+                   (check-equal? (since before) (counts 0 0 0 0 0))
                    (set-box! d #f))
                  (counts 1 1 1 2 0))
   (released-once "deposit first"
@@ -294,7 +296,7 @@
   (define r (current-device-resources))
   (define retained (deposit))
   (check-true (probe-hold! (resources-handle 'test r)))
-  (define caller (thread (lambda () (fill! retained 'int64 3 4 #:flags (probe-flags 'wait)))))
+  (define caller (thread (lambda () (fill! retained 'int64 3 4 #:flags (probe-flags 'wait) #:resources r))))
   (sleep 0.05)
   (kill-thread caller)
   (probe-release!)
@@ -315,7 +317,7 @@
   (define r (current-device-resources))
   (define d (deposit))
   (check-true (probe-hold! (resources-handle 'test r)))
-  (define caller (thread (lambda () (fill! d 'float64 3 4 #:flags (probe-flags 'wait)))))
+  (define caller (thread (lambda () (fill! d 'float64 3 4 #:flags (probe-flags 'wait) #:resources r))))
   (sleep 0.05)
   (for ([_ (in-range 3)])
     (collect-garbage 'major))
@@ -328,7 +330,7 @@
   (define breaker
     (thread (lambda ()
               (with-handlers ([exn:break? (lambda (_) (set-box! outcome 'broken))])
-                (fill! broken 'float32 3 4 #:flags (probe-flags 'wait))
+                (fill! broken 'float32 3 4 #:flags (probe-flags 'wait) #:resources r)
                 (set-box! outcome 'returned)))))
   (sleep 0.05)
   (break-thread breaker)
@@ -341,7 +343,8 @@
   (check-pattern (deposit->list broken) 'float32 3 4))
 
 (test-probe "law 10: adopted arrays work wherever a raft array does"
-  (match-define (list m v) (deposit->list (filled 'float32 3 4)))
+  (match-define (list m _) (deposit->list (filled 'float32 3 4)))
+  (match-define (list v _) (deposit->list (filled 'float32 7 #f)))
   (define twin (list*->device-matrix (device-matrix->list* m) #:dtype 'float32))
   (check-equal? (device-matrix->list* (contiguous m #:layout 'col-major))
                 (device-matrix->list* (contiguous twin #:layout 'col-major)))

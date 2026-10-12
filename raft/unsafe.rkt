@@ -13,9 +13,9 @@
          (only-in "private/resource.rkt" drop-owner! hold-owner! with-release)
          (only-in "private/resources.rkt" resources-handle))
 
-(provide deposit
-         deposit->list
-         deposit?
+(provide deposit ;; noqa
+         deposit->list ;; noqa
+         deposit? ;; noqa
          raft-abi-pointer
          resources->handle-pointer
          status-checker
