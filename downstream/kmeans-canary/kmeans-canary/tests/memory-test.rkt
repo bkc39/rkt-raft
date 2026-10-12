@@ -133,4 +133,5 @@
   (check-true (collect-until (lambda () (>= (kc-owner-drop-count) (+ drops member-cycles 1)))))
   (check-equal? (- (kc-owner-stale-count) stale)
                 0
-                "an owner whose resources went first finds its handle alive"))
+                "an owner whose resources went first finds its handle alive")
+  (check-equal? (map shape (list X labels)) '((2000 8) (2000)) "the data stayed live throughout"))
