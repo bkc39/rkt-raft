@@ -57,29 +57,32 @@ The examples call the canary's library: set @tt{RAFT_KMEANS_CANARY} to
          (-> symbol? (-> any) any)]{
 
 Returns a procedure @racket[(check who thunk)] for one native library's
-calls. @racket[check] calls @racket[thunk], whose first result is the C
-status. On @racket[0] (@tt{RR_OK}) it returns the thunk's other results.
-Otherwise it raises @racket[(exn message marks kind)]: the message is
-@racket[who], a colon and @racket[(last-error)], decoded as UTF-8 with
-@racket[#\uFFFD] for what does not decode; the kind is @racket['generic],
-@racket['out-of-memory], @racket['cuda] or @racket['logic] for
-@racket[(last-error-kind)] 0 to 3, and @racket['generic] for any other code.
-@racket[last-error] and @racket[last-error-kind] are called only after a
-failure.
+calls. @racket[thunk] makes the foreign call and nothing else: it runs in
+atomic mode on a fresh OS thread (@racket[call-in-os-thread]), and its first
+result is the C status. On @racket[0] (@tt{RR_OK}) @racket[check] returns the
+thunk's other results. Otherwise it raises @racket[(exn message marks kind)]:
+the message is @racket[who], a colon and @racket[(last-error)], decoded as
+UTF-8 with @racket[#\uFFFD] for what does not decode; the kind is
+@racket['generic], @racket['out-of-memory], @racket['cuda] or
+@racket['logic] for @racket[(last-error-kind)] 0 to 3, and @racket['generic]
+for any other code. @racket[last-error] and @racket[last-error-kind] are
+called only after a failure, on the same OS thread as @racket[thunk], since
+the C side keeps its last error per OS thread. Both that exception and any
+exception @racket[thunk] raises are raised on the calling thread.
 
-@racket[check] calls @racket[thunk] and reads the error on a fresh OS
-thread (@racket[call-in-os-thread]), since the C side keeps its last error
-per OS thread, and raises on the calling thread. @racket[thunk] runs there in
-atomic mode, so it should make the foreign call and nothing else; an
-exception it raises is raised again on the calling thread. The calling thread
-waits with breaks disabled while the place's other threads run: a break is
-raised when the call returns, and the call's arguments stay reachable until
-then, since a native call cannot be cancelled. A call that can run long must
-be declared @racket[#:blocking? #t]: otherwise the place's next garbage
-collection waits for it. Because a collection can then run during the call,
-a blocking call must not take memory the collector can move, so its
-@racket[_ptr] outputs are allocated @racket['atomic-interior], as the
-bindings above do.
+The calling thread waits with breaks disabled while the place's other threads
+run. A break that arrives during the call is raised when the call returns,
+since a native call cannot be cancelled, and the call's arguments stay
+reachable until then, even if the calling thread is killed. With breaks
+enabled, that break discards @racket[thunk]'s results, so a binding whose
+call returns an owned native object disables breaks around the call and the
+registration of its release, or uses an @racket[allocator].
+
+A call that can run long is declared @racket[#:blocking? #t]; otherwise the
+place's next garbage collection waits for it. A collection can then run
+during the call, so a blocking call takes no memory the collector can move:
+its @racket[_ptr] outputs are allocated @racket['atomic-interior], as in the
+bindings above.
 
 @examples[#:eval ev
 (define check (status-checker kc-last-error kc-last-error-kind))

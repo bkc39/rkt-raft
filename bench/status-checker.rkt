@@ -1,24 +1,32 @@
 #lang racket/base
 (require (only-in ffi/unsafe/atomic call-as-atomic)
          (only-in kmeans-canary/private/native call/kc kc-pool-bytes)
-         (only-in racket/match match-define)
-         (only-in raft current-device-resources))
+         (only-in racket/match match match-define)
+         (only-in raft current-device-resources)
+         (only-in threading ~>))
 
 (define calls 20000)
 
 (void (current-device-resources))
 
+(define (milliseconds-for call)
+  (collect-garbage 'minor)
+  (define start (current-inexact-monotonic-milliseconds))
+  (for ([_ (in-range calls)])
+    (call))
+  (- (current-inexact-monotonic-milliseconds) start))
+
+(define (median-of-five runs)
+  (match (sort runs <)
+    [(list _ _ median _ _) median]))
+
 (define (ns-per-call call)
   (call)
-  (define times
-    (sort (for/list ([_ (in-range 5)])
-            (collect-garbage 'minor)
-            (define start (current-inexact-monotonic-milliseconds))
-            (for ([_ (in-range calls)])
-              (call))
-            (- (current-inexact-monotonic-milliseconds) start))
-          <))
-  (/ (* 1e6 (list-ref times 2)) calls))
+  (~> (for/list ([_ (in-range 5)])
+        (milliseconds-for call))
+      median-of-five
+      (* 1e6)
+      (/ calls)))
 
 (define (call-as-atomic/status thunk)
   (call-as-atomic (lambda ()

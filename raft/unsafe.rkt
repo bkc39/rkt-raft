@@ -1,6 +1,7 @@
 #lang racket/base
 
 (require (for-syntax racket/base)
+         (only-in ffi/unsafe/atomic in-atomic-mode?)
          (only-in ffi/unsafe/os-async-channel make-os-async-channel os-async-channel-put)
          (only-in ffi/unsafe/os-thread call-in-os-thread)
          (only-in racket/match match)
@@ -10,7 +11,7 @@
          (only-in "private/error.rkt" call/raft exn:fail:raft)
          (only-in "private/foreign/array.rkt" clear-view! keep-reachable)
          (only-in "private/foreign/core.rkt" rr-abi rr-resources-handle)
-         (only-in "private/resource.rkt" with-release)
+         (only-in "private/resource.rkt" drop-owner! hold-owner! with-release)
          (only-in "private/resources.rkt" resources-handle))
 
 (provide raft-abi-pointer
@@ -41,40 +42,42 @@
       (bytes->string/utf-8 message #\uFFFD)
       (format "~a" message)))
 
-(define (fresh-message message)
-  (if (bytes? message)
-      (bytes-copy message)
-      message))
+(struct returned (results))
+(struct raised (exn))
+(struct failed (message kind))
 
 (define ((call-reading-error thunk last-error last-error-kind))
   (define (outcome status . results)
     (if (eqv? status 0)
-        (list 'ok results)
-        (list 'failed (fresh-message (last-error)) (last-error-kind))))
-  (call/ec (lambda (escape)
-             (call-with-exception-handler (lambda (e) (escape (list 'raised e)))
-                                          (lambda () (call-with-values thunk outcome))))))
+        (returned results)
+        (failed (last-error) (last-error-kind))))
+  (begin0 (call/ec (lambda (escape)
+                     (call-with-exception-handler (lambda (e) (escape (raised e)))
+                                                  (lambda () (call-with-values thunk outcome)))))
+    (keep-reachable thunk)))
 
-(define (deliver-pending-break)
-  (parameterize-break (break-enabled) (void)))
-
-(define (call-in-os-thread/wait call)
+(define (call-in-os-thread/deferring-breaks call)
   (define channel (make-os-async-channel))
   (call-in-os-thread (lambda () (os-async-channel-put channel (call))))
-  (begin0 (parameterize-break #f (sync channel))
-    (deliver-pending-break)))
+  (define outcome (parameterize-break #f (sync channel)))
+  ;; Leaving the #f extent does not raise a break queued during the wait; this does.
+  (unless (in-atomic-mode?)
+    (parameterize-break (break-enabled) (void)))
+  outcome)
 
 (define ((status-checker last-error last-error-kind #:exn [exn exn:fail:raft]) who thunk)
-  (match (call-in-os-thread/wait (call-reading-error thunk last-error last-error-kind))
-    [(list 'ok results) (apply values results)]
-    [(list 'raised e) (raise e)]
-    [(list 'failed message kind)
+  (match (call-in-os-thread/deferring-breaks (call-reading-error thunk last-error last-error-kind))
+    [(returned results) (apply values results)]
+    [(raised e) (raise e)]
+    [(failed message kind)
      (raise (exn (format "~a: ~a" who (message->string message))
                  (current-continuation-marks)
                  (kind->symbol kind)))]))
 
 (define (view-release a) ;; noqa
-  (lambda (view) (clear-view! view a)))
+  (lambda (view)
+    (drop-owner! view)
+    (clear-view! view a)))
 
 (begin-for-syntax
   (define-syntax-class view-binding
@@ -82,7 +85,9 @@
     (pattern [name:id array:expr])))
 
 (define (handle-release r) ;; noqa
-  (lambda (_handle) (keep-reachable r)))
+  (lambda (handle)
+    (drop-owner! handle)
+    (keep-reachable r)))
 
 (define-syntax-parse-rule (with-array-views (~optional (~seq #:resources [handle:id resources:expr]))
                             (b:view-binding ...)
@@ -92,7 +97,8 @@
   #:with (a ...) (generate-temporaries #'(b.name ...))
   (let ([r (~? resources #f)]
         [a b.array] ...)
-    (with-release #:who 'with-array-views
-                  ((~? [handle (handle-for 'with-array-views r) (handle-release r)])
-                   [b.name (and a (settled-view 'with-array-views a)) (view-release a)] ...)
-                  body ...)))
+    (with-release
+     #:who 'with-array-views
+     ((~? [handle (hold-owner! (handle-for 'with-array-views r) r) (handle-release r)])
+      [b.name (and a (hold-owner! (settled-view 'with-array-views a) a)) (view-release a)] ...)
+     body ...)))

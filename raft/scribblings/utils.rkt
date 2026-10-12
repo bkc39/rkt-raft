@@ -16,6 +16,7 @@
                              ptr-equal?
                              ptr-ref
                              ptr-set!)
+                    (only-in ffi/unsafe/alloc allocator)
                     ffi/unsafe/define
                     ffi/unsafe/define/conventions
                     (only-in ffi/unsafe/os-thread call-in-os-thread)
@@ -54,6 +55,7 @@
 (provide (all-from-out scribble/example)
          (all-from-out scribble/manual)
          (for-label (all-from-out ffi/unsafe
+                                  ffi/unsafe/alloc
                                   ffi/unsafe/define
                                   ffi/unsafe/define/conventions
                                   ffi/unsafe/os-thread

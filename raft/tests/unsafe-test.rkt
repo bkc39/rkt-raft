@@ -10,7 +10,9 @@
                   cpointer?
                   get-ffi-obj
                   ptr-equal?
-                  ptr-ref)
+                  ptr-ref
+                  void/reference-sink)
+         (only-in ffi/unsafe/atomic end-atomic start-atomic)
          (only-in racket/generator in-generator yield)
          (only-in rackunit
                   check-equal?
@@ -43,17 +45,18 @@
                   view-shape
                   view-strides)
          (only-in "../private/foreign/memory.rkt" buffer-drop-count resources-drop-count)
-         (only-in "../private/resource.rkt" with-release)
+         (only-in "../private/resource.rkt" drop-owner! hold-owner! with-release)
          (only-in "../private/resources.rkt" resources-handle)
          (only-in "../unsafe.rkt"
                   raft-abi-pointer
                   resources->handle-pointer
                   status-checker
                   with-array-views)
-         (only-in "private/collect.rkt" drain-finalizers!)
+         (only-in "private/collect.rkt" collect-until drain-finalizers!)
          (only-in "private/gpu.rkt" test-gpu)
          (only-in "private/probe.rkt" probe-hold! probe-release! test-probe)
-         (only-in "private/raft-error.rkt" check-raft-error))
+         (only-in "private/raft-error.rkt" check-raft-error)
+         (only-in "private/ticker.rkt" call-with-ticker))
 
 (test-case "raft-abi-pointer points at the tag raft-abi reads"
   (define tag (raft-abi-pointer))
@@ -179,8 +182,8 @@
   (check-not-false (sync/timeout 10 worker))
   (check-true (>= (unbox entered) (unbox released))))
 
-(define (checker . failure)
-  (status-checker (lambda () (car failure)) (lambda () (cadr failure))))
+(define (checker message kind)
+  (status-checker (lambda () message) (lambda () kind)))
 
 (test-case "status-checker answers the values after a zero status"
   (define check (checker #"unused" 0))
@@ -220,7 +223,6 @@
   (check 'demo (lambda () 0))
   (check-equal? reads 0))
 
-;; libc, which the Racket process links
 (define os-thread-id (get-ffi-obj "pthread_self" #f (_fun -> _uintptr)))
 (define sleep-microseconds (get-ffi-obj "usleep" #f (_fun #:blocking? #t _uint32 -> _int)))
 
@@ -243,26 +245,33 @@
   (check-not-equal? (unbox call-thread) (os-thread-id)))
 
 (test-case "concurrent failures each read the error of their own call"
-  (define check
-    (status-checker (lambda () (string->bytes/utf-8 (number->string (os-thread-id)))) (lambda () 3)))
-  (define (fail-and-compare)
-    (define caller (box #f))
-    (with-handlers ([exn:fail:raft? (lambda (e)
-                                      (equal? (exn-message e) (format "call: ~a" (unbox caller))))])
+  (define tokens (box (hash)))
+  (define (record! token)
+    (define id (os-thread-id))
+    (let retry ([old (unbox tokens)])
+      (unless (box-cas! tokens old (hash-set old id token))
+        (retry (unbox tokens)))))
+  (define check (status-checker (lambda () (hash-ref (unbox tokens) (os-thread-id))) (lambda () 3)))
+  (define (failure-message token)
+    (with-handlers ([exn:fail:raft? exn-message])
       (check 'call
              (lambda ()
-               (set-box! caller (os-thread-id))
+               (record! token)
                (sleep-microseconds 20000)
                1))))
+  (define (call-token caller attempt)
+    (format "~a.~a" caller attempt))
   (define callers
-    (for/list ([_ (in-range 4)])
+    (for/list ([caller (in-range 4)])
       (thread (lambda ()
-                (for/and ([_ (in-range 10)])
-                  (fail-and-compare))))))
-  (for ([caller (in-list callers)])
-    (thread-wait caller))
-  (check-true (for/and ([_ (in-range 4)])
-                (fail-and-compare))))
+                (for/list ([attempt (in-range 10)])
+                  (failure-message (call-token caller attempt))))
+              #:keep 'results)))
+  (for ([caller (in-list callers)]
+        [index (in-naturals)])
+    (check-equal? (thread-wait caller)
+                  (for/list ([attempt (in-range 10)])
+                    (format "call: ~a" (call-token index attempt))))))
 
 (test-case "status-checker raises the thunk's own exception on the caller's thread"
   (define check (checker #"unused" 0))
@@ -273,15 +282,9 @@
   (check-exn #rx"arity mismatch" (lambda () (check 'demo (lambda () (values))))))
 
 (test-case "other Racket threads run during a blocking call"
-  (define ticks 0)
-  (define ticker
-    (thread (lambda ()
-              (let loop ()
-                (sleep 0.01)
-                (set! ticks (add1 ticks))
-                (loop)))))
-  ((checker #"unused" 0) 'demo (lambda () (sleep-microseconds 300000)))
-  (kill-thread ticker)
+  (define ticks
+    (call-with-ticker (lambda ()
+                        ((checker #"unused" 0) 'demo (lambda () (sleep-microseconds 300000))))))
   (check-true (> ticks 10) (format "~a ticks in 300 ms" ticks)))
 
 (test-case "a break during the call is raised once the call returns"
@@ -314,6 +317,73 @@
   (break-thread caller)
   (check-not-false (sync/timeout 5 caller))
   (check-equal? (unbox outcome) '(broken returned)))
+
+(test-case "a break queued in atomic mode is raised after atomic mode, not by the checker"
+  (define answer (box #f))
+  (define caller
+    (thread (lambda ()
+              (with-handlers ([exn:break? (lambda (_) 'broken)])
+                (parameterize-break
+                 #f
+                 (break-thread (current-thread))
+                 (start-atomic)
+                 (break-enabled #t)
+                 (set-box! answer ((checker #"unused" 0) 'demo (lambda () (values 0 'kept))))
+                 (end-atomic))))
+            #:keep 'results))
+  (check-equal? (list (thread-wait caller) (unbox answer)) '(broken kept)))
+
+(define (caller-holding-an-owner wills)
+  (define owner (make-bytes 64))
+  (will-register wills owner (lambda (_) 'collected))
+  (thread (lambda ()
+            (with-release ([view
+                            (hold-owner! (box 'view) owner)
+                            (lambda (view)
+                              (drop-owner! view)
+                              (void/reference-sink owner))])
+              ((checker #"unused" 0) 'demo
+                                     (lambda ()
+                                       (void/reference-sink view)
+                                       (sleep-microseconds 500000)))))))
+
+(test-case "a killed caller's held owners live until its call returns"
+  (define wills (make-will-executor))
+  (define start (current-inexact-milliseconds))
+  (define caller (caller-holding-an-owner wills))
+  (sleep 0.05)
+  (kill-thread caller)
+  (drain-finalizers!)
+  (check-false (will-try-execute wills) "the owner lives while the call runs")
+  (check-true (< (- (current-inexact-milliseconds) start) 500) "checked before the call returned")
+  (sleep 0.5)
+  (check-equal? (collect-until (lambda () (will-try-execute wills)))
+                'collected
+                "and is collected once the call returns"))
+
+(test-gpu "a killed caller's arrays and resources live until its call returns"
+  (drain-finalizers!)
+  (define buffers (buffer-drop-count))
+  (define resources (resources-drop-count))
+  (define start (current-inexact-milliseconds))
+  (define caller
+    (thread (lambda ()
+              (define r (device-resources))
+              (with-array-views #:resources [handle r] ([x (device-matrix 64 64 #:resources r)])
+                ((checker #"unused" 0) 'demo
+                                       (lambda ()
+                                         (void/reference-sink handle x)
+                                         (sleep-microseconds 500000)))))))
+  (sleep 0.05)
+  (kill-thread caller)
+  (drain-finalizers!)
+  (check-equal? (list (buffer-drop-count) (resources-drop-count)) (list buffers resources))
+  (check-true (< (- (current-inexact-milliseconds) start) 500) "checked before the call returned")
+  (sleep 0.5)
+  (check-not-false (collect-until (lambda ()
+                                    (equal? (list (buffer-drop-count) (resources-drop-count))
+                                            (list (add1 buffers) (add1 resources)))))
+                   "both are released once the call returns"))
 
 (test-gpu "the handle pointer and views of the default resources work together"
   (define r (current-device-resources))

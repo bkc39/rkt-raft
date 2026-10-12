@@ -5,12 +5,25 @@
          syntax/parse/define
          (only-in "exn.rkt" exn:fail:raft))
 
-(provide with-release)
+(provide drop-owner!
+         hold-owner!
+         with-release)
 
 (begin-for-syntax
   (define-syntax-class release-binding
     #:description "a [name acquire release] binding"
     (pattern [name:id acquire:expr release:expr])))
+
+;; A key keeps its owner reachable: a native call still holding a view keeps the
+;; view's array alive after its caller is killed and its releases never run.
+(define owners (make-ephemeron-hasheq))
+
+(define (hold-owner! key owner)
+  (hash-set! owners key owner)
+  key)
+
+(define (drop-owner! key)
+  (hash-remove! owners key))
 
 (define reentry-message "cannot re-enter its body after its resources were released")
 
