@@ -296,7 +296,8 @@
   (define r (current-device-resources))
   (define retained (deposit))
   (check-true (probe-hold! (resources-handle 'test r)))
-  (define caller (thread (lambda () (fill! retained 'int64 3 4 #:flags (probe-flags 'wait) #:resources r))))
+  (define caller
+    (thread (lambda () (fill! retained 'int64 3 4 #:flags (probe-flags 'wait) #:resources r))))
   (sleep 0.05)
   (kill-thread caller)
   (probe-release!)
@@ -317,7 +318,8 @@
   (define r (current-device-resources))
   (define d (deposit))
   (check-true (probe-hold! (resources-handle 'test r)))
-  (define caller (thread (lambda () (fill! d 'float64 3 4 #:flags (probe-flags 'wait) #:resources r))))
+  (define caller
+    (thread (lambda () (fill! d 'float64 3 4 #:flags (probe-flags 'wait) #:resources r))))
   (sleep 0.05)
   (for ([_ (in-range 3)])
     (collect-garbage 'major))
