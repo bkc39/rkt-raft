@@ -77,8 +77,7 @@ raises @racket[exn:fail:raft].
 
 @bold{Speed.} An @racket[flvector], flonum array or @racket[f64vector] sent as
 @racket['float64], an @racket[f32vector] sent as @racket['float32], and a byte
-string are copied as they are; everything else is packed element by element
-(@secref["moving-data-speed"]).
+string are copied as they are; everything else is packed element by element.
 
 @section[#:tag "ref-compat-nested"]{Vectors and nested data}
 

@@ -64,6 +64,7 @@ raft/                         the Racket package and collection
   scribblings/                the manual: guide/ chapters, reference/ sections
   tests/                      raco tests; tests/private/ the harness; tests/python/ the twins
 scripts/                      gates, the GPU suite, the docs render, the binding census
+bench/README.md               how to run the benchmarks, and the last measured table (#25)
 bench/conversions.rkt         the conversion speed table (raft/compat), 10^6 elements
 bench/typed-arrays.rkt        math/array arrays built in Typed Racket against untyped (typed-table.rkt)
 plans/scoping-plan.md         the approved plan (revision 5), as Markdown
@@ -200,8 +201,8 @@ plans/scoping-plan.md         the approved plan (revision 5), as Markdown
     (`docs-test.rkt` for leg 0's pages, `docs-core-test.rkt` for
     `raft/core`'s reference and the *Resources and the GPU* chapter,
     `docs-array-test.rkt` for `raft/array`'s and *Device arrays*,
-   `docs-compat-test.rkt` for `raft/compat`'s and *Moving data between
-   Racket and the GPU*).
+   `docs-compat-test.rkt` for `raft/compat`'s and the *Device arrays*
+   chapter's other forms of Racket data).
 15. **Every review finding is addressed**, from reviewer agents and from bots
     (`chatgpt-codex-connector[bot]` leaves inline comments): fixed with a
     test, or explained with evidence. No silent deferrals.
