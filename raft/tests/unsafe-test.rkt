@@ -1,6 +1,7 @@
 #lang racket/base
 
-(require (only-in ffi/unsafe
+(require (for-syntax racket/base)
+         (only-in ffi/unsafe
                   _fun
                   _int
                   _int32
@@ -14,6 +15,9 @@
                   void/reference-sink)
          (only-in ffi/unsafe/atomic end-atomic start-atomic)
          (only-in racket/generator in-generator yield)
+         (only-in racket/port with-output-to-string)
+         (only-in racket/runtime-path define-runtime-path)
+         (only-in racket/system system*)
          (only-in rackunit
                   check-equal?
                   check-exn
@@ -318,7 +322,7 @@
   (check-not-false (sync/timeout 5 caller))
   (check-equal? (unbox outcome) '(broken returned)))
 
-(test-case "a break queued in atomic mode is raised after atomic mode, not by the checker"
+(test-case "a break pending in atomic mode waits for atomic mode to end"
   (define answer (box #f))
   (define caller
     (thread (lambda ()
@@ -333,7 +337,12 @@
             #:keep 'results))
   (check-equal? (list (thread-wait caller) (unbox answer)) '(broken kept)))
 
-(define (caller-holding-an-owner wills)
+(define (sleep-then-mark! slept)
+  (sleep-microseconds 500000)
+  (set-box! slept #t)
+  0)
+
+(define (caller-holding-an-owner wills slept)
   (define owner (make-bytes 64))
   (will-register wills owner (lambda (_) 'collected))
   (thread (lambda ()
@@ -345,45 +354,82 @@
               ((checker #"unused" 0) 'demo
                                      (lambda ()
                                        (void/reference-sink view)
-                                       (sleep-microseconds 500000)))))))
+                                       (sleep-then-mark! slept)))))))
 
 (test-case "a killed caller's held owners live until its call returns"
   (define wills (make-will-executor))
-  (define start (current-inexact-milliseconds))
-  (define caller (caller-holding-an-owner wills))
+  (define slept (box #f))
+  (define caller (caller-holding-an-owner wills slept))
   (sleep 0.05)
   (kill-thread caller)
   (drain-finalizers!)
   (check-false (will-try-execute wills) "the owner lives while the call runs")
-  (check-true (< (- (current-inexact-milliseconds) start) 500) "checked before the call returned")
+  (check-false (unbox slept) "checked before the call returned")
   (sleep 0.5)
-  (check-equal? (collect-until (lambda () (will-try-execute wills)))
+  (check-equal? (collect-until (lambda () (and (unbox slept) (will-try-execute wills))))
                 'collected
                 "and is collected once the call returns"))
 
-(test-gpu "a killed caller's arrays and resources live until its call returns"
+(define (drops-while-a-killed-call-runs released start-call)
   (drain-finalizers!)
-  (define buffers (buffer-drop-count))
-  (define resources (resources-drop-count))
-  (define start (current-inexact-milliseconds))
-  (define caller
-    (thread (lambda ()
-              (define r (device-resources))
-              (with-array-views #:resources [handle r] ([x (device-matrix 64 64 #:resources r)])
-                ((checker #"unused" 0) 'demo
-                                       (lambda ()
-                                         (void/reference-sink handle x)
-                                         (sleep-microseconds 500000)))))))
+  (define before (list (buffer-drop-count) (resources-drop-count)))
+  (define (drops)
+    (map - (list (buffer-drop-count) (resources-drop-count)) before))
+  (define slept (box #f))
+  (define caller (thread (lambda () (start-call slept))))
   (sleep 0.05)
   (kill-thread caller)
   (drain-finalizers!)
-  (check-equal? (list (buffer-drop-count) (resources-drop-count)) (list buffers resources))
-  (check-true (< (- (current-inexact-milliseconds) start) 500) "checked before the call returned")
+  (define during (drops))
+  (check-false (unbox slept) "checked before the call returned")
   (sleep 0.5)
-  (check-not-false (collect-until (lambda ()
-                                    (equal? (list (buffer-drop-count) (resources-drop-count))
-                                            (list (add1 buffers) (add1 resources)))))
-                   "both are released once the call returns"))
+  (collect-until (lambda () (and (unbox slept) (equal? (drops) released))))
+  (list during (drops)))
+
+(define-runtime-path unsafe-module "../unsafe.rkt")
+
+(test-case "exiting waits for a call still in flight"
+  (define program
+    `(begin
+       (require (only-in ffi/unsafe _bytes _fun _int _intptr _size _uint32 get-ffi-obj)
+                (only-in (file ,(path->string unsafe-module)) status-checker))
+       (define pause (get-ffi-obj "usleep" #f (_fun #:blocking? #t _uint32 -> _int)))
+       (define write-fd (get-ffi-obj "write" #f (_fun _int _bytes _size -> _intptr)))
+       (define check (status-checker (lambda () #"") (lambda () 0)))
+       (thread (lambda ()
+                 (check 'demo
+                        (lambda ()
+                          (pause 300000)
+                          (write-fd 1 #"settled" 7)
+                          0))))
+       (sleep 0.05)))
+  (define racket (find-executable-path (find-system-path 'exec-file)))
+  (check-equal?
+   (with-output-to-string (lambda () (system* racket "-l" "racket/base" "-e" (format "~s" program))))
+   "settled"))
+
+(test-gpu "a killed caller's arrays and resources live until its call returns"
+  (check-equal? (drops-while-a-killed-call-runs
+                 '(1 1)
+                 (lambda (slept)
+                   (define r (device-resources))
+                   (with-array-views #:resources [handle r] ([x (device-matrix 64 64 #:resources r)])
+                     ((checker #"unused" 0) 'demo
+                                            (lambda ()
+                                              (void/reference-sink handle x)
+                                              (sleep-then-mark! slept))))))
+                '((0 0) (1 1))))
+
+(test-gpu "a killed caller's resources->handle-pointer keeps its resources until the call returns"
+  (check-equal?
+   (drops-while-a-killed-call-runs '(0 1)
+                                   (lambda (slept)
+                                     (define handle (resources->handle-pointer (device-resources)))
+                                     ((checker #"unused" 0) 'demo
+                                                            (lambda ()
+                                                              (void/reference-sink handle)
+                                                              (sleep-then-mark! slept)))))
+   '((0 0) (0 1))))
 
 (test-gpu "the handle pointer and views of the default resources work together"
   (define r (current-device-resources))

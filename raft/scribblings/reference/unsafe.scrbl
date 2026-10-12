@@ -73,10 +73,11 @@ exception @racket[thunk] raises are raised on the calling thread.
 The calling thread waits with breaks disabled while the place's other threads
 run. A break that arrives during the call is raised when the call returns,
 since a native call cannot be cancelled, and the call's arguments stay
-reachable until then, even if the calling thread is killed. With breaks
-enabled, that break discards @racket[thunk]'s results, so a binding whose
-call returns an owned native object disables breaks around the call and the
-registration of its release, or uses an @racket[allocator].
+reachable until then, even if the calling thread is killed. Exiting the
+process waits for the calls in flight. With breaks enabled, that break
+discards @racket[thunk]'s results, so a binding whose call returns an owned
+native object disables breaks around the call and the registration of its
+release, or uses an @racket[allocator].
 
 A call that can run long is declared @racket[#:blocking? #t]; otherwise the
 place's next garbage collection waits for it. A collection can then run
@@ -176,11 +177,10 @@ their stream, library handles and workspace: what cuML's C++ takes as
 @tt{const raft::handle_t&}. Released resources raise @racket[exn:fail:raft]
 of kind @racket['logic].
 
-The pointer is borrowed and does not hold @racket[resources]: once they are
-unreachable, their finalizer frees the handle. A binding therefore takes the
-handle with @racket[with-array-views]'s @racket[#:resources]; this procedure
-suits code that holds the resources some other way, as
-@racket[(current-device-resources)] does for its thread.
+The pointer holds @racket[resources]: while it is reachable, including as
+the argument of a call whose thread was killed, their finalizer does not free
+the handle. Inside a binding, @racket[with-array-views]'s
+@racket[#:resources] binds the same pointer for the extent of its body.
 
 @examples[#:eval ev
 (resources->handle-pointer (current-device-resources))

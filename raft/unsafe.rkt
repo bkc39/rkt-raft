@@ -1,9 +1,6 @@
 #lang racket/base
 
 (require (for-syntax racket/base)
-         (only-in ffi/unsafe/atomic in-atomic-mode?)
-         (only-in ffi/unsafe/os-async-channel make-os-async-channel os-async-channel-put)
-         (only-in ffi/unsafe/os-thread call-in-os-thread)
          (only-in racket/match match)
          ;; whole-module: it also provides syntax/parse at phase 1
          syntax/parse/define
@@ -11,6 +8,7 @@
          (only-in "private/error.rkt" call/raft exn:fail:raft)
          (only-in "private/foreign/array.rkt" clear-view! keep-reachable)
          (only-in "private/foreign/core.rkt" rr-abi rr-resources-handle)
+         (only-in "private/os-call.rkt" call-in-os-thread/deferring-breaks)
          (only-in "private/resource.rkt" drop-owner! hold-owner! with-release)
          (only-in "private/resources.rkt" resources-handle))
 
@@ -26,7 +24,7 @@
   (call/raft who (lambda () (rr-resources-handle (resources-handle who r)))))
 
 (define (resources->handle-pointer r)
-  (handle-for 'resources->handle-pointer r))
+  (hold-owner! (handle-for 'resources->handle-pointer r) r))
 
 (define error-kinds #(generic out-of-memory cuda logic))
 
@@ -55,15 +53,6 @@
                      (call-with-exception-handler (lambda (e) (escape (raised e)))
                                                   (lambda () (call-with-values thunk outcome)))))
     (keep-reachable thunk)))
-
-(define (call-in-os-thread/deferring-breaks call)
-  (define channel (make-os-async-channel))
-  (call-in-os-thread (lambda () (os-async-channel-put channel (call))))
-  (define outcome (parameterize-break #f (sync channel)))
-  ;; Leaving the #f extent does not raise a break queued during the wait; this does.
-  (unless (in-atomic-mode?)
-    (parameterize-break (break-enabled) (void)))
-  outcome)
 
 (define ((status-checker last-error last-error-kind #:exn [exn exn:fail:raft]) who thunk)
   (match (call-in-os-thread/deferring-breaks (call-reading-error thunk last-error last-error-kind))
