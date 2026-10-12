@@ -18,9 +18,7 @@
                   ptr-set!)
          (only-in ffi/unsafe/define define-ffi-definer make-not-available)
          (only-in ffi/unsafe/define/conventions convention:hyphen->underscore)
-         (only-in racket/flonum make-flvector)
-         (only-in racket/format ~r)
-         (only-in racket/list count remove-duplicates)
+         (only-in racket/list remove-duplicates)
          (only-in racket/string non-empty-string?)
          (only-in rackunit check-equal? check-exn check-true)
          ;; whole-module: its syntax classes come with it
@@ -32,16 +30,11 @@
                   device-resources
                   device-vector
                   device-vector->list
-                  dtype
                   exn:fail:raft
-                  exn:fail:raft-kind
-                  flvector->device-vector
-                  layout
                   list*->device-matrix
                   raft-abi
                   raft-abi-handle-size
                   raft-abi-version
-                  shape
                   with-device-resources)
          (only-in "../unsafe.rkt"
                   raft-abi-pointer
@@ -94,9 +87,6 @@
   (_fun _pointer _pointer _pointer _pointer _int32 _pointer (inertia : (_ptr o _double))
         -> (status : _int)
         -> (values status inertia)))
-
-(define (canary-procedure name)
-  (dynamic-require 'kmeans-canary name))
 
 (define (no-values thunk)
   (call-with-values thunk list))
@@ -204,53 +194,3 @@
                     (lambda ()
                       (with-array-views ([c fitted] [y labels])
                         (check 'kmeans-predict (lambda () (kc-predict handle c stale #f 1 y)))))))
-
-(test-canary "building on raft guide: k-means from Racket"
-  (define blobs (canary-procedure 'blobs))
-  (define kmeans-fit (canary-procedure 'kmeans-fit))
-  (define kmeans-predict (canary-procedure 'kmeans-predict))
-  (define-values (X _truth) (blobs 300 2 #:centers 3 #:cluster-std 0.6 #:seed 7))
-  (check-equal? (list (shape X) (dtype X) (layout X)) '((300 2) float32 row-major))
-  (define-values (centroids inertia n-iter) (kmeans-fit X #:n-clusters 3 #:seed 42))
-  (check-equal? (list (shape centroids) (dtype centroids)) '((3 2) float32))
-  (check-equal? (list (~r inertia #:precision '(= 2)) n-iter) '("222.00" 2))
-  (define-values (labels _score) (kmeans-predict centroids X))
-  (check-equal? (for/list ([k (in-range 3)])
-                  (count (lambda (label) (= label k)) (device-vector->list labels)))
-                '(100 100 100))
-  (check-raft-error 'logic
-                    "kmeans-fit: X: expected row-major, got col-major 300x2"
-                    (lambda () (kmeans-fit (contiguous X #:layout 'col-major) #:n-clusters 3)))
-  (check-raft-error 'logic
-                    "kmeans-fit: X: expected float32 or float64, got int32"
-                    (lambda () (kmeans-fit (list*->device-matrix '((1 2) (3 4)) #:dtype 'int32))))
-  (check-raft-error 'logic
-                    "kmeans-fit: X: 300 samples are fewer than the 301 clusters"
-                    (lambda () (kmeans-fit X #:n-clusters 301)))
-  (define ones (flvector->device-vector (make-flvector 300 1.0) #:dtype 'float32))
-  (define-values (_weighted-centroids weighted _weighted-iterations)
-    (kmeans-fit X #:n-clusters 3 #:seed 42 #:sample-weight ones))
-  (check-true (< (abs (- weighted inertia)) (* 1e-4 inertia))))
-
-(test-canary "building on raft guide: lifetimes and streams"
-  (define blobs (canary-procedure 'blobs))
-  (define kmeans-fit (canary-procedure 'kmeans-fit))
-  (define-values (X _truth) (blobs 300 2 #:centers 3 #:cluster-std 0.6 #:seed 7))
-  (define-values (centroids _inertia _n-iter) (kmeans-fit X #:n-clusters 3 #:seed 42))
-  (define kept (with-array-views ([c centroids]) c))
-  (check-equal? (list (ptr-ref kept _pointer) (ptr-ref kept _int32 'abs 16)) '(#f -1))
-  (define-values (X2 _truth2)
-    (with-device-resources ([r (device-resources)])
-      (blobs 50 2 #:centers 2 #:seed 1 #:resources r)))
-  (define-values (c2 _inertia2 _n-iter2) (kmeans-fit X2 #:n-clusters 2))
-  (check-equal? (shape c2) '(2 2))
-  (define canary-current-is-async? (dynamic-require 'kmeans-canary/pool 'canary-current-is-async?))
-  (define canary-pool-bytes (dynamic-require 'kmeans-canary/pool 'canary-pool-bytes))
-  (define canary-pool-reset-high! (dynamic-require 'kmeans-canary/pool 'canary-pool-reset-high!))
-  (check-true (canary-current-is-async?))
-  (define-values (in-use _high-before _reserved-before) (canary-pool-bytes))
-  (canary-pool-reset-high!)
-  (kmeans-fit X #:n-clusters 3 #:seed 42)
-  (define-values (after peak _reserved-after) (canary-pool-bytes))
-  (check-equal? (list (> peak in-use) (> peak after)) '(#t #t))
-  (check-equal? (raft-abi-version (raft-abi)) 1))

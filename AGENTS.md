@@ -224,8 +224,7 @@ plans/scoping-plan.md         the approved plan (revision 5), as Markdown
     `docs-array-test.rkt` for `raft/array`'s and *Device arrays*,
    `docs-compat-test.rkt` for `raft/compat`'s and the *Device arrays*
    chapter's other forms of Racket data, `docs-unsafe-test.rkt` for
-   `raft/unsafe`'s and *Building on raft*, which need the canary and print
-   SKIP without it).
+   `raft/unsafe`'s, which needs the canary and prints SKIP without it).
 15. **Every review finding is addressed**, from reviewer agents and from bots
     (`chatgpt-codex-connector[bot]` leaves inline comments): fixed with a
     test, or explained with evidence. No silent deferrals.
@@ -959,8 +958,7 @@ canary changes with it in the same pull request:
   `with-array-views` (with its `#:resources [handle r]` clause),
   `status-checker`, `raft-abi-pointer`; `core-test.rkt` pins the export set.
 
-What a downstream binding must do, which the canary does and the manual's
-*Building on raft* explains: compile against `packages.rapids` and
+What a downstream binding must do, which the canary does: compile against `packages.rapids` and
 `packages.raft-dev` of this flake (never another RAPIDS); check the tag at
 load (`kc_check_abi` with `raft-abi-pointer`); take the handle and the
 views with `with-array-views #:resources`, which keeps the resources

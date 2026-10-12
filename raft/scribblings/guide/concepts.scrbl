@@ -90,7 +90,7 @@ What an array answers, and how its values come back:
 prepares a dataset with them. @racketmodname[raft/compat] converts vectors, nested
 vectors, @racket[f32vector]s, @racket[f64vector]s, byte strings and
 @racketmodname[math/array] arrays by the same rules (@secref["moving-data"]), and a native binding hands arrays to its C++ inside
-@racket[with-array-views] (@racketmodname[raft/unsafe], @secref["downstream"]).
+@racket[with-array-views] (@racketmodname[raft/unsafe]).
 
 @section[#:tag "concepts-using-resources"]{Resources}
 

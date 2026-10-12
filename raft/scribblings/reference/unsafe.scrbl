@@ -18,8 +18,8 @@ binding's foreign declarations match its C code, so passing a view where the
 C function expects a handle crashes the process. The C headers check views,
 not pointer types.
 
-@secref["downstream"] builds the k-means canary on this module. The
-interface is frozen at ABI version 1 (@secref["ref-unsafe-c"]).
+The k-means canary in @tt{downstream/kmeans-canary} is built on this module.
+The interface is frozen at ABI version 1 (@secref["ref-unsafe-c"]).
 
 The examples call the canary's library: set @tt{RAFT_KMEANS_CANARY} to
 @tt{libkmeans_canary.so} to run them. They share these bindings, in which handles and views cross as plain
