@@ -8,29 +8,11 @@
          calls-in-flight) ;; noqa
 
 (define in-flight (box 0))
-(define exit-waiters (box 0))
-(define call-settled (make-os-async-channel))
 
-(define (box-add! b delta)
-  (define n (unbox b))
-  (if (box-cas! b n (+ n delta))
-      (memory-order-release)
-      (box-add! b delta)))
-
-(define (settle-call!)
-  (box-add! in-flight -1)
-  (when (positive? (unbox exit-waiters))
-    (os-async-channel-put call-settled #t)))
-
-(define (wait-for-calls-in-flight _)
-  (box-add! exit-waiters 1)
-  (let loop ()
-    (unless (zero? (unbox in-flight))
-      (sync call-settled)
-      (loop)))
-  (box-add! exit-waiters -1))
-
-(void (plumber-add-flush! (current-plumber) wait-for-calls-in-flight))
+(define (count-calls! delta)
+  (define n (unbox in-flight))
+  (unless (box-cas! in-flight n (+ n delta))
+    (count-calls! delta)))
 
 (define (call-in-os-thread/deferring-breaks call)
   (define channel (make-os-async-channel))
@@ -38,9 +20,9 @@
   (call-as-atomic (lambda ()
                     (call-in-os-thread (lambda ()
                                          (define outcome (call))
-                                         (settle-call!)
+                                         (count-calls! -1)
                                          (os-async-channel-put channel outcome)))
-                    (box-add! in-flight 1)))
+                    (count-calls! 1)))
   (define outcome (parameterize-break #f (sync channel)))
   ;; Leaving the #f extent does not raise a break queued during the wait; this does.
   (parameterize-break (break-enabled) (void))

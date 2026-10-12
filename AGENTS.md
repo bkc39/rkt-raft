@@ -452,8 +452,8 @@ plans/scoping-plan.md         the approved plan (revision 5), as Markdown
   `private/resource.rkt`: `with-release`, and `hold-owner!`/`drop-owner!`,
   an ephemeron table through which a view keeps its array (and a handle its
   resources) reachable. `private/os-call.rkt`: `status-checker`'s hop to an
-  OS thread, the count of calls in flight (`calls-in-flight`, which the tests
-  read) and the exit wait. `private/install-native.rkt`: the
+  OS thread and the count of calls in flight (`calls-in-flight`, which the
+  tests read). `private/install-native.rkt`: the
   pre-install hook, honouring `RAFT_NATIVE_LIB_PATH` (a directory whose
   `lib/` holds `libraftrkt.so`).
 - Tests: `tests/private/gpu.rkt` (`gpu-available?`, `test-gpu`),
@@ -1149,10 +1149,9 @@ since cuSPARSE's error string for it is only "out of memory"). The frozen rule i
   view to its array and each handle to its resources (from `#:resources`
   and from `resources->handle-pointer`) in an ephemeron table, so the call's
   references keep the owners alive.
-- **Exit waits for calls in flight.** A call still running when the process
-  exits (a background thread's, or a killed caller's) would meet the static
-  destructors of RMM and the CUDA runtime, so the checker counts calls in
-  flight and a flush callback on the original plumber waits until none are.
+- **Exit does not wait for calls in flight.** A call still running when the
+  process exits is not waited for, so join threads that make calls before
+  exiting.
 - **The thunk's exceptions rely on Racket CS 9.3 behaviour.**
   `call-in-os-thread` documents that the thunk must not inspect its
   continuation or parameters, but the checker catches with `call/ec` and

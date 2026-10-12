@@ -15,9 +15,6 @@
                   void/reference-sink)
          (only-in ffi/unsafe/atomic end-atomic start-atomic)
          (only-in racket/generator in-generator yield)
-         (only-in racket/port with-output-to-string)
-         (only-in racket/runtime-path define-runtime-path)
-         (only-in racket/system system*)
          (only-in rackunit
                   check-equal?
                   check-exn
@@ -385,28 +382,6 @@
   (sleep 0.5)
   (collect-until (lambda () (and (unbox slept) (equal? (drops) released))))
   (list during (drops)))
-
-(define-runtime-path unsafe-module "../unsafe.rkt")
-
-(test-case "exiting waits for a call still in flight"
-  (define program
-    `(begin
-       (require (only-in ffi/unsafe _bytes _fun _int _intptr _size _uint32 get-ffi-obj)
-                (only-in (file ,(path->string unsafe-module)) status-checker))
-       (define pause (get-ffi-obj "usleep" #f (_fun #:blocking? #t _uint32 -> _int)))
-       (define write-fd (get-ffi-obj "write" #f (_fun _int _bytes _size -> _intptr)))
-       (define check (status-checker (lambda () #"") (lambda () 0)))
-       (thread (lambda ()
-                 (check 'demo
-                        (lambda ()
-                          (pause 300000)
-                          (write-fd 1 #"settled" 7)
-                          0))))
-       (sleep 0.05)))
-  (define racket (find-executable-path (find-system-path 'exec-file)))
-  (check-equal?
-   (with-output-to-string (lambda () (system* racket "-l" "racket/base" "-e" (format "~s" program))))
-   "settled"))
 
 (test-gpu "a killed caller's arrays and resources live until its call returns"
   (check-equal? (drops-while-a-killed-call-runs
