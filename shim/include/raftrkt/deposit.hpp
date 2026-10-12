@@ -11,6 +11,7 @@
 #include <memory>
 #include <raft/core/handle.hpp>
 #include <rmm/device_uvector.hpp>
+#include <span>
 #include <string>
 
 #include "raftrkt/array.h"
@@ -22,15 +23,16 @@ namespace raftrkt {
 
 namespace detail {
 
-inline rr_view described(void* data, int32_t dtype, int32_t rank,
-                         const int64_t* shape, layout l) noexcept {
+inline rr_view described(void* data, int32_t dtype,
+                         std::span<const int64_t> shape, layout l) noexcept {
+  const auto rank = static_cast<int32_t>(shape.size());
   rr_view view{};
   view.data = data;
   view.dtype = dtype;
   view.memory = RR_MEMORY_DEVICE;
   view.device = -1;
   view.rank = rank;
-  std::copy(shape, shape + rank, view.shape);
+  std::copy(shape.begin(), shape.end(), view.shape);
   static_cast<void>(canonical_strides(l, rank, view.shape, view.strides));
   return view;
 }
@@ -148,15 +150,14 @@ void release_owner(void* owner) noexcept {
 template <typename T>
 rr_view region(T* data, int64_t n) {
   const std::array<int64_t, 1> shape{n};
-  return detail::described(static_cast<void*>(data), dtype_code<T>, 1,
-                           shape.data(), layout::row_major);
+  return detail::described(static_cast<void*>(data), dtype_code<T>, shape,
+                           layout::row_major);
 }
 
 template <typename T>
 rr_view region(T* data, int64_t rows, int64_t cols, layout l) {
   const std::array<int64_t, 2> shape{rows, cols};
-  return detail::described(static_cast<void*>(data), dtype_code<T>, 2,
-                           shape.data(), l);
+  return detail::described(static_cast<void*>(data), dtype_code<T>, shape, l);
 }
 
 template <typename T>

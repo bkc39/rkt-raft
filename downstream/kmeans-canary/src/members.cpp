@@ -8,6 +8,7 @@
 #include <raft/core/handle.hpp>
 #include <raft/core/resource/cuda_stream.hpp>
 #include <rmm/device_uvector.hpp>
+#include <span>
 #include <vector>
 
 #include "canary.hpp"
@@ -53,11 +54,16 @@ struct members {
   rmm::device_uvector<T> rows;
 };
 
-std::vector<int64_t> chosen(const int32_t* labels, int64_t n, int32_t cluster,
+struct member_arrays {
+  const rr_view* x;
+  const rr_view* labels;
+};
+
+std::vector<int64_t> chosen(std::span<const int32_t> labels, int32_t cluster,
                             cudaStream_t stream) {
-  std::vector<int32_t> host(static_cast<std::size_t>(n));
+  std::vector<int32_t> host(labels.size());
   raftrkt::cuda_check(
-      cudaMemcpyAsync(host.data(), labels, host.size() * sizeof(int32_t),
+      cudaMemcpyAsync(host.data(), labels.data(), host.size() * sizeof(int32_t),
                       cudaMemcpyDeviceToHost, stream),
       "cudaMemcpyAsync");
   raftrkt::cuda_check(cudaStreamSynchronize(stream), "cudaStreamSynchronize");
@@ -71,16 +77,17 @@ std::vector<int64_t> chosen(const int32_t* labels, int64_t n, int32_t cluster,
 }
 
 template <typename T>
-void cluster_members(const raft::handle_t& handle, const rr_view* x,
-                     const rr_view* labels, int32_t cluster, rr_deposit* out) {
+void cluster_members(const raft::handle_t& handle, const member_arrays& arrays,
+                     int32_t cluster, rr_deposit* out) {
   const T* data =
-      raftrkt::matrix_data<const T>(x, "X", raftrkt::layout::row_major);
-  const int64_t n = x->shape[0];
-  const int64_t d = x->shape[1];
+      raftrkt::matrix_data<const T>(arrays.x, "X", raftrkt::layout::row_major);
+  const int64_t n = arrays.x->shape[0];
+  const int64_t d = arrays.x->shape[1];
   const int32_t* classes =
-      raftrkt::vector_data<const int32_t>(labels, "labels", n);
+      raftrkt::vector_data<const int32_t>(arrays.labels, "labels", n);
   cudaStream_t stream = raft::resource::get_cuda_stream(handle).value();
-  const std::vector<int64_t> picked = chosen(classes, n, cluster, stream);
+  const std::vector<int64_t> picked =
+      chosen({classes, static_cast<std::size_t>(n)}, cluster, stream);
   const std::size_t m = picked.size();
   const auto width = static_cast<std::size_t>(d);
   auto owner = std::make_unique<members<T>>(handle, m, width);
@@ -126,7 +133,7 @@ int kc_cluster_members(void* handle, const rr_view* x, const rr_view* labels,
     raftrkt::require_on_device(device, {{"X", x}, {"labels", labels}});
     raftrkt::sync_guard sync{raft::resource::get_cuda_stream(h)};
     kc::on_floats(x, "X", [&](auto tag) {
-      cluster_members<decltype(tag)>(h, x, labels, cluster, out);
+      cluster_members<decltype(tag)>(h, {x, labels}, cluster, out);
     });
     sync.finish();
   });

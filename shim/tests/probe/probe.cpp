@@ -16,6 +16,7 @@
 #include <rmm/mr/per_device_resource.hpp>
 #include <rmm/resource_ref.hpp>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "detail/handles.hpp"
@@ -118,10 +119,10 @@ std::vector<T> pattern(const request& q, int64_t r) {
   for (int64_t i = 0; i < q.rows; ++i) {
     for (int64_t j = 0; j < cols; ++j) {
       const int64_t at = (q.flags & col_major_flag) != 0U && matrix
-                             ? j * q.rows + i
-                             : i * cols + j;
+                             ? (j * q.rows) + i
+                             : (i * cols) + j;
       values.at(static_cast<std::size_t>(at)) =
-          static_cast<T>(r * region_step + i * cols + j);
+          static_cast<T>((r * region_step) + (i * cols) + j);
     }
   }
   return values;
@@ -173,22 +174,33 @@ std::unique_ptr<probe_owner> made(const raft::handle_t& handle,
   }
 }
 
+template <std::size_t... I>
+void deposit_first(rr_deposit* out, const raft::handle_t& handle,
+                   std::unique_ptr<probe_owner>&& owner,
+                   const std::vector<rr_view>& r,
+                   std::index_sequence<I...> /*unused*/) {
+  raftrkt::deposit(out, "out", handle, std::move(owner), {r.at(I)...});
+}
+
 void deposited(rr_deposit* out, const raft::handle_t& handle,
                std::unique_ptr<probe_owner>&& owner,
                const std::vector<rr_view>& r) {
   switch (r.size()) {
     case 0:
-      raftrkt::deposit(out, "out", handle, std::move(owner), {});
+      deposit_first(out, handle, std::move(owner), r,
+                    std::make_index_sequence<0>{});
       return;
     case 1:
-      raftrkt::deposit(out, "out", handle, std::move(owner), {r[0]});
+      deposit_first(out, handle, std::move(owner), r,
+                    std::make_index_sequence<1>{});
       return;
     case 2:
-      raftrkt::deposit(out, "out", handle, std::move(owner), {r[0], r[1]});
+      deposit_first(out, handle, std::move(owner), r,
+                    std::make_index_sequence<2>{});
       return;
     case nine:
-      raftrkt::deposit(out, "out", handle, std::move(owner),
-                       {r[0], r[1], r[2], r[3], r[4], r[5], r[6], r[7], r[8]});
+      deposit_first(out, handle, std::move(owner), r,
+                    std::make_index_sequence<nine>{});
       return;
     default:
       throw raftrkt::logic_error(

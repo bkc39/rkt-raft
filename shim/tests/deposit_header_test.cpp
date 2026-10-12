@@ -19,6 +19,7 @@
 namespace {
 
 constexpr std::size_t storage_bytes = 512;
+constexpr std::size_t storage_alignment = 16;
 constexpr int64_t vector_length = 7;
 constexpr int64_t rows = 3;
 constexpr int64_t cols = 4;
@@ -43,7 +44,8 @@ struct counted {
 };
 
 std::byte* storage() {
-  alignas(16) static std::array<std::byte, storage_bytes> bytes{};
+  alignas(storage_alignment) static std::array<std::byte, storage_bytes>
+      bytes{};
   return bytes.data();
 }
 
