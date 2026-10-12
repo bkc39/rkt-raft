@@ -28,12 +28,12 @@
 
 (define rows
   (list (list "the bare _fun" (lambda () (kc-pool-bytes 0)))
-          (list "call-as-atomic (status-checker before #21)"
-                (lambda () (call-as-atomic/status (lambda () (kc-pool-bytes 0)))))
-          (list "status-checker (an OS thread per call)"
-                (lambda () (call/kc 'canary-pool-bytes (lambda () (kc-pool-bytes 0)))))))
+        (list "call-as-atomic (status-checker before #21)"
+              (lambda () (call-as-atomic/status (lambda () (kc-pool-bytes 0)))))
+        (list "status-checker (an OS thread per call)"
+              (lambda () (call/kc 'canary-pool-bytes (lambda () (kc-pool-bytes 0)))))))
 
-(printf "| kc_pool_bytes through | ns/call |\n|---|---:|\n")
+(display "| kc_pool_bytes through | ns/call |\n|---|---:|\n")
 (for ([row (in-list rows)])
   (match-define (list name call) row)
   (printf "| ~a | ~a |\n" name (round (ns-per-call call))))

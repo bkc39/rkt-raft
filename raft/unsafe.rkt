@@ -47,27 +47,21 @@
       message))
 
 (define ((call-reading-error thunk last-error last-error-kind))
+  (define (outcome status . results)
+    (if (eqv? status 0)
+        (list 'ok results)
+        (list 'failed (fresh-message (last-error)) (last-error-kind))))
   (call/ec (lambda (escape)
-             (call-with-exception-handler
-              (lambda (e) (escape (list 'raised e)))
-              (lambda ()
-                (call-with-values thunk
-                                  (lambda (status . results)
-                                    (if (eqv? status 0)
-                                        (list 'ok results)
-                                        (list 'failed
-                                              (fresh-message (last-error))
-                                              (last-error-kind))))))))))
+             (call-with-exception-handler (lambda (e) (escape (list 'raised e)))
+                                          (lambda () (call-with-values thunk outcome))))))
 
 (define (deliver-pending-break)
-  (parameterize-break (break-enabled)
-    (void)))
+  (parameterize-break (break-enabled) (void)))
 
 (define (call-in-os-thread/wait call)
   (define channel (make-os-async-channel))
   (call-in-os-thread (lambda () (os-async-channel-put channel (call))))
-  (begin0 (parameterize-break #f
-            (sync channel))
+  (begin0 (parameterize-break #f (sync channel))
     (deliver-pending-break)))
 
 (define ((status-checker last-error last-error-kind #:exn [exn exn:fail:raft]) who thunk)

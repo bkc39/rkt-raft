@@ -256,10 +256,13 @@
                1))))
   (define callers
     (for/list ([_ (in-range 4)])
-      (thread (lambda () (for/and ([_ (in-range 10)]) (fail-and-compare))))))
+      (thread (lambda ()
+                (for/and ([_ (in-range 10)])
+                  (fail-and-compare))))))
   (for ([caller (in-list callers)])
     (thread-wait caller))
-  (check-true (for/and ([_ (in-range 4)]) (fail-and-compare))))
+  (check-true (for/and ([_ (in-range 4)])
+                (fail-and-compare))))
 
 (test-case "status-checker raises the thunk's own exception on the caller's thread"
   (define check (checker #"unused" 0))
@@ -300,12 +303,13 @@
 (test-case "with breaks disabled a break stays pending past the call"
   (define outcome (box #f))
   (define caller
-    (thread (lambda ()
-              (with-handlers ([exn:break? (lambda (_) (set-box! outcome (cons 'broken (unbox outcome))))])
-                (parameterize-break #f
-                  ((checker #"unused" 0) 'demo (lambda () (sleep-microseconds 100000)))
-                  (set-box! outcome '(returned)))
-                (sync never-evt)))))
+    (thread
+     (lambda ()
+       (with-handlers ([exn:break? (lambda (_) (set-box! outcome (cons 'broken (unbox outcome))))])
+         (parameterize-break #f
+                             ((checker #"unused" 0) 'demo (lambda () (sleep-microseconds 100000)))
+                             (set-box! outcome '(returned)))
+         (sync never-evt)))))
   (sleep 0.02)
   (break-thread caller)
   (check-not-false (sync/timeout 5 caller))

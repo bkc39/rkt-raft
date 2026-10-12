@@ -48,7 +48,8 @@
 (define-kc kc-check-abi (_fun _pointer -> _int))
 
 (define-kc kc-fit
-  (_fun #:blocking? #t
+  (_fun #:blocking?
+        #t
         _pointer
         _pointer
         _pointer
@@ -65,7 +66,8 @@
         -> (values status inertia n-iter)))
 
 (define-kc kc-predict
-  (_fun #:blocking? #t
+  (_fun #:blocking?
+        #t
         _pointer
         _pointer
         _pointer
@@ -77,8 +79,8 @@
         -> (values status inertia)))
 
 (define-kc kc-make-blobs
-  (_fun #:blocking? #t
-        _pointer _pointer _pointer _int32 _double _int32 _double _double _uint64 -> _int))
+  (_fun #:blocking? #t _pointer _pointer _pointer _int32 _double _int32 _double _double _uint64
+        -> _int))
 
 (define-kc kc-current-is-async
   (_fun _int32 (out : (_ptr o _int32)) -> (status : _int) -> (values status (= out 1))))

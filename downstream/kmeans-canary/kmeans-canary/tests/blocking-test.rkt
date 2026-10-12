@@ -3,12 +3,7 @@
 (require (only-in racket/list make-list)
          (only-in racket/match match-define)
          (only-in rackunit check-equal? check-pred check-true)
-         (only-in raft
-                  contiguous
-                  exn:fail:raft-kind
-                  exn:fail:raft?
-                  list*->device-matrix
-                  shape)
+         (only-in raft contiguous exn:fail:raft-kind exn:fail:raft? list*->device-matrix shape)
          (only-in raft/tests/private/collect drain-finalizers!)
          (only-in raft/tests/private/gpu test-gpu)
          (only-in "../main.rkt" blobs kmeans-fit kmeans-predict))
@@ -49,14 +44,16 @@
   (define broken-at (box #f))
   (define caller
     (thread (lambda ()
-              (with-handlers ([exn:break? (lambda (_) (set-box! broken-at (milliseconds-since start)))])
+              (with-handlers ([exn:break? (lambda (_)
+                                            (set-box! broken-at (milliseconds-since start)))])
                 (long-fit X)))))
   (sleep 0.05)
   (break-thread caller)
   (thread-wait caller)
   (check-pred real? (unbox broken-at))
-  (check-true (> (unbox broken-at) (/ unbroken 2))
-              (format "the break arrived at ~a ms; an unbroken fit takes ~a ms" (unbox broken-at) unbroken))
+  (check-true
+   (> (unbox broken-at) (/ unbroken 2))
+   (format "the break arrived at ~a ms; an unbroken fit takes ~a ms" (unbox broken-at) unbroken))
   (drain-finalizers!)
   (define-values (centroids inertia _n-iter) (long-fit X))
   (define-values (labels score) (kmeans-predict centroids X))
@@ -68,11 +65,11 @@
   (define caller
     (thread (lambda ()
               (for ([_ (in-range attempts)])
-                (with-handlers ([exn:fail:raft?
-                                 (lambda (e)
-                                   (set-box! errors
-                                             (cons (list (exn:fail:raft-kind e) (exn-message e))
-                                                   (unbox errors))))])
+                (with-handlers ([exn:fail:raft? (lambda (e)
+                                                  (set-box! errors
+                                                            (cons (list (exn:fail:raft-kind e)
+                                                                        (exn-message e))
+                                                                  (unbox errors))))])
                   (thunk))))))
   (lambda ()
     (thread-wait caller)

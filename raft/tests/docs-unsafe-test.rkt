@@ -67,19 +67,11 @@
 (define-kc kc-last-error-kind (_fun -> _int))
 (define-kc kc-check-abi (_fun _pointer -> _int))
 (define-kc kc-make-blobs
-  (_fun #:blocking? #t
-        _pointer
-        _pointer
-        _pointer
-        _int32
-        _double
-        _int32
-        _double
-        _double
-        _uint64
+  (_fun #:blocking? #t _pointer _pointer _pointer _int32 _double _int32 _double _double _uint64
         -> _int))
 (define-kc kc-fit
-  (_fun #:blocking? #t
+  (_fun #:blocking?
+        #t
         _pointer
         _pointer
         _pointer
@@ -95,7 +87,8 @@
         -> (status : _int)
         -> (values status inertia n-iter)))
 (define-kc kc-predict
-  (_fun #:blocking? #t
+  (_fun #:blocking?
+        #t
         _pointer
         _pointer
         _pointer
