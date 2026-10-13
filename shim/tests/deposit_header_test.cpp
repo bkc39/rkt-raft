@@ -10,6 +10,7 @@
 #include <raft/core/handle.hpp>
 #include <string>
 #include <thread>
+#include <tuple>
 #include <utility>
 
 #include "raftrkt/array.h"
@@ -368,17 +369,13 @@ void filled_by_racers(rr_deposit& record, const raft::handle_t& handle,
 
 void expect_one_winner(rr_deposit& record, const race& r) {
   ASSERT_NE(r.won[0], r.won[1]);
-  const std::size_t winner = r.won[0] ? 0 : 1;
-  const std::size_t loser = 1 - winner;
-  EXPECT_EQ(r.drops.at(loser), 1);
-  EXPECT_EQ(r.drops.at(winner), 0);
-  EXPECT_EQ(record.state, RR_DEPOSIT_FILLED);
-  EXPECT_EQ(record.count, 1);
-  EXPECT_EQ(record.regions[0].shape[1], static_cast<int64_t>(winner) + 1);
+  const int winner = r.won[0] ? 0 : 1;
+  EXPECT_EQ(r.drops, (std::array<int, fillers>{winner, 1 - winner}));
+  EXPECT_EQ(std::tuple(record.state, record.count, record.regions[0].shape[1]),
+            std::tuple(RR_DEPOSIT_FILLED, 1, int64_t{winner} + 1));
   ASSERT_NE(record.owner, nullptr);
   record.release(record.owner);
-  EXPECT_EQ(r.drops.at(winner), 1);
-  EXPECT_EQ(r.drops.at(loser), 1);
+  EXPECT_EQ(r.drops, (std::array<int, fillers>{1, 1}));
 }
 
 TEST(DepositHeader, OfTwoRacingFillersOneWinsAndTheOtherTouchesNothing) {
