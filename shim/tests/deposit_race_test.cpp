@@ -105,7 +105,7 @@ bool filled_while_closing(tally& t, int head_start) {
   return won;
 }
 
-TEST(Deposit, AFillRacingACloseIsFilledOrLeavesTheOwnerToTheCaller) {
+TEST(Deposit, StressFillAgainstCloseFillsOrLeavesTheOwnerToTheCaller) {
   RR_REQUIRE_GPU();
   const counters before;
   tally t;

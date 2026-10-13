@@ -310,7 +310,7 @@ TEST(DepositHeader, AClaimedRecordRefusesASecondFillerWithoutATouch) {
       {raftrkt::region(floats(), 0, cols, raftrkt::layout::col_major)});
   const rr_deposit claimed = record;
   const outcome second = attempt(&record, handle, {});
-  EXPECT_EQ(second.message, "out: already filled");
+  EXPECT_EQ(second.message, "out: being filled");
   EXPECT_EQ(second.drops, 1);
   EXPECT_TRUE(same_record(record, claimed));
   EXPECT_EQ(published(checked, first), "no refusal");
@@ -357,7 +357,10 @@ void filled_by_racers(rr_deposit& record, const raft::handle_t& handle,
             {raftrkt::region(floats(), 0, n, raftrkt::layout::row_major)});
         r.won.at(f) = true;
       } catch (const raftrkt::logic_error& e) {
-        EXPECT_STREQ(e.what(), "out: already filled");
+        const std::string refusal = e.what();
+        EXPECT_TRUE(refusal == "out: being filled" ||
+                    refusal == "out: already filled")
+            << refusal;
       }
     });
   }

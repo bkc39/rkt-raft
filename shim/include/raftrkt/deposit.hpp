@@ -149,14 +149,22 @@ inline std::atomic_ref<int32_t> state_of(rr_deposit& record) noexcept {
   return std::atomic_ref<int32_t>(record.state);
 }
 
+inline const char* unclaimable(int32_t state) noexcept {
+  switch (state) {
+    case RR_DEPOSIT_FILLING:
+      return ": being filled";
+    case RR_DEPOSIT_FILLED:
+      return ": already filled";
+    default:
+      return ": closed";
+  }
+}
+
 inline void claim(const std::string& who, rr_deposit& record) {
   int32_t seen = RR_DEPOSIT_OPEN;
   if (!state_of(record).compare_exchange_strong(seen, RR_DEPOSIT_FILLING,
                                                 std::memory_order_acq_rel)) {
-    throw logic_error(who +
-                      (seen == RR_DEPOSIT_FILLED || seen == RR_DEPOSIT_FILLING
-                           ? ": already filled"
-                           : ": closed"));
+    throw logic_error(who + unclaimable(seen));
   }
 }
 

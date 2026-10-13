@@ -501,8 +501,9 @@ and its contents are complete when the call returns.
  @item{@tt{void raftrkt::deposit(rr_deposit* into, const char* name, const
        raft::handle_t& handle, std::unique_ptr<Owner>&& owner,
        std::initializer_list<rr_view> regions)}: refuses, in order, a
-       @tt{NULL} record, a record that is not open (@tt{"out: already
-       filled"}, @tt{"out: closed"}), a record on other resources than
+       @tt{NULL} record, a record that is not open (@tt{"out: being filled"}
+       while another filler holds it, @tt{"out: already filled"},
+       @tt{"out: closed"}), a record on other resources than
        @tt{handle}'s, no owner, more than 8 regions, a region of another
        rank or element type, with a negative extent, a byte size that
        overflows, another layout, no data or misaligned data, overlapping

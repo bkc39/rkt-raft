@@ -1214,7 +1214,9 @@ since cuSPARSE's error string for it is only "out of memory"). The frozen rule i
   publishes with a compare-and-swap from FILLING to FILLED, taking the owner
   only after it succeeds; a close in between wins, the claimant clears what
   it wrote and refuses with "closed", and the caller's `unique_ptr` frees the
-  owner. Readers treat FILLING as OPEN. The shim's refusals: "the deposit is
+  owner. A refused claim says "being filled" for FILLING, "already
+  filled" for FILLED and "closed" otherwise: a claimant can still unclaim or
+  lose to a close. Readers treat FILLING as OPEN. The shim's refusals: "the deposit is
   closed", "the deposit is already filled", "the deposit is already bound",
   "the deposit is still open", "the deposit has no region 3; it holds 2",
   "region 0 is already adopted".
