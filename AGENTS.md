@@ -44,7 +44,8 @@ Parity, §10 Build and §12 Starting cuML work before changing the design.
   point `rr_resources_handle`, the header-only `raftrkt/view.hpp`,
   `raftrkt/error.hpp` and `raftrkt/abi.h` in `packages.raft-dev`, cuML in
   `packages.rapids`, and the k-means canary in `downstream/kmeans-canary/`
-  that proves them against `cuml.cluster.KMeans`.
+  that proves them against `cuml.cluster.KMeans`. #21 runs long downstream
+  calls as jobs on a native executor (#32).
 
 ## Layout
 
@@ -59,8 +60,8 @@ nix/racket-tools.nix          raco fmt and raco review, pinned as a fixed-output
 .fmt.rkt                      raco fmt's layout rules for this repository's own forms
 lint/                         raft-lint: the raco review extension for the test macros
 shim/                         libraftrkt: C++20 over RAFT's headers (CMake, g++; nvcc for .cu)
-  include/raftrkt/            C headers: core.h memory.h array.h abi.h, umbrella c_api.h;
-                                header-only C++: error.hpp view.hpp (all frozen, below)
+  include/raftrkt/            C headers: core.h memory.h array.h abi.h job.h, umbrella c_api.h;
+                                header-only C++: error.hpp view.hpp job.hpp (all frozen, below)
   cmake/raftrkt-config.cmake  find_package(raftrkt): raftrkt::headers, in packages.raft-dev
   src/{core,array,detail}/    host C++ (.cpp); a .cu only for code that launches kernels
   src/detail/dtypes.def       the dtypes: name, C++ type, code
@@ -190,8 +191,8 @@ plans/scoping-plan.md         the approved plan (revision 5), as Markdown
      the error message and kind in one `call-as-atomic`: the last-error slot
      belongs to the OS thread, which every Racket thread in the place shares.
      These calls are short and some take GC-heap memory, so they stay on the
-     place's OS thread; a downstream's calls go through `status-checker`,
-     which runs each on an OS thread of its own.
+     place's OS thread; a downstream's short calls go through
+     `status-checker`; its long calls are jobs.
    - The native drop counters (`rr_resources_drop_count`,
      `rr_buffer_drop_count`) count every release, and
      `rr_release_failure_count` every release that leaked because its device
@@ -269,6 +270,29 @@ plans/scoping-plan.md         the approved plan (revision 5), as Markdown
   interface L1d freezes; L2's stream API (`rr_stream_query`) may replace
   the first.
   `rr_resources_sync` blocks and stays for C callers and the gtests.
+  `src/detail/executor_api.h` declares the executor's internal entry
+  points the same way (`rr_resources_create_host`, `rr_job_submit` and the
+  job accessors, the counters, `rr_exit_drain`, `rr_os_thread_id`), bound
+  in `private/foreign/job-api.rkt`.
+- **The executor** (`src/core/executor.cpp`, #32). Each `rr_resources`
+  owns an `rr::executor_slot`: one worker thread, started on first use,
+  that runs that object's jobs in FIFO order, one at a time; workers of
+  different objects run in parallel. A worker never runs Racket. A job
+  copies its argument block, pins each buffer through its native reference
+  count, keeps the resources' `shared_ptr<raft::handle_t>`, and signals an
+  eventfd when done. `rr_resources_free` closes the slot: queued jobs still
+  run, then the worker exits.
+- **Exit** (`src/core/exit.cpp`). A registry of the bounds of jobs in
+  flight. `rr_exit_drain` waits for it to empty, up to the largest bound;
+  past it, it registers `on_exit(skip_teardown)`, which flushes stdout if
+  unlocked and calls `_exit`, so no static destructor runs under a job. A
+  backstop registered with `on_exit` at the first submit does the same
+  when no drain ran (raft instantiated only in a place).
+- **Host resources.** `rr_resources_create_host` (tests only) makes
+  resources with device −1, no handle and their own executor, so CI runs
+  the executor without a GPU. Every entry point that needs a handle goes
+  through `rr::handle_of` and refuses them with `'logic` `the resources
+  have no device`.
 - **Arrays.** The public `array.h` holds what a downstream shim needs:
   `rr_view` (`RR_MAX_RANK` 8; `data` already offset; strides in elements;
   152 bytes, pinned by `_Static_assert`s and the Racket mirror's size test),
@@ -347,6 +371,9 @@ plans/scoping-plan.md         the approved plan (revision 5), as Markdown
   `rmm::device_buffer` allocated on the handle's stream from the current
   device resource. The `shared_ptr` is declared first, so the buffer is freed
   on a stream that still exists, even after its resources were released.
+  Its native reference count is Racket's reference plus one per pinning
+  job; `rr_buffer_free` drops Racket's, and the last drop frees the buffer
+  on its device, counted by `rr_buffer_drop_count`.
 - Visibility: our code is `-fvisibility=hidden` and exports only `RR_API`
   names. RAFT and RMM declare their namespaces default-visibility on purpose
   and must stay exported: RMM's per-device memory-resource registry is a set
@@ -370,6 +397,8 @@ plans/scoping-plan.md         the approved plan (revision 5), as Markdown
   not link the library, so its `rr_last_error` cannot interpose the
   library's). Cases that depend on which resources come first in a process
   run as gtest death tests (`threadsafe` style, a fresh process each).
+  The probe library's entries each have a job twin, `rr_probe_<name>_job`,
+  one `raftrkt::run_job` line, so CI exercises `job.hpp`.
 - **Host C++ unless it launches kernels.** Every L0 source is a `.cpp`
   compiled by g++: `raft::handle_t`, RMM and the copies are host APIs, so
   nvcc is not needed until a leg instantiates a RAFT kernel. A `.cu` holds
@@ -427,7 +456,16 @@ plans/scoping-plan.md         the approved plan (revision 5), as Markdown
   `void/reference-sink` keeps the array reachable until the post thunk of
   `with-release` runs; the handle comes from `foreign/core.rkt`'s
   `rr-resources-handle`. `status-checker` takes thunks, so it is independent
-  of the FFI a downstream binding uses.
+  of the FFI a downstream binding uses; it runs the call and both error
+  reads in one `call-as-atomic`.
+- `private/job.rkt`: `define-job` and `job-procedure`, which packs the
+  arguments into a block laid out as the C side's `run_job` unpacks it,
+  submits it, and waits on an `unsafe-poller` over the job's eventfd with
+  breaks deferred until the job returns; it also provides `jobs-in-flight`,
+  `jobs-live` and `executor-threads` for the tests. `private/exit.rkt`:
+  `current-exit-wait` and the main place's at-exit hook, which calls
+  `rr_exit_drain` and logs on the `'raft` topic.
+  `private/foreign/job-api.rkt` binds `executor_api.h`.
 - `private/resources.rkt`: the `device-resources` struct (with
   `#:omit-define-syntaxes`, so the constructor procedure can carry the
   type's name; the raw constructor is `handle->device-resources`),
@@ -449,25 +487,27 @@ plans/scoping-plan.md         the approved plan (revision 5), as Markdown
   `'logic`) before the call, named by the public noun:
   `device-resources: used after its release` and
   `device-array: used after its release` (#16).
-  `private/resource.rkt`: `with-release`, and `hold-owner!`/`drop-owner!`,
-  an ephemeron table through which a view keeps its array (and a handle its
-  resources) reachable. `private/os-call.rkt`: `status-checker`'s hop to an
-  OS thread and the count of calls in flight (`calls-in-flight`, which the
-  tests read). `private/install-native.rkt`: the
+  `private/resource.rkt`: `with-release`. `private/install-native.rkt`: the
   pre-install hook, honouring `RAFT_NATIVE_LIB_PATH` (a directory whose
   `lib/` holds `libraftrkt.so`).
 - Tests: `tests/private/gpu.rkt` (`gpu-available?`, `test-gpu`),
   `tests/private/probe.rkt` (the probe library, from `RAFT_SHIM_PROBE`,
-  `test-probe`, and `test-pools`, which also skips a device without memory
-  pools), `tests/private/collect.rkt` (`collect-until`,
+  its jobs bound with `define-job`, `gate-job`, `test-host-probe`, which
+  skips only without the probe, `test-probe`, and `test-pools`, which also
+  skips a device without memory pools), `tests/private/collect.rkt` (`collect-until`,
   `drain-finalizers!`, run before reading a drop counter),
   `tests/private/raft-error.rkt` (`check-raft-error kind message thunk`),
   `tests/private/ticker.rkt` (`call-with-ticker`, which answers how many
   10 ms waits another thread finished during the thunk, then its values),
-  `tests/private/gate.rkt` (`closed-gate`, released by `with-release`: a
-  call blocks in `wait-at-gate` until the test's `open-gate!`, and
-  `await-entry` waits for it to arrive, so a test checks mid-call state
-  without a clock),
+  `tests/private/gate.rkt` (`closed-gate`, two pipes released by
+  `with-release`: a probe job writes an entry byte and polls the gate's fd
+  until the test's `open-gate!`, and `await-entry` reads the entry byte
+  through a port, so a test checks mid-job state without a clock or a held
+  place),
+  `tests/private/exit-run.rkt` (`run-exit-program`, which writes a fixture's
+  module to a temporary `program.rkt`, runs it with `PLTSTDERR=debug@raft`,
+  and answers its code, stdout and stderr lines; `in-flight-line` and
+  `still-running-line` match the exit hook's lines),
   `tests/private/python-env.rkt` (the twin runner: `PYTHONSAFEPATH` probes,
   a temp directory, JSON in and out, `check-close`, `test-twin`),
   `tests/private/bindings.rkt` (the binding reader shared by the audit and
@@ -970,6 +1010,12 @@ canary changes with it in the same pull request:
 - **Racket** (`raft/unsafe`): `resources->handle-pointer`,
   `with-array-views` (with its `#:resources [handle r]` clause),
   `status-checker`, `raft-abi-pointer`; `core-test.rkt` pins the export set.
+- **Additions at version 1 (#32):** `raftrkt/job.h` (`rr_job_outcome`, 4104
+  bytes, its offsets pinned by `tests/c_api_compile_test.c`;
+  `RR_JOB_MESSAGE_BYTES`; `rr_job_fn`), `raftrkt/job.hpp` (`run_job`,
+  `job_args_size`, the `job_parameter` concept) and `define-job` in
+  `raft/unsafe`. A downstream detects them with
+  `__has_include(<raftrkt/job.hpp>)`.
 
 What a downstream binding must do, which the canary does: compile against `packages.rapids` and
 `packages.raft-dev` of this flake (never another RAPIDS); check the tag at
@@ -981,7 +1027,9 @@ select the handle's device (`device_scope`) and refuse arrays on another one
 (`require_on_device`); read arrays only through `view.hpp`; allocate outputs
 with raft's constructors on the resources the call runs on; and synchronise
 the handle's stream on every exit, a throw included (`sync_guard`), until
-the stream API (#13) gives it events. Internal entry points
+the stream API (#13) gives it events; and run each call that can run long
+as a job: an `extern "C"` entry over `raftrkt::run_job`, bound with
+`define-job`; `status-checker` for short calls only. Internal entry points
 (`src/detail/*_api.h`) are not part of it and may change freely.
 
 ## Decisions recorded in L1d
@@ -1009,8 +1057,8 @@ the stream API (#13) gives it events. Internal entry points
   last-error-kind #:exn exn) who thunk)`: the thunk's first value is the C
   status and the rest are returned on success, so a `_fun` that answers
   `(values status out ...)` needs no wrapper. Call and reads run on one OS
-  thread, since the slot is per OS thread (one `call-as-atomic` in L1d; see
-  #21 below). Kind codes 0 to 3 map to
+  thread, since the slot is per OS thread (one `call-as-atomic`; see #21
+  and #32 below). Kind codes 0 to 3 map to
   `exn:fail:raft`'s kinds, anything else is `'generic`; bytes are decoded
   leniently. `#:exn` takes a constructor with `exn:fail:raft`'s fields, so a
   downstream can raise a subtype.
@@ -1106,7 +1154,8 @@ since cuSPARSE's error string for it is only "out of memory"). The frozen rule i
   `numba-cuda` 0.30.4 is patched not to register `np.row_stack`, which NumPy
   2.5 removed. Everything the twin runs imports and fits.
 - **`status-checker` ran the whole native call in atomic mode**, holding up
-  the place; #21 replaced it (below).
+  the place; #21 replaced it with an OS thread per call, and #32 restored
+  it for short calls and made long calls jobs (below).
 - **The memory test also samples `cudaMemGetInfo`** (`kc_device_memory`) and
   allows 256 MiB of device-wide drift, since the GPU is shared; the pool's
   own numbers are asserted exactly.
@@ -1126,45 +1175,58 @@ since cuSPARSE's error string for it is only "out of memory"). The frozen rule i
   producing values `ffi/unsafe` accepts, or bump the ABI version;
   `status-checker` takes thunks and is unaffected.
 
-## Decisions recorded in #21
+## Decisions recorded in #21 and #32
 
-- **`status-checker` calls on a fresh OS thread** (`call-in-os-thread`).
-  The thunk and, after a failure, `last-error` and `last-error-kind` run
-  there; the outcome (a `returned`, `raised` or `failed` struct) comes back
-  through an `os-async-channel`, and raising stays on the caller's thread.
-  Its signature and the frozen ABI version 1 are unchanged.
-- **A long downstream call is `#:blocking? #t`** (the canary's `kc_fit`,
-  `kc_predict`, `kc_make_blobs`). Without it the place's next collection
-  waits for the call, so the OS thread alone does not free the place.
-- **A blocking call takes only immobile memory.** `(_ptr o t)` allocates
-  `'atomic` memory, which a major collection moves, so blocking outputs are
-  `(_ptr o t atomic-interior)`. Views are `'atomic-interior`; handles are
-  native.
-- **The caller waits with breaks disabled**, and a break queued meanwhile
-  is raised when the call returns: cuML cannot be cancelled, and unwinding
-  `with-array-views` would free views the call still uses. Leaving
-  `parameterize-break #f` does not raise a queued break, so the checker
-  re-enters the caller's break setting. Racket 9.3 defers a break in atomic
-  mode, so in atomic mode the break waits for atomic mode to end; the test
-  "a break pending in atomic mode waits for atomic mode to end" pins that.
-- **A killed caller's arrays outlive the call.** Killing the caller skips
-  `with-array-views`' releases, which held the arrays and resources; the
-  thunk stays reachable until the call returns, and `hold-owner!` ties each
-  view to its array and each handle to its resources (from `#:resources`
-  and from `resources->handle-pointer`) in an ephemeron table, so the call's
-  references keep the owners alive.
-- **Exit does not wait for calls in flight.** A call still running when the
-  process exits is not waited for, so join threads that make calls before
-  exiting.
-- **The thunk's exceptions rely on Racket CS 9.3 behaviour.**
-  `call-in-os-thread` documents that the thunk must not inspect its
-  continuation or parameters, but the checker catches with `call/ec` and
-  `call-with-exception-handler` there (uncaught, an exception ends the
-  process); no documented alternative exists. An exception raised there
-  formats values with the default `error-value->string-handler`, not the
-  caller's. The test "raises the
-  thunk's own exception" is the canary for a Racket upgrade.
-- **`call/raft` stays on `call-as-atomic`.** raft's own calls are short and
-  the host copies take `flvector`s from the GC heap, so they cannot be
-  blocking; the OS-thread hop costs about 34 µs a call
-  (`bench/status-checker.rkt`).
+- **A long downstream call is a job** (#32, owner 2026-10-13). It runs on
+  a native worker thread owned by its resources object: jobs on one object
+  run one at a time in FIFO order, jobs on different objects in parallel,
+  and the worker never runs Racket. The job owns a copy of its arguments and
+  native references to its handle and buffers. The caller waits on an
+  `unsafe-poller` over the job's eventfd, which registers nothing between
+  sleeps and so needs no cleanup. A job costs about 18 µs a call
+  (`bench/status-checker.rkt`), against 31–33 µs for #21's OS thread per
+  call.
+- **`status-checker` is #20's `call-as-atomic`**, for short calls only;
+  `os-call.rkt`, `calls-in-flight` and the `#:blocking?`/`atomic-interior`
+  rule are gone.
+- **Breaks are deferred.** A break during a job is raised when the job
+  returns, ahead of the job's failure: cuML cannot be cancelled. Leaving
+  `parameterize-break #f` does not raise a queued break, so the job
+  re-enters the caller's break setting. A job called in atomic mode raises
+  `'logic` (the spike's process died there).
+- **Native pins replace the owner table.** A job pins each buffer through
+  its native reference count and keeps the handle's `shared_ptr`, so a
+  killed caller's arrays and resources live until the job returns; the
+  worker drops them before the job leaves the registry. `hold-owner!` and
+  its ephemeron table are gone.
+- **What the spike settled** (S1–S5): a static first touched inside a job
+  registers its destructor after any `on_exit` armed at the first submit,
+  so that alone is not enough (S1); `register-custodian-shutdown` with the
+  value `#f` never calls its callback, so the hook's value is `'raft` (S2);
+  `unsafe-fd->evt` would need a `'remove` on every path out (S3); default
+  resources live in a thread cell, so each thread gets its own worker (S4);
+  places keep running during `exit()`, which is harmless because no worker
+  runs Racket (S5).
+- **The refinements over the spike** (R1–R9): the exit wait runs in the
+  main place's at-exit hook, with a C backstop (R1); a submit during exit
+  answers a refused job, not NULL (R2); outputs are copied back with
+  `rr_job_read` (R3); the spike's timing and tracing knobs are dropped (R4);
+  [30] a job pins its deposits' holders (R5); `run_job` catches escaping
+  exceptions, refuses a wrong block size without allocating, and constrains
+  its parameters with a concept (R6); a job in atomic mode raises (R7); CI
+  runs the executor on host resources (R8); `define-job` takes only listed
+  number types and one `view` class (R9).
+- **Exit is a bounded drain.** The main place's root-custodian `#:at-exit?`
+  hook calls the blocking `rr_exit_drain`, which waits for the jobs in
+  flight up to the largest `current-exit-wait` among them (read at submit),
+  then logs `exit: jobs in flight: n; waited W ms` at `'debug` on `'raft`.
+  Past the bound it logs `exit: jobs still running: n; exiting without
+  native teardown` at `'warning` and registers `on_exit(skip_teardown)`,
+  which, registered last, runs first and calls `_exit`. A C backstop,
+  registered with `on_exit` at the first submit, drains inside `exit()`
+  when no hook ran (raft instantiated only in a place); destructors
+  registered after that first job may then run first. Queued jobs run and
+  count. A submit after the drain began answers a refused job, and its
+  caller parks. One window is known: a job still running may register a
+  destructor between the hook's arming and `exit()`.
+- **#26 and #28 are closed by #32.**

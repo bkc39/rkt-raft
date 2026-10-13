@@ -46,7 +46,7 @@ function(kc_strict target)
   endforeach()
 endfunction()
 
-add_library(kmeans_canary SHARED src/canary.cpp src/pool.cpp)
+add_library(kmeans_canary SHARED src/canary.cpp src/jobs.cpp src/pool.cpp)
 set_target_properties(kmeans_canary PROPERTIES
   CXX_VISIBILITY_PRESET hidden
   POSITION_INDEPENDENT_CODE ON
@@ -59,7 +59,7 @@ target_link_libraries(kmeans_canary PRIVATE raftrkt::headers cuml_runtime)
 target_link_options(kmeans_canary PRIVATE "LINKER:--exclude-libs,ALL" "LINKER:--no-undefined")
 kc_strict(kmeans_canary)
 
-set(kc_tidy_sources src/canary.cpp src/pool.cpp)
+set(kc_tidy_sources src/canary.cpp src/jobs.cpp src/pool.cpp)
 
 if(BUILD_TESTING)
   find_package(GTest REQUIRED)

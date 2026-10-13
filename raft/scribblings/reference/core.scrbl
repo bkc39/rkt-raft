@@ -137,7 +137,7 @@ Returns the calling thread's default resources for @racket[device], creating
 them on first use, or again after they are released. The array constructors
 and conversions of @racketmodname[raft/array] use it when given no
 @racket[#:resources]. Each Racket thread has its own, so
-threads never share a stream by accident.
+threads never share a stream, or a @tech{job} worker, by accident.
 
 @examples[#:eval ev
 (eq? (current-device-resources) (current-device-resources))
@@ -307,6 +307,51 @@ Recovering the procedure name from the message:
                      (string-split (exn-message e) ": "))
                    who)])
   (resources-sync! finished))
+]}
+
+@section[#:tag "ref-core-exit"]{Exiting while jobs run}
+
+@defparam[current-exit-wait seconds (>=/c 0) #:value 10]{
+
+How long the process's exit waits for a @tech{job} made while the parameter
+holds @racket[seconds]. A native binding's long calls run as jobs on worker
+threads (@racket[define-job]), so @racket[exit], or the main module
+returning, can come while one is still running. The exit first waits until
+each job has returned or has had its own @racket[seconds], counted from the
+start of the exit. If none is still running, the process exits normally.
+Otherwise it ends at once with the requested exit code, skipping the native
+libraries' C @tt{atexit} handlers and static destructors, which would
+otherwise run under the job. @racket[0] does not wait, and @racket[+inf.0]
+waits until the job returns.
+
+The value is read when a job is made, on the calling thread, so
+@racket[parameterize] covers the jobs made in its body and in threads created
+there. The exit logs to the @racket['raft] topic: the jobs in flight and the
+time waited at @racket['debug], and a skipped teardown at
+@racket['warning]. If only a place, and not the main place, instantiates
+@racketmodname[raft], the exit still waits, but native destructors registered
+after the first job may run first.
+
+@examples[#:eval ev
+(current-exit-wait)
+(parameterize ([current-exit-wait 60])
+  (current-exit-wait))
+]
+
+A thread created inside @racket[parameterize] keeps the value for its jobs:
+
+@examples[#:eval ev #:label #f
+(define seen (make-channel))
+(parameterize ([current-exit-wait +inf.0])
+  (thread (lambda () (channel-put seen (current-exit-wait)))))
+(channel-get seen)
+]
+
+A negative or non-real value is refused:
+
+@examples[#:eval ev #:label #f
+(eval:error (current-exit-wait -1))
+(eval:error (parameterize ([current-exit-wait +nan.0]) 'unreached))
 ]}
 
 @section[#:tag "ref-core-version"]{Version and ABI}

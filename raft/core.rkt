@@ -16,6 +16,7 @@
                   exn:fail:raft-kind
                   exn:fail:raft?
                   struct:exn:fail:raft)
+         (only-in "private/exit.rkt" current-exit-wait)
          (only-in "private/foreign/core.rkt" rr-device-count rr-version)
          (only-in "private/resources.rkt"
                   current-device-resources
@@ -27,6 +28,7 @@
 
 (provide (all-from-out "private/abi.rkt")
          (all-from-out "private/resources.rkt")
+         current-exit-wait
          device-count
          (struct-out exn:fail:raft) ;; noqa
          raft-version)

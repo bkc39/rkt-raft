@@ -10,8 +10,7 @@
                   dtype
                   list*->device-matrix
                   shape)
-         (only-in raft/unsafe with-array-views)
-         (only-in "private/native.rkt" call/kc kc-fit kc-make-blobs kc-predict))
+         (only-in "private/native.rkt" kc-fit-job kc-make-blobs-job kc-predict-job))
 
 (provide blobs
          kmeans-fit
@@ -35,18 +34,16 @@
     (device-matrix n-samples n-features #:dtype element-type #:layout order #:resources resources))
   (define labels (device-vector n-samples #:dtype 'int32 #:resources resources))
   (match-define (list low high) center-box)
-  (with-array-views #:resources [handle resources] ([x X] [y labels])
-    (call/kc 'blobs
-             (lambda ()
-               (kc-make-blobs handle
-                              x
-                              y
-                              centers
-                              (exact->inexact cluster-std)
-                              (if shuffle? 1 0)
-                              (exact->inexact low)
-                              (exact->inexact high)
-                              seed))))
+  (kc-make-blobs-job 'blobs
+                     resources
+                     X
+                     labels
+                     centers
+                     (exact->inexact cluster-std)
+                     (if shuffle? 1 0)
+                     (exact->inexact low)
+                     (exact->inexact high)
+                     seed)
   (values X labels))
 
 (define (initial-centroids X init n-clusters resources)
@@ -80,10 +77,17 @@
         0.0
         (exact->inexact oversampling-factor)))
   (define-values (inertia n-iter)
-    (with-array-views #:resources [handle resources] ([x X] [w sample-weight] [c centroids])
-      (call/kc 'kmeans-fit
-               (lambda ()
-                 (kc-fit handle x w c code max-iter (exact->inexact tol) runs factor seed)))))
+    (kc-fit-job 'kmeans-fit
+                resources
+                X
+                sample-weight
+                centroids
+                code
+                max-iter
+                (exact->inexact tol)
+                runs
+                factor
+                seed))
   (values centroids inertia n-iter))
 
 (define (kmeans-predict centroids
@@ -94,8 +98,11 @@
   (match-define (list n-samples _) (shape X))
   (define labels (device-vector n-samples #:dtype 'int32 #:resources resources))
   (define inertia
-    (with-array-views #:resources
-                      [handle resources]
-                      ([c centroids] [x X] [w sample-weight] [y labels])
-      (call/kc 'kmeans-predict (lambda () (kc-predict handle c x w (if normalize? 1 0) y)))))
+    (kc-predict-job 'kmeans-predict
+                    resources
+                    centroids
+                    X
+                    sample-weight
+                    (if normalize? 1 0)
+                    labels))
   (values labels inertia))

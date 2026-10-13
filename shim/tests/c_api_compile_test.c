@@ -11,6 +11,17 @@ _Static_assert(RR_MAX_RANK == 8, "RR_MAX_RANK is 8");
 _Static_assert(sizeof(rr_abi_tag) == 56, "rr_abi_tag is 56 bytes");
 _Static_assert(offsetof(rr_abi_tag, handle_size) == 48, "handle_size last");
 _Static_assert(RR_ABI_VERSION == 1, "the frozen interface is ABI version 1");
+_Static_assert(sizeof(rr_job_outcome) == 4104, "rr_job_outcome is 4104 bytes");
+_Static_assert(offsetof(rr_job_outcome, status) == 0, "status first");
+_Static_assert(offsetof(rr_job_outcome, kind) == 4, "kind follows status");
+_Static_assert(offsetof(rr_job_outcome, message) == 8, "message follows kind");
+_Static_assert(RR_JOB_MESSAGE_BYTES == 4096, "RR_JOB_MESSAGE_BYTES is 4096");
+
+static void compile_job_entry(void* args, size_t args_len, rr_job_outcome* outcome) {
+  (void)args;
+  (void)args_len;
+  (void)outcome;
+}
 
 void raftrkt_c_api_compile_check(void);
 
@@ -34,6 +45,7 @@ void raftrkt_c_api_compile_check(void) {
   int (*copy_h2d)(rr_buffer*, const void*, size_t) = rr_copy_h2d;
   int (*buffer_view)(const rr_buffer*, uint64_t, rr_view*) = rr_buffer_view;
   int (*copy_d2h)(void*, const rr_buffer*, size_t) = rr_copy_d2h;
+  rr_job_fn job_entry = compile_job_entry;
   rr_abi_tag tag = {0};
   rr_view view = {0};
   (void)last_error;
@@ -54,6 +66,7 @@ void raftrkt_c_api_compile_check(void) {
   (void)copy_h2d;
   (void)buffer_view;
   (void)copy_d2h;
+  (void)job_entry;
   (void)tag;
   (void)view;
 }

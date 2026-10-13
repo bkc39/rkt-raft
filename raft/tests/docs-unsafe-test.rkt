@@ -37,6 +37,7 @@
                   raft-abi-version
                   with-device-resources)
          (only-in "../unsafe.rkt"
+                  define-job
                   raft-abi-pointer
                   resources->handle-pointer
                   status-checker
@@ -67,12 +68,9 @@
 (define-kc kc-last-error-kind (_fun -> _int))
 (define-kc kc-check-abi (_fun _pointer -> _int))
 (define-kc kc-make-blobs
-  (_fun #:blocking? #t _pointer _pointer _pointer _int32 _double _int32 _double _double _uint64
-        -> _int))
+  (_fun _pointer _pointer _pointer _int32 _double _int32 _double _double _uint64 -> _int))
 (define-kc kc-fit
-  (_fun #:blocking?
-        #t
-        _pointer
+  (_fun _pointer
         _pointer
         _pointer
         _pointer
@@ -82,20 +80,12 @@
         _int32
         _double
         _uint64
-        (inertia : (_ptr o _double atomic-interior))
-        (n-iter : (_ptr o _int32 atomic-interior))
+        (inertia : (_ptr o _double))
+        (n-iter : (_ptr o _int32))
         -> (status : _int)
         -> (values status inertia n-iter)))
 (define-kc kc-predict
-  (_fun #:blocking?
-        #t
-        _pointer
-        _pointer
-        _pointer
-        _pointer
-        _int32
-        _pointer
-        (inertia : (_ptr o _double atomic-interior))
+  (_fun _pointer _pointer _pointer _pointer _int32 _pointer (inertia : (_ptr o _double))
         -> (status : _int)
         -> (values status inertia)))
 
@@ -205,3 +195,67 @@
                     (lambda ()
                       (with-array-views ([c fitted] [y labels])
                         (check 'kmeans-predict (lambda () (kc-predict handle c stale #f 1 y)))))))
+
+(define (ticks-during thunk)
+  (define ticks (box 0))
+  (define ticker
+    (thread (lambda ()
+              (let loop ()
+                (sleep 0.005)
+                (set-box! ticks (add1 (unbox ticks)))
+                (loop)))))
+  (thunk)
+  (kill-thread ticker)
+  (unbox ticks))
+
+(test-canary "unsafe reference: long calls"
+  (define-job kc-make-blobs-job
+              canary
+              "kc_make_blobs_job"
+              (handle view view _int32 _double _int32 _double _double _uint64))
+  (define-job kc-fit-job
+              canary
+              "kc_fit_job"
+              (handle view view view _int32 _int32 _double _int32 _double _uint64 (out _double) (out _int32)))
+  (define-job kc-fit-job/short canary "kc_fit_job" (handle view view view _int32))
+  (define check (status-checker kc-last-error kc-last-error-kind))
+  (define handle (resources->handle-pointer (current-device-resources)))
+  (define X (made-blobs check handle))
+  (define fitted (device-matrix 3 2))
+  (define-values (inertia n-iter)
+    (kc-fit-job 'kmeans-fit (current-device-resources) X #f fitted 0 300 1e-4 1 0.0 42))
+  (check-equal? (list (> inertia 0) (>= n-iter 1)) '(#t #t))
+  (define ints (list*->device-matrix '((1 2) (3 4) (5 6)) #:dtype 'int32))
+  (check-raft-error
+   'logic
+   "kmeans-fit: X: expected float32 or float64, got int32"
+   (lambda ()
+     (kc-fit-job 'kmeans-fit (current-device-resources) ints #f (device-matrix 2 2) 0 300 1e-4 1 0.0 42)))
+  (define big (device-matrix 1000000 32))
+  (kc-make-blobs-job 'blobs
+                     (current-device-resources)
+                     big
+                     (device-vector 1000000 #:dtype 'int32)
+                     64
+                     1.0
+                     1
+                     -10.0
+                     10.0
+                     1)
+  (check-true (<= 10
+                  (ticks-during (lambda ()
+                                  (kc-fit-job 'kmeans-fit
+                                              (current-device-resources)
+                                              big
+                                              #f
+                                              (device-matrix 64 32)
+                                              1
+                                              100
+                                              1e-12
+                                              1
+                                              0.0
+                                              1)))))
+  (check-raft-error 'logic
+                    "kmeans-fit: the argument block is 472 bytes; the job expects 520"
+                    (lambda ()
+                      (kc-fit-job/short 'kmeans-fit (current-device-resources) X #f fitted 0))))

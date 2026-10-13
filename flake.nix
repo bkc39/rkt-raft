@@ -223,6 +223,7 @@
         doCheck = true;
         checkPhase = ''
           runHook preCheck
+          export RAFT_SHIM_PROBE="${shim.tests}/lib/libraftrkt_probe.so"
           raco test raft
           raco make -v raft/scribblings/raft.scrbl
           racket scripts/check-bindings.rkt

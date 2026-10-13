@@ -44,6 +44,8 @@ add_library(raftrkt SHARED
   src/array/buffer.cpp
   src/array/copy.cu
   src/core/core.cpp
+  src/core/executor.cpp
+  src/core/exit.cpp
   src/core/memory.cpp
   src/core/memory_resource.cpp
   src/detail/device.cpp
@@ -90,6 +92,9 @@ if(BUILD_TESTING)
     tests/array_test.cpp
     tests/core_test.cpp
     tests/cuda_language_test.cu
+    tests/executor_test.cpp
+    tests/exit_test.cpp
+    tests/job_header_test.cpp
     tests/memory_test.cpp
     tests/resources_test.cpp
     $<TARGET_OBJECTS:raftrkt_c_api_compile_test>
@@ -115,7 +120,7 @@ if(BUILD_TESTING)
   raftrkt_apply_nix_cflags(raftrkt_error_tests)
   gtest_discover_tests(raftrkt_error_tests DISCOVERY_MODE PRE_TEST)
 
-  add_library(raftrkt_probe SHARED tests/probe/probe.cpp)
+  add_library(raftrkt_probe SHARED tests/probe/jobs.cpp tests/probe/probe.cpp)
   set_target_properties(raftrkt_probe PROPERTIES
     CXX_VISIBILITY_PRESET hidden
     POSITION_INDEPENDENT_CODE ON
