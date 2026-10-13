@@ -124,10 +124,14 @@ struct bytes_and_words_block {
 
 const rr_view* seen_x = nullptr;
 const rr_view* seen_y = nullptr;
+rr_view seen_y_copy{};
 
 int views(const rr_view* x, const rr_view* y) {
   seen_x = x;
   seen_y = y;
+  if (y != nullptr) {
+    seen_y_copy = *y;
+  }
   return 0;
 }
 
@@ -286,9 +290,9 @@ TEST(JobHeader, AnAbsentViewIsNullAndABoundOneIsACopy) {
   EXPECT_EQ(seen_x, nullptr);
   ASSERT_NE(seen_y, nullptr);
   EXPECT_NE(seen_y, &block[1]);
-  EXPECT_EQ(sizeof *seen_y, 152U);
-  EXPECT_EQ(seen_y->dtype, RR_DTYPE_FLOAT64);
-  EXPECT_EQ(seen_y->shape[1], 4);
+  EXPECT_EQ(sizeof seen_y_copy, 152U);
+  EXPECT_EQ(seen_y_copy.dtype, RR_DTYPE_FLOAT64);
+  EXPECT_EQ(seen_y_copy.shape[1], 4);
 }
 
 TEST(JobHeader, AMisalignedBlockWorks) {

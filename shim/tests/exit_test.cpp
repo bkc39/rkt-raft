@@ -196,8 +196,7 @@ TEST_F(ExitDeathTest, ASecondDrainAfterASkipAnswersAtOnce) {
 }
 
 TEST_F(ExitDeathTest, StdoutIsFlushedOnTheSkipPath) {
-  const std::string path =
-      ::testing::TempDir() + "raftrkt-exit-stdout-" + std::to_string(getpid());
+  const std::string path = ::testing::TempDir() + "raftrkt-exit-stdout";
   EXPECT_EXIT(
       {
         if (std::freopen(path.c_str(), "w", stdout) == nullptr) {

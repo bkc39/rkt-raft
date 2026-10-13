@@ -62,7 +62,7 @@ void meet(int32_t /*index*/) {
   }
 }
 
-void expect_refusal(int status, rr_job* job, const char* message) {
+void expect_refusal(int status, rr_job* const& job, const char* message) {
   EXPECT_EQ(status, RR_ERROR);
   EXPECT_EQ(job, nullptr);
   EXPECT_EQ(rr_last_error_kind(), RR_ERROR_LOGIC);
