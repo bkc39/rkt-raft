@@ -84,7 +84,8 @@
 (define call/probe (status-checker probe-last-error probe-last-error-kind))
 
 (define-probe rr-probe-thread-id
-              (_fun (out : (_ptr o _uint64)) -> (status : _int) -> (values status out)))
+              (_fun (out : (_ptr o _uint64)) -> (status : _int) -> (values status out))
+              #:c-id rr_probe_thread_id)
 (define-probe probe-token-count (_fun -> _int64) #:c-id rr_probe_token_count)
 (define-probe probe-token-at (_fun _int64 -> _int32) #:c-id rr_probe_token_at)
 (define-probe probe-tokens-clear! (_fun -> _void) #:c-id rr_probe_tokens_clear)

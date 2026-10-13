@@ -31,7 +31,7 @@
          (only-in "error.rkt" call/raft exn:fail:raft)
          (only-in "exit.rkt" current-exit-wait)
          (only-in "exn.rkt" raise-raft)
-         (only-in "foreign/array.rkt" _rr-view blank-view)
+         (only-in "foreign/array.rkt" _rr-view blank-view keep-reachable)
          (only-in "foreign/core.rkt" rr-resources-handle)
          (only-in "foreign/job-api.rkt"
                   rr-executor-threads
@@ -48,11 +48,11 @@
          (only-in "resources.rkt" resources-handle))
 
 (provide define-job
-         (rename-out [rr-executor-threads executor-threads]
-                     [rr-jobs-in-flight jobs-in-flight]
-                     [rr-jobs-live jobs-live]))
+         (rename-out [rr-executor-threads executor-threads] ;; noqa
+                     [rr-jobs-in-flight jobs-in-flight] ;; noqa
+                     [rr-jobs-live jobs-live])) ;; noqa
 
-(struct slot (kind type))
+(struct slot (kind type)) ;; noqa
 
 (define job-done 1)
 (define job-refused 2)
@@ -64,8 +64,10 @@
       (vector-ref error-kinds code)
       'generic))
 
-(define (job-evt job)
+(struct job-evt (job)
+  #:property prop:evt
   (unsafe-poller (lambda (self wakeups)
+                   (define job (job-evt-job self))
                    (cond
                      [(= (rr-job-state job) job-done) (values (list job) #f)]
                      [wakeups
@@ -134,6 +136,7 @@
           [else
            (with-release #:who who ([j job rr-job-release])
              (job-outcome who j block outputs))])))
+     (keep-reachable (list resources args))
      (parameterize-break (break-enabled) (void))
      (match outcome
        [(list 'refused) (sync never-evt)]
@@ -141,7 +144,7 @@
         (raise (exn (format "~a: ~a" who message) (current-continuation-marks) (code->kind kind)))]
        [(cons 'returned results) (apply values results)])]))
 
-(define (job-procedure name entry slots exn)
+(define (job-procedure name entry slots exn) ;; noqa
   (define types (map slot-type slots))
   (define offsets (compute-offsets types))
   (define size (ctype-sizeof (make-cstruct-type types)))
@@ -158,7 +161,8 @@
    name))
 
 (begin-for-syntax
-  (define job-param-description "a job parameter: handle, view, (out type) or a number type")
+  (define job-param-description ;; noqa
+    "a job parameter: handle, view, (out type) or a number type")
 
   (define-syntax-class in-type
     #:description "a number type: _int8 … _double*"
@@ -203,16 +207,16 @@
       #:attr kind 'in
       #:with spec #'(slot 'in type)))
 
-  (define-splicing-syntax-class job-exn
+  (define-splicing-syntax-class job-exn ;; noqa
                                 #:description "#:exn and an exception constructor"
                                 (pattern (~seq #:exn make:expr)))
 
-  (define (second-handle params kinds)
+  (define (second-handle params kinds) ;; noqa
     (match (for/list ([p (in-list (syntax->list params))]
                       [kind (in-list kinds)]
                       #:when (eq? kind 'handle))
              p)
-      [(list _ second _ ...) second]
+      [(list* _ second _) second]
       [_ #f])))
 
 (define-syntax-parse-rule (define-job id:id

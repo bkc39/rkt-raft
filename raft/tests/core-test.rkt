@@ -96,7 +96,7 @@
         symbol<?))
 
 (define unsafe-names
-  '(define-job raft-abi-pointer resources->handle-pointer status-checker with-array-views))
+  '(define-job raft-abi-pointer resources->handle-pointer status-checker with-array-views)) ;; noqa
 
 (test-case "raft/core, raft/array, raft/compat, raft/unsafe and raft export exactly the documented names"
   (check-equal? (phase-0-exports 'raft/core) public-names)

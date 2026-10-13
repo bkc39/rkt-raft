@@ -60,9 +60,10 @@
                     raft/tests/private/probe)
            (probe-mark-atexit!)
            (define g (closed-gate))
-           (parameterize ([current-exit-wait 0.5])
-             (thread (lambda () (gate-job 'demo (host-resources) g #:timeout-ms -1))))
-           (await-entry g)
+           (define caller
+             (parameterize ([current-exit-wait 0.5])
+               (thread (lambda () (gate-job 'demo (host-resources) g #:timeout-ms -1)))))
+           (void (await-entry g))
            (printf "out\n")
            (eprintf "err\n")
            (exit 5)))
@@ -147,8 +148,7 @@
          .
          (module program racket/base
            (require racket/place raft raft/tests/private/probe)
-           (probe-mark-atexit!)
-           (define worker
+           (define (start-worker)
              (place ch
                (define host-resources (dynamic-require 'raft/private/resources 'host-resources))
                (define probe-sleep-job (dynamic-require 'raft/tests/private/probe 'probe-sleep-job))
@@ -157,14 +157,16 @@
                  (with-handlers ([exn:fail? (lambda (e) (eprintf "refused: ~a\n" (exn-message e)))])
                    (probe-sleep-job 'demo r 50))
                  (loop))))
-           (sleep 0.5)
-           (exit 11)))
+           (module+ main
+             (probe-mark-atexit!)
+             (define worker (start-worker))
+             (sleep 0.5)
+             (exit 11))))
         (place-job
          .
          (module program racket/base
            (require racket/place raft raft/tests/private/probe)
-           (probe-mark-atexit!)
-           (define worker
+           (define (start-worker)
              (place ch
                (define host-resources (dynamic-require 'raft/private/resources 'host-resources))
                (define closed-gate (dynamic-require 'raft/tests/private/gate 'closed-gate))
@@ -178,15 +180,16 @@
                          (probe-open-after! (gate-opener-fd g) 400)
                          (place-channel-put ch 'entered)))
                (gate-job 'demo (host-resources) g)))
-           (place-channel-get worker)
-           (exit 12)))
+           (module+ main
+             (probe-mark-atexit!)
+             (define worker (start-worker))
+             (void (place-channel-get worker))
+             (exit 12))))
         (place-value
          .
          (module program racket/base
            (require racket/place raft raft/tests/private/probe)
-           (probe-mark-atexit!)
-           (current-exit-wait 30)
-           (define worker
+           (define (start-worker)
              (place ch
                (define host-resources (dynamic-require 'raft/private/resources 'host-resources))
                (define current-exit-wait (dynamic-require 'raft 'current-exit-wait))
@@ -199,8 +202,12 @@
                          (place-channel-put ch 'entered)))
                (parameterize ([current-exit-wait 0])
                  (gate-job 'demo (host-resources) g #:timeout-ms -1))))
-           (place-channel-get worker)
-           (exit 13)))
+           (module+ main
+             (probe-mark-atexit!)
+             (current-exit-wait 30)
+             (define worker (start-worker))
+             (void (place-channel-get worker))
+             (exit 13))))
         (place-exits
          .
          (module program racket/base
@@ -209,23 +216,25 @@
                     raft/private/resources
                     raft/tests/private/gate
                     raft/tests/private/probe)
-           (probe-mark-atexit!)
-           (define r (host-resources))
-           (define g (closed-gate))
-           (define first-job (thread (lambda () (gate-job 'demo r g)) #:keep 'results))
-           (await-entry g)
-           (define worker
+           (define (start-worker)
              (place ch
                (define host-resources (dynamic-require 'raft/private/resources 'host-resources))
                (define probe-sleep-job (dynamic-require 'raft/tests/private/probe 'probe-sleep-job))
                (probe-sleep-job 'demo (host-resources) 0)
                (exit 5)))
-           (define code (place-wait worker))
-           (open-gate! g)
-           (define first-answer (thread-wait first-job))
-           (define again (closed-gate))
-           (open-gate! again)
-           (printf "~a ~a ~a\n" code first-answer (gate-job 'demo r again))))
+           (module+ main
+             (probe-mark-atexit!)
+             (define r (host-resources))
+             (define g (closed-gate))
+             (define first-job (thread (lambda () (gate-job 'demo r g)) #:keep 'results))
+             (void (await-entry g))
+             (define worker (start-worker))
+             (define code (place-wait worker))
+             (open-gate! g)
+             (define first-answer (thread-wait first-job))
+             (define again (closed-gate))
+             (open-gate! again)
+             (printf "~a ~a ~a\n" code first-answer (gate-job 'demo r again)))))
         (own-bound
          .
          (module program racket/base
@@ -371,8 +380,7 @@
          .
          (module program racket/base
            (require (only-in ffi/unsafe _fun _void ffi-lib get-ffi-obj) racket/place)
-           ((get-ffi-obj "rr_probe_mark_atexit" (ffi-lib (getenv "RAFT_SHIM_PROBE")) (_fun -> _void)))
-           (define worker
+           (define (start-worker)
              (place ch
                (define host-resources (dynamic-require 'raft/private/resources 'host-resources))
                (define closed-gate (dynamic-require 'raft/tests/private/gate 'closed-gate))
@@ -386,5 +394,8 @@
                          (probe-open-after! (gate-opener-fd g) 300)
                          (place-channel-put ch 'entered)))
                (gate-job 'demo (host-resources) g #:say? #t)))
-           (place-channel-get worker)
-           (exit 21))))
+           (module+ main
+             ((get-ffi-obj "rr_probe_mark_atexit" (ffi-lib (getenv "RAFT_SHIM_PROBE")) (_fun -> _void)))
+             (define worker (start-worker))
+             (void (place-channel-get worker))
+             (exit 21)))))

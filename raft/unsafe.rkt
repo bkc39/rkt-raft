@@ -12,7 +12,7 @@
          (only-in "private/resource.rkt" with-release)
          (only-in "private/resources.rkt" resources-handle))
 
-(provide define-job
+(provide define-job ;; noqa
          raft-abi-pointer
          resources->handle-pointer
          status-checker

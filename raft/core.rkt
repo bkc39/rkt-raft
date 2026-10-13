@@ -28,7 +28,7 @@
 
 (provide (all-from-out "private/abi.rkt")
          (all-from-out "private/resources.rkt")
-         current-exit-wait
+         current-exit-wait ;; noqa
          device-count
          (struct-out exn:fail:raft) ;; noqa
          raft-version)
