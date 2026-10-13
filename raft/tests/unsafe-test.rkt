@@ -54,10 +54,10 @@
                   status-checker
                   with-array-views)
          (only-in "private/collect.rkt" collect-until drain-finalizers!)
+         (only-in "private/gate.rkt" await-entry closed-gate open-gate! release-gate wait-at-gate)
          (only-in "private/gpu.rkt" test-gpu)
          (only-in "private/probe.rkt" probe-hold! probe-release! test-probe)
-         (only-in "private/raft-error.rkt" check-raft-error)
-         (only-in "private/ticker.rkt" call-with-ticker))
+         (only-in "private/raft-error.rkt" check-raft-error))
 
 (test-case "raft-abi-pointer points at the tag raft-abi reads"
   (define tag (raft-abi-pointer))
@@ -282,42 +282,51 @@
              (lambda () (check 'demo (lambda () (raise-argument-error 'demo "fixnum?" 'x)))))
   (check-exn #rx"arity mismatch" (lambda () (check 'demo (lambda () (values))))))
 
+(define (gated-call g)
+  (values 0 (wait-at-gate g)))
+
 (test-case "other Racket threads run during a blocking call"
-  (define ticks
-    (call-with-ticker (lambda ()
-                        ((checker #"unused" 0) 'demo (lambda () (sleep-microseconds 300000))))))
-  (check-true (> ticks 10) (format "~a ticks in 300 ms" ticks)))
+  (with-release ([g (closed-gate) release-gate])
+    (thread (lambda ()
+              (await-entry g)
+              (open-gate! g)))
+    (check-equal? ((checker #"unused" 0) 'demo (lambda () (gated-call g))) 'opened)))
 
 (test-case "a break during the call is raised once the call returns"
-  (define start (current-inexact-milliseconds))
-  (define outcome (box #f))
-  (define caller
-    (thread (lambda ()
-              (with-handlers ([exn:break? (lambda (_)
-                                            (set-box! outcome
-                                                      (- (current-inexact-milliseconds) start)))])
-                ((checker #"unused" 0) 'demo (lambda () (sleep-microseconds 300000)))
-                (set-box! outcome 'returned)))))
-  (sleep 0.05)
-  (break-thread caller)
-  (thread-wait caller)
-  (check-pred real? (unbox outcome))
-  (check-true (>= (unbox outcome) 300) (format "the break arrived at ~a ms" (unbox outcome))))
+  (with-release ([g (closed-gate) release-gate])
+    (define opened (box #f))
+    (define outcome (box #f))
+    (define caller
+      (thread (lambda ()
+                (with-handlers ([exn:break? (lambda (_)
+                                              (set-box! outcome (list 'broken (unbox opened))))])
+                  ((checker #"unused" 0) 'demo (lambda () (gated-call g)))
+                  (set-box! outcome 'returned)))))
+    (await-entry g)
+    (break-thread caller)
+    (check-false (sync/timeout 0.2 caller) "the break waits for the call")
+    (set-box! opened #t)
+    (open-gate! g)
+    (thread-wait caller)
+    (check-equal? (unbox outcome) '(broken #t))))
 
 (test-case "with breaks disabled a break stays pending past the call"
-  (define outcome (box #f))
-  (define caller
-    (thread
-     (lambda ()
-       (with-handlers ([exn:break? (lambda (_) (set-box! outcome (cons 'broken (unbox outcome))))])
-         (parameterize-break #f
-                             ((checker #"unused" 0) 'demo (lambda () (sleep-microseconds 100000)))
-                             (set-box! outcome '(returned)))
-         (sync never-evt)))))
-  (sleep 0.02)
-  (break-thread caller)
-  (check-not-false (sync/timeout 5 caller))
-  (check-equal? (unbox outcome) '(broken returned)))
+  (with-release ([g (closed-gate) release-gate])
+    (define outcome (box #f))
+    (define caller
+      (thread (lambda ()
+                (with-handlers ([exn:break? (lambda (_)
+                                              (set-box! outcome (cons 'broken (unbox outcome))))])
+                  (parameterize-break #f
+                                      ((checker #"unused" 0) 'demo (lambda () (gated-call g)))
+                                      (set-box! outcome '(returned)))
+                  (sync never-evt)))))
+    (await-entry g)
+    (break-thread caller)
+    (check-false (sync/timeout 0.2 caller) "the break waits for the call")
+    (open-gate! g)
+    (check-not-false (sync/timeout 5 caller))
+    (check-equal? (unbox outcome) '(broken returned))))
 
 (test-case "a break pending in atomic mode waits for atomic mode to end"
   (define answer (box #f))
@@ -334,12 +343,7 @@
             #:keep 'results))
   (check-equal? (list (thread-wait caller) (unbox answer)) '(broken kept)))
 
-(define (sleep-then-mark! slept)
-  (sleep-microseconds 500000)
-  (set-box! slept #t)
-  0)
-
-(define (caller-holding-an-owner wills slept)
+(define (caller-holding-an-owner wills g)
   (define owner (make-bytes 64))
   (will-register wills owner (lambda (_) 'collected))
   (thread (lambda ()
@@ -351,59 +355,57 @@
               ((checker #"unused" 0) 'demo
                                      (lambda ()
                                        (void/reference-sink view)
-                                       (sleep-then-mark! slept)))))))
+                                       (gated-call g)))))))
 
 (test-case "a killed caller's held owners live until its call returns"
-  (define wills (make-will-executor))
-  (define slept (box #f))
-  (define caller (caller-holding-an-owner wills slept))
-  (sleep 0.05)
-  (kill-thread caller)
-  (drain-finalizers!)
-  (check-false (will-try-execute wills) "the owner lives while the call runs")
-  (check-false (unbox slept) "checked before the call returned")
-  (sleep 0.5)
-  (check-equal? (collect-until (lambda () (and (unbox slept) (will-try-execute wills))))
-                'collected
-                "and is collected once the call returns"))
+  (with-release ([g (closed-gate) release-gate])
+    (define wills (make-will-executor))
+    (define caller (caller-holding-an-owner wills g))
+    (await-entry g)
+    (kill-thread caller)
+    (drain-finalizers!)
+    (check-false (will-try-execute wills) "the owner lives while the call runs")
+    (open-gate! g)
+    (check-equal? (collect-until (lambda () (will-try-execute wills)))
+                  'collected
+                  "and is collected once the call returns")))
 
 (define (drops-while-a-killed-call-runs released start-call)
-  (drain-finalizers!)
-  (define before (list (buffer-drop-count) (resources-drop-count)))
-  (define (drops)
-    (map - (list (buffer-drop-count) (resources-drop-count)) before))
-  (define slept (box #f))
-  (define caller (thread (lambda () (start-call slept))))
-  (sleep 0.05)
-  (kill-thread caller)
-  (drain-finalizers!)
-  (define during (drops))
-  (check-false (unbox slept) "checked before the call returned")
-  (sleep 0.5)
-  (collect-until (lambda () (and (unbox slept) (equal? (drops) released))))
-  (list during (drops)))
+  (with-release ([g (closed-gate) release-gate])
+    (drain-finalizers!)
+    (define before (list (buffer-drop-count) (resources-drop-count)))
+    (define (drops)
+      (map - (list (buffer-drop-count) (resources-drop-count)) before))
+    (define caller (thread (lambda () (start-call g))))
+    (await-entry g)
+    (kill-thread caller)
+    (drain-finalizers!)
+    (define during (drops))
+    (open-gate! g)
+    (collect-until (lambda () (equal? (drops) released)))
+    (list during (drops))))
 
 (test-gpu "a killed caller's arrays and resources live until its call returns"
   (check-equal? (drops-while-a-killed-call-runs
                  '(1 1)
-                 (lambda (slept)
+                 (lambda (g)
                    (define r (device-resources))
                    (with-array-views #:resources [handle r] ([x (device-matrix 64 64 #:resources r)])
                      ((checker #"unused" 0) 'demo
                                             (lambda ()
                                               (void/reference-sink handle x)
-                                              (sleep-then-mark! slept))))))
+                                              (gated-call g))))))
                 '((0 0) (1 1))))
 
 (test-gpu "a killed caller's resources->handle-pointer keeps its resources until the call returns"
   (check-equal?
    (drops-while-a-killed-call-runs '(0 1)
-                                   (lambda (slept)
+                                   (lambda (g)
                                      (define handle (resources->handle-pointer (device-resources)))
                                      ((checker #"unused" 0) 'demo
                                                             (lambda ()
                                                               (void/reference-sink handle)
-                                                              (sleep-then-mark! slept)))))
+                                                              (gated-call g)))))
    '((0 0) (0 1))))
 
 (test-gpu "the handle pointer and views of the default resources work together"
