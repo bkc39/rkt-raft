@@ -79,24 +79,32 @@ inline session open_session() {
   return s;
 }
 
-inline void fill(const session& s, tally& t) {
+inline std::unique_ptr<owner> prepared(const session& s, tally& t) {
   auto o = std::make_unique<owner>(*s.handle, t);
   const auto stream = raft::resource::get_cuda_stream(*s.handle);
   const std::vector<float> m = iota<float>(matrix_size);
   const std::vector<int64_t> i = iota<int64_t>(index_count);
-  ASSERT_EQ(
+  EXPECT_EQ(
       cudaMemcpyAsync(o->matrix.data(), m.data(), m.size() * sizeof(float),
                       cudaMemcpyHostToDevice, stream.value()),
       cudaSuccess);
-  ASSERT_EQ(
+  EXPECT_EQ(
       cudaMemcpyAsync(o->indices.data(), i.data(), i.size() * sizeof(int64_t),
                       cudaMemcpyHostToDevice, stream.value()),
       cudaSuccess);
-  ASSERT_EQ(cudaStreamSynchronize(stream.value()), cudaSuccess);
+  EXPECT_EQ(cudaStreamSynchronize(stream.value()), cudaSuccess);
+  return o;
+}
+
+inline void deposited(const session& s, std::unique_ptr<owner>&& o) {
   const std::initializer_list<rr_view> regions{
       raftrkt::region(o->matrix.data(), rows, cols, raftrkt::layout::row_major),
       raftrkt::region(o->indices)};
   raftrkt::deposit(s.record, "out", *s.handle, std::move(o), regions);
+}
+
+inline void fill(const session& s, tally& t) {
+  deposited(s, prepared(s, t));
 }
 
 inline std::string failure(int status) {

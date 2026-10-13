@@ -22,6 +22,7 @@ _Static_assert(RR_MAX_REGIONS == 8, "RR_MAX_REGIONS is 8");
 _Static_assert(RR_DEPOSIT_OPEN == 0, "RR_DEPOSIT_OPEN is 0");
 _Static_assert(RR_DEPOSIT_FILLED == 1, "RR_DEPOSIT_FILLED is 1");
 _Static_assert(RR_DEPOSIT_CLOSED == 2, "RR_DEPOSIT_CLOSED is 2");
+_Static_assert(RR_DEPOSIT_FILLING == 3, "RR_DEPOSIT_FILLING is 3");
 
 void raftrkt_c_api_compile_check(void);
 

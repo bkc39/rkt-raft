@@ -3,7 +3,14 @@
 (require (only-in ffi/unsafe cpointer?)
          (only-in racket/generator in-generator yield)
          (only-in racket/match match match-define)
-         (only-in rackunit check-equal? check-exn check-false check-pred check-true test-case)
+         (only-in rackunit
+                  check-equal?
+                  check-exn
+                  check-false
+                  check-pred
+                  check-true
+                  require/expose
+                  test-case)
          (only-in syntax/macro-testing convert-syntax-error)
          (only-in "../main.rkt"
                   contiguous
@@ -39,10 +46,13 @@
                   probe-owner-drops
                   probe-owner-stale
                   probe-pool-used
+                  probe-refuse-adoption!
                   probe-release!
                   test-pools
                   test-probe)
          (only-in "private/raft-error.rkt" check-raft-error))
+
+(require/expose "../private/deposit.rkt" (deposit-handle))
 
 (define (fill! d
                dt
@@ -274,6 +284,19 @@
                      (check-raft-error 'logic message (lambda () (deposit->list d))))
                    (counts 1 1 1 0 0))))
 
+(test-probe "law 6: a refused adoption frees the arrays adopted before it, and a retry adopts all"
+  (released-once "refused at region 1"
+                 (lambda ()
+                   (define d (filled 'int64 3 4))
+                   (define before (counters))
+                   (probe-refuse-adoption! (deposit-handle d) 1)
+                   (check-raft-error 'logic
+                                     "deposit->list: region 1: refused by the probe"
+                                     (lambda () (deposit->list d)))
+                   (check-equal? (since before) (counts 0 0 0 1 0))
+                   (check-pattern (deposit->list d) 'int64 3 4))
+                 (counts 1 1 1 3 0)))
+
 (test-probe "law 7: an open deposit, a closed one and re-entry each have their error"
   (define d (deposit))
   (check-pred deposit? d)
@@ -315,7 +338,7 @@
   (sleep 0.05)
   (kill-thread caller)
   (check-raft-error 'logic
-                    "with-deposits: the deposit is closed"
+                    "with-deposits: the deposit is already bound"
                     (lambda () (with-deposits ([out retained]) out)))
   (probe-release!)
   (await-calls)

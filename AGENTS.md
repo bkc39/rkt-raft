@@ -979,9 +979,10 @@ canary changes with it in the same pull request:
   `with-array-views` (with its `#:resources [handle r]` clause),
   `status-checker`, `raft-abi-pointer`; `core-test.rkt` pins the export set.
 - **Additions at version 1 (#22):** `rr_deposit` (1256 bytes, offsets pinned
-  by `c_api_compile_test.c`), `RR_MAX_REGIONS`, `RR_DEPOSIT_*`,
-  `rr_release_fn`, `raftrkt/deposit.hpp` (`region`, `deposit`), and
-  `deposit`, `deposit?`, `with-deposits`, `deposit->list`. A downstream
+  by `c_api_compile_test.c`), `RR_MAX_REGIONS`, `RR_DEPOSIT_*` (OPEN 0,
+  FILLED 1, CLOSED 2, FILLING 3), `rr_release_fn`, `raftrkt/deposit.hpp`
+  (`region`, `deposit`), and `deposit`, `deposit?`, `with-deposits`,
+  `deposit->list`. A downstream
   detects them by requiring `("raft" #:version "0.2")` or with
   `__has_include(<raftrkt/deposit.hpp>)`; a later change to `rr_deposit`'s
   layout is version 2.
@@ -1202,9 +1203,17 @@ since cuSPARSE's error string for it is only "out of memory"). The frozen rule i
   It holds the deposit through `hold-owner!` (a killed caller's call can
   still fill it) and closes it on every exit; a closed record refuses a fill.
   `rr_holder_record` hands the record out once (every exit closes, so no
-  legitimate second binding exists), and `deposit.hpp` publishes with a
-  compare-and-swap from OPEN to FILLED, taking the owner only after it
-  succeeds, so a fill racing a close never overwrites CLOSED.
+  legitimate second binding exists). `deposit.hpp` first claims the record
+  with a compare-and-swap from OPEN to `RR_DEPOSIT_FILLING` (3, an addition
+  at version 1); a refused claim touches nothing, so a second filler cannot
+  disturb the first. Only the claimant writes the other fields, and it
+  publishes with a compare-and-swap from FILLING to FILLED, taking the owner
+  only after it succeeds; a close in between wins, the claimant clears what
+  it wrote and refuses with "closed", and the caller's `unique_ptr` frees the
+  owner. Readers treat FILLING as OPEN. The shim's refusals: "the deposit is
+  closed", "the deposit is already filled", "the deposit is already bound",
+  "the deposit is still open", "the deposit has no region 3; it holds 2",
+  "region 0 is already adopted".
 - **`deposit.hpp` checks a region's byte size before its layout**, unlike
   the spec's order: canonical strides of overflowing extents overflow too,
   so the layout check would report a misleading "neither row-major nor

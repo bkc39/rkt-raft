@@ -26,6 +26,7 @@
          probe-owner-drops
          probe-owner-stale
          probe-pool-used
+         probe-refuse-adoption!
          probe-release!
          test-pools
          test-probe)
@@ -57,6 +58,8 @@
               #:c-id rr_probe_hold)
 
 (define-probe probe-release! (_fun -> _void) #:c-id rr_probe_release)
+
+(define-probe probe-refuse-adoption! (_fun _pointer _int32 -> _void) #:c-id rr_probe_refuse_adoption)
 
 (define-probe probe-last-error (_fun -> _bytes/nul-terminated) #:c-id rr_probe_last_error)
 (define-probe probe-last-error-kind (_fun -> _int) #:c-id rr_probe_last_error_kind)

@@ -54,7 +54,8 @@ void keep_owner(rr_holder& holder) {
 }
 
 int32_t checked_count(const rr_holder& holder) {
-  if (state_of(holder) == RR_DEPOSIT_OPEN) {
+  const int32_t state = state_of(holder);
+  if (state == RR_DEPOSIT_OPEN || state == RR_DEPOSIT_FILLING) {
     throw logic_error("the deposit is still open");
   }
   if (!filled(holder)) {
@@ -89,6 +90,10 @@ struct adoption {
 };
 
 adoption adopted_buffer(rr_holder& holder, std::size_t i) {
+  if (std::cmp_equal(holder.refused_adoption, i)) {
+    holder.refused_adoption = -1;
+    throw logic_error("region " + std::to_string(i) + ": refused by the probe");
+  }
   const rr_view& region = holder.record.regions[i];
   const std::size_t bytes = raftrkt::detail::region_bytes("", region);
   const device_guard guard{holder.device};
@@ -142,8 +147,11 @@ int rr_holder_record(rr_holder* holder, rr_deposit** out) {
     if (state == RR_DEPOSIT_FILLED) {
       throw rr::logic_error("the deposit is already filled");
     }
-    if (state != RR_DEPOSIT_OPEN || h.issued.exchange(true)) {
+    if (state == RR_DEPOSIT_CLOSED) {
       throw rr::logic_error("the deposit is closed");
+    }
+    if (h.issued.exchange(true)) {
+      throw rr::logic_error("the deposit is already bound");
     }
     result = &h.record;
   });

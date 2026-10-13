@@ -50,6 +50,8 @@ struct rr_holder {
   bool filled_at_close = false;
   std::atomic<bool> issued{false};
   std::array<bool, RR_MAX_REGIONS> adopted{};
+  // Set only by the test probe: adopting this region fails, once.
+  int32_t refused_adoption = -1;
 };
 
 namespace rr {

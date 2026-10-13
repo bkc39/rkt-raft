@@ -14,6 +14,7 @@ extern "C" {
 #define RR_DEPOSIT_OPEN 0
 #define RR_DEPOSIT_FILLED 1
 #define RR_DEPOSIT_CLOSED 2
+#define RR_DEPOSIT_FILLING 3
 
 /* Runs exactly once, on any OS thread, with the deposit's device current and
    its raft::handle_t alive. It must not throw or call back into Racket. */

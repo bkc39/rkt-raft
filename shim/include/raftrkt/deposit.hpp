@@ -145,20 +145,33 @@ void release_owner(void* owner) noexcept {
   delete static_cast<Owner*>(owner);
 }
 
+inline std::atomic_ref<int32_t> state_of(rr_deposit& record) noexcept {
+  return std::atomic_ref<int32_t>(record.state);
+}
+
+inline void claim(const std::string& who, rr_deposit& record) {
+  int32_t seen = RR_DEPOSIT_OPEN;
+  if (!state_of(record).compare_exchange_strong(seen, RR_DEPOSIT_FILLING,
+                                                std::memory_order_acq_rel)) {
+    throw logic_error(who +
+                      (seen == RR_DEPOSIT_FILLED || seen == RR_DEPOSIT_FILLING
+                           ? ": already filled"
+                           : ": closed"));
+  }
+}
+
+inline void unclaim(rr_deposit& record) noexcept {
+  int32_t seen = RR_DEPOSIT_FILLING;
+  static_cast<void>(state_of(record).compare_exchange_strong(
+      seen, RR_DEPOSIT_OPEN, std::memory_order_release,
+      std::memory_order_relaxed));
+}
+
 template <typename Owner>
-rr_deposit& checked_fill(const std::string& who, rr_deposit* into,
-                         const raft::handle_t& handle,
-                         const std::unique_ptr<Owner>& owner,
-                         std::initializer_list<rr_view> regions) {
-  rr_deposit& record = *require(into, who.c_str());
-  const int32_t state =
-      std::atomic_ref<int32_t>(record.state).load(std::memory_order_acquire);
-  if (state == RR_DEPOSIT_FILLED) {
-    throw logic_error(who + ": already filled");
-  }
-  if (state != RR_DEPOSIT_OPEN) {
-    throw logic_error(who + ": closed");
-  }
+std::array<std::size_t, RR_MAX_REGIONS> checked_bytes(
+    const std::string& who, const rr_deposit& record,
+    const raft::handle_t& handle, const std::unique_ptr<Owner>& owner,
+    std::initializer_list<rr_view> regions) {
   if (record.handle != static_cast<const void*>(&handle)) {
     throw logic_error(who + ": on resources other than the call's");
   }
@@ -169,6 +182,25 @@ rr_deposit& checked_fill(const std::string& who, rr_deposit* into,
   const auto count = static_cast<int64_t>(regions.size());
   const auto bytes = check_regions(prefix, count, regions.begin());
   check_device_memory(prefix, regions.begin(), bytes, record.device);
+  return bytes;
+}
+
+// The claim (OPEN -> FILLING) makes this filler the only writer of the
+// record's other fields until it publishes; a refused claim touches nothing.
+template <typename Owner>
+rr_deposit& checked_fill(const std::string& who, rr_deposit* into,
+                         const raft::handle_t& handle,
+                         const std::unique_ptr<Owner>& owner,
+                         std::initializer_list<rr_view> regions) {
+  rr_deposit& record = *require(into, who.c_str());
+  claim(who, record);
+  std::array<std::size_t, RR_MAX_REGIONS> bytes{};
+  try {
+    bytes = checked_bytes(who, record, handle, owner, regions);
+  } catch (...) {
+    unclaim(record);
+    throw;
+  }
   std::size_t i = 0;
   for (const rr_view& region : regions) {
     rr_view& kept = record.regions[i];
@@ -178,26 +210,26 @@ rr_deposit& checked_fill(const std::string& who, rr_deposit* into,
     kept.data = bytes.at(i) == 0 ? nullptr : region.data;
     ++i;
   }
-  record.count = static_cast<int32_t>(count);
+  record.count = static_cast<int32_t>(regions.size());
   return record;
 }
 
-// The record can be closed after checked_fill saw it OPEN; only the CAS
-// publishes, and the owner is the record's only once it has.
+// Only rr_holder_close moves a claimed record, so a failed publish means it
+// was closed; the owner is the record's only once the publish succeeds.
 template <typename Owner>
 void publish(const std::string& who, rr_deposit& record,
              std::unique_ptr<Owner>& owner) {
   record.release = &release_owner<Owner>;
   record.owner = owner.get();
-  int32_t seen = RR_DEPOSIT_OPEN;
-  if (!std::atomic_ref<int32_t>(record.state)
-           .compare_exchange_strong(seen, RR_DEPOSIT_FILLED,
-                                    std::memory_order_acq_rel)) {
-    record.owner = nullptr;
-    record.release = nullptr;
+  int32_t seen = RR_DEPOSIT_FILLING;
+  if (!state_of(record).compare_exchange_strong(seen, RR_DEPOSIT_FILLED,
+                                                std::memory_order_release,
+                                                std::memory_order_relaxed)) {
+    std::fill_n(record.regions, record.count, rr_view{});
     record.count = 0;
-    throw logic_error(
-        who + (seen == RR_DEPOSIT_FILLED ? ": already filled" : ": closed"));
+    record.release = nullptr;
+    record.owner = nullptr;
+    throw logic_error(who + ": closed");
   }
   static_cast<void>(owner.release());
 }

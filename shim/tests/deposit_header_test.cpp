@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 
 #include <array>
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -8,6 +9,7 @@
 #include <memory>
 #include <raft/core/handle.hpp>
 #include <string>
+#include <thread>
 #include <utility>
 
 #include "raftrkt/array.h"
@@ -253,35 +255,140 @@ std::string published(rr_deposit& record, std::unique_ptr<Owner>& owner) {
   return "no refusal";
 }
 
-outcome closed_before_publish(rr_deposit& record,
-                              const raft::handle_t& handle) {
+bool same_record(const rr_deposit& a, const rr_deposit& b) {
+  return std::memcmp(&a, &b, sizeof a) == 0;
+}
+
+struct closing {
+  std::string message;
+  bool caller_kept_owner;
+  int drops_before_scope_end;
+  int drops;
+};
+
+closing closed_after_claim(rr_deposit& record, const raft::handle_t& handle) {
+  rr_deposit expected = record;
+  expected.state = RR_DEPOSIT_CLOSED;
   int drops = 0;
-  outcome result{"no refusal", false, 0, 0};
+  closing result{"no refusal", false, 0, 0};
   {
     auto owner = std::make_unique<counted>(drops);
     rr_deposit& checked = raftrkt::detail::checked_fill(
-        "out", &record, handle, owner, {raftrkt::region(floats(), 0)});
+        "out", &record, handle, owner,
+        {raftrkt::region(floats(), 0, cols, raftrkt::layout::row_major)});
+    EXPECT_EQ(record.state, RR_DEPOSIT_FILLING);
+    EXPECT_EQ(record.count, 1);
     record.state = RR_DEPOSIT_CLOSED;
     result.message = published(checked, owner);
-    result.untouched = owner != nullptr;
+    result.caller_kept_owner = owner != nullptr;
     result.drops_before_scope_end = drops;
   }
   result.drops = drops;
+  EXPECT_TRUE(same_record(record, expected))
+      << "only the state differs from the record before the fill";
   return result;
 }
 
-TEST(DepositHeader, ARecordClosedAfterItsCheckIsNotPublished) {
+TEST(DepositHeader, ARecordClosedAfterItsClaimIsLeftClosedAndAsItWas) {
   raft::handle_t handle;
   rr_deposit record = open_record(handle);
-  const outcome o = closed_before_publish(record, handle);
-  EXPECT_EQ(o.message, "out: closed");
-  EXPECT_TRUE(o.untouched) << "the caller still holds the owner";
-  EXPECT_EQ(o.drops_before_scope_end, 0);
-  EXPECT_EQ(o.drops, 1);
-  EXPECT_EQ(record.state, RR_DEPOSIT_CLOSED);
-  EXPECT_EQ(record.owner, nullptr);
-  EXPECT_EQ(record.release, nullptr);
-  EXPECT_EQ(record.count, 0);
+  const closing c = closed_after_claim(record, handle);
+  EXPECT_EQ(c.message, "out: closed");
+  EXPECT_TRUE(c.caller_kept_owner);
+  EXPECT_EQ(c.drops_before_scope_end, 0);
+  EXPECT_EQ(c.drops, 1);
+}
+
+TEST(DepositHeader, AClaimedRecordRefusesASecondFillerWithoutATouch) {
+  raft::handle_t handle;
+  rr_deposit record = open_record(handle);
+  int drops = 0;
+  auto first = std::make_unique<counted>(drops);
+  rr_deposit& checked = raftrkt::detail::checked_fill(
+      "out", &record, handle, first,
+      {raftrkt::region(floats(), 0, cols, raftrkt::layout::col_major)});
+  const rr_deposit claimed = record;
+  const outcome second = attempt(&record, handle, {});
+  EXPECT_EQ(second.message, "out: already filled");
+  EXPECT_EQ(second.drops, 1);
+  EXPECT_TRUE(same_record(record, claimed));
+  EXPECT_EQ(published(checked, first), "no refusal");
+  EXPECT_EQ(first, nullptr);
+  EXPECT_EQ(record.state, RR_DEPOSIT_FILLED);
+  EXPECT_EQ(record.count, 1);
+  EXPECT_EQ(record.regions[0].shape[1], cols);
+  ASSERT_NE(record.owner, nullptr);
+  record.release(record.owner);
+  EXPECT_EQ(drops, 1);
+}
+
+TEST(DepositHeader, ARefusedCheckReturnsTheClaim) {
+  raft::handle_t handle;
+  rr_deposit record = open_record(handle);
+  rr_view bad = raftrkt::region(floats(), vector_length);
+  bad.rank = rank_three;
+  expect_refused(attempt(&record, handle, {bad}),
+                 "out: region 0: expected rank 1 or 2, got rank 3");
+  EXPECT_EQ(record.state, RR_DEPOSIT_OPEN);
+}
+
+constexpr int racing_rounds = 200;
+constexpr int fillers = 2;
+
+struct race {
+  std::array<int, fillers> drops{};
+  std::array<bool, fillers> won{};
+};
+
+void filled_by_racers(rr_deposit& record, const raft::handle_t& handle,
+                      race& r) {
+  std::atomic<bool> go{false};
+  std::array<std::thread, fillers> racers;
+  for (std::size_t f = 0; f < racers.size(); ++f) {
+    racers.at(f) = std::thread([&, f] {
+      auto owner = std::make_unique<counted>(r.drops.at(f));
+      const auto n = static_cast<int64_t>(f) + 1;
+      while (!go.load(std::memory_order_acquire)) {
+      }
+      try {
+        raftrkt::deposit(
+            &record, "out", handle, std::move(owner),
+            {raftrkt::region(floats(), 0, n, raftrkt::layout::row_major)});
+        r.won.at(f) = true;
+      } catch (const raftrkt::logic_error& e) {
+        EXPECT_STREQ(e.what(), "out: already filled");
+      }
+    });
+  }
+  go.store(true, std::memory_order_release);
+  for (std::thread& t : racers) {
+    t.join();
+  }
+}
+
+void expect_one_winner(rr_deposit& record, const race& r) {
+  ASSERT_NE(r.won[0], r.won[1]);
+  const std::size_t winner = r.won[0] ? 0 : 1;
+  const std::size_t loser = 1 - winner;
+  EXPECT_EQ(r.drops.at(loser), 1);
+  EXPECT_EQ(r.drops.at(winner), 0);
+  EXPECT_EQ(record.state, RR_DEPOSIT_FILLED);
+  EXPECT_EQ(record.count, 1);
+  EXPECT_EQ(record.regions[0].shape[1], static_cast<int64_t>(winner) + 1);
+  ASSERT_NE(record.owner, nullptr);
+  record.release(record.owner);
+  EXPECT_EQ(r.drops.at(winner), 1);
+  EXPECT_EQ(r.drops.at(loser), 1);
+}
+
+TEST(DepositHeader, OfTwoRacingFillersOneWinsAndTheOtherTouchesNothing) {
+  raft::handle_t handle;
+  for (int round = 0; round < racing_rounds; ++round) {
+    rr_deposit record = open_record(handle);
+    race r;
+    filled_by_racers(record, handle, r);
+    expect_one_winner(record, r);
+  }
 }
 
 TEST(DepositHeader, EmptyRegionsNeedNoDeviceAndFillTheRecord) {

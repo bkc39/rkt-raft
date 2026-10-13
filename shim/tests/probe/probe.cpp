@@ -313,6 +313,10 @@ RR_API void rr_probe_release(void) {
   g.opened.notify_all();
 }
 
+RR_API void rr_probe_refuse_adoption(rr_holder* holder, int32_t index) {
+  holder->refused_adoption = index;
+}
+
 RR_API int rr_probe_deposit(void* handle, rr_deposit* out, int32_t dtype,
                             int32_t count, int64_t rows, int64_t cols,
                             uint32_t flags) {

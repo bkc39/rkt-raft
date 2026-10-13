@@ -311,7 +311,8 @@ the deposit reachable, even across a killed caller's call. Every exit closes
 the deposit: a native call can no longer fill it, and a deposit left empty
 holds no arrays. A deposit is bound once: binding it again, even while a
 killed caller's call is still filling it, raises @racket[exn:fail:raft] of
-kind @racket['logic]. Make the deposit on the
+kind @racket['logic]: ``the deposit is already bound'', ``already filled''
+or ``closed'', whichever it is. Make the deposit on the
 resources the call runs on. Two identical @racket[id]s are a syntax error.}
 
 @defproc[(deposit->list [d deposit?]) (listof (or/c device-vector? device-matrix?))]{
@@ -477,7 +478,7 @@ the rest:
  (list (list @bold{Field} @bold{Offset} @bold{Meaning})
        (list @tt{const void* handle} "0" @elem{the @tt{raft::handle_t*} of the deposit's resources})
        (list @tt{int32_t device} "8" "the CUDA device")
-       (list @tt{int32_t state} "12" @elem{@tt{RR_DEPOSIT_OPEN} 0, @tt{FILLED} 1, @tt{CLOSED} 2})
+       (list @tt{int32_t state} "12" @elem{@tt{RR_DEPOSIT_OPEN} 0, @tt{FILLED} 1, @tt{CLOSED} 2, @tt{FILLING} 3})
        (list @tt{void* owner} "16" "what frees the regions' memory")
        (list @tt{rr_release_fn release} "24" @elem{@tt{void (*)(void* owner)}})
        (list @tt{int32_t count} "32" @elem{0 to @tt{RR_MAX_REGIONS} (8)})
@@ -506,10 +507,15 @@ and its contents are complete when the call returns.
        rank or element type, with a negative extent, a byte size that
        overflows, another layout, no data or misaligned data, overlapping
        regions, and memory that is not on the record's device. A refusal
-       throws @tt{raftrkt::logic_error}, touches nothing, and leaves the
-       owner to the caller's @tt{unique_ptr}. Otherwise it fills the record
-       and takes the owner; a record closed during the checks is refused
-       with @tt{"out: closed"} and the owner is still the caller's.}]
+       throws @tt{raftrkt::logic_error} and leaves the owner to the caller's
+       @tt{unique_ptr}. After the @tt{NULL} check it claims an open record by
+       moving it to @tt{FILLING}; a record that cannot be claimed is refused with
+       nothing touched, so a second filler cannot disturb the first. A
+       later refusal touches nothing but @tt{state}: the record is open
+       again, or closed if it was closed meanwhile, and its other fields are
+       as they were. Otherwise it fills the record, moves it to
+       @tt{FILLED} and takes the owner; a record closed during the fill is
+       refused with @tt{"out: closed"}, as above.}]
 
 @listing["C++"]|{
 auto owner = std::make_unique<members<T>>(handle, m, d);
