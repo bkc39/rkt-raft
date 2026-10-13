@@ -21,7 +21,9 @@ struct touched_in_job {
   touched_in_job& operator=(const touched_in_job&) = delete;
   touched_in_job(touched_in_job&&) = delete;
   touched_in_job& operator=(touched_in_job&&) = delete;
-  ~touched_in_job() { alive = false; }
+  ~touched_in_job() {
+    alive = false;
+  }
   volatile bool alive = true;
 };
 
@@ -34,9 +36,8 @@ void say(std::string_view text) noexcept {
 extern "C" {
 
 KC_API int kc_noop(int32_t value, int32_t* out) {
-  return raftrkt::translate_exceptions(kc::last_error_slot(), [&] {
-    *raftrkt::require(out, "out") = value;
-  });
+  return raftrkt::translate_exceptions(
+      kc::last_error_slot(), [&] { *raftrkt::require(out, "out") = value; });
 }
 
 KC_API int kc_sleep(int32_t milliseconds) {
@@ -55,12 +56,15 @@ KC_API void kc_fit_job(void* args, size_t args_len, rr_job_outcome* outcome) {
   raftrkt::run_job<&kc_fit>(args, args_len, outcome, kc::last_error_slot());
 }
 
-KC_API void kc_predict_job(void* args, size_t args_len, rr_job_outcome* outcome) {
+KC_API void kc_predict_job(void* args, size_t args_len,
+                           rr_job_outcome* outcome) {
   raftrkt::run_job<&kc_predict>(args, args_len, outcome, kc::last_error_slot());
 }
 
-KC_API void kc_make_blobs_job(void* args, size_t args_len, rr_job_outcome* outcome) {
-  raftrkt::run_job<&kc_make_blobs>(args, args_len, outcome, kc::last_error_slot());
+KC_API void kc_make_blobs_job(void* args, size_t args_len,
+                              rr_job_outcome* outcome) {
+  raftrkt::run_job<&kc_make_blobs>(args, args_len, outcome,
+                                   kc::last_error_slot());
 }
 
 KC_API void kc_noop_job(void* args, size_t args_len, rr_job_outcome* outcome) {

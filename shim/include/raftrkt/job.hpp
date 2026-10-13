@@ -113,8 +113,8 @@ concept job_entry = job_signature<decltype(Fn)>::value;
 
 inline void copy_job_message(rr_job_outcome& outcome,
                              const char* text) noexcept {
-  const int written = std::snprintf(outcome.message, RR_JOB_MESSAGE_BYTES,
-                                    "%s", text != nullptr ? text : "");
+  const int written = std::snprintf(outcome.message, RR_JOB_MESSAGE_BYTES, "%s",
+                                    text != nullptr ? text : "");
   if (written >= RR_JOB_MESSAGE_BYTES) {
     drop_cut_character(outcome.message, RR_JOB_MESSAGE_BYTES - 1);
   }
@@ -144,9 +144,9 @@ void run_job(void* args, std::size_t args_len, rr_job_outcome* outcome,
     return;
   }
   try {
-    outcome->status =
-        signature::template call<Fn>(static_cast<std::byte*>(args),
-                                     std::make_index_sequence<signature::layout::count>{});
+    outcome->status = signature::template call<Fn>(
+        static_cast<std::byte*>(args),
+        std::make_index_sequence<signature::layout::count>{});
     if (outcome->status != RR_OK) {
       outcome->kind = static_cast<int32_t>(slot.kind);
       detail::copy_job_message(*outcome, slot.message.data());

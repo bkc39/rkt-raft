@@ -102,8 +102,8 @@ inline bool readable(int fd) {
   return poll(&p, 1, 0) == 1;
 }
 
-inline bool wait_done(const rr_job* job,
-                      std::chrono::milliseconds limit = std::chrono::seconds(10)) {
+inline bool wait_done(const rr_job* job, std::chrono::milliseconds limit =
+                                             std::chrono::seconds(10)) {
   pollfd p{rr_job_fd(job), POLLIN, 0};
   return poll(&p, 1, static_cast<int>(limit.count())) == 1 &&
          rr_job_state(job) == RR_JOB_DONE;

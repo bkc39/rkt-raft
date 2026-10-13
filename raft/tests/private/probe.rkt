@@ -83,7 +83,8 @@
 
 (define call/probe (status-checker probe-last-error probe-last-error-kind))
 
-(define-probe rr-probe-thread-id (_fun (out : (_ptr o _uint64)) -> (status : _int) -> (values status out)))
+(define-probe rr-probe-thread-id
+              (_fun (out : (_ptr o _uint64)) -> (status : _int) -> (values status out)))
 (define-probe probe-token-count (_fun -> _int64) #:c-id rr_probe_token_count)
 (define-probe probe-token-at (_fun _int64 -> _int32) #:c-id rr_probe_token_at)
 (define-probe probe-tokens-clear! (_fun -> _void) #:c-id rr_probe_tokens_clear)
@@ -102,7 +103,9 @@
           id)
         (lambda _ (error 'id "no probe library")))))
 
-(define-probe-job probe-gate-job "rr_probe_gate_job" (_int32 _int32 _int32 _int32 _int32 (out _int32)))
+(define-probe-job probe-gate-job
+                  "rr_probe_gate_job"
+                  (_int32 _int32 _int32 _int32 _int32 (out _int32)))
 (define-probe-job probe-echo-job
                   "rr_probe_echo_job"
                   (_int8 _int16
@@ -129,7 +132,9 @@
 (define-probe-job probe-sleep-job "rr_probe_sleep_job" (_int32))
 (define-probe-job probe-late-static-job "rr_probe_late_static_job" (_int32 _int32 _int32))
 (define-probe-job probe-thread-id-job "rr_probe_thread_id_job" ((out _uint64)))
-(define-probe-job probe-hold-views-job "rr_probe_hold_views_job" (_int32 _int32 view view (out _int64)))
+(define-probe-job probe-hold-views-job
+                  "rr_probe_hold_views_job"
+                  (_int32 _int32 view view (out _int64)))
 
 (define (gate-job who r g #:timeout-ms [timeout-ms 10000] #:say? [say? #f] #:fail-kind [fail-kind -1])
   (probe-gate-job who r (gate-entered-fd g) (gate-fd g) timeout-ms (if say? 1 0) fail-kind))

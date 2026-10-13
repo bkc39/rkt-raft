@@ -21,8 +21,8 @@ std::unique_ptr<rr_buffer> allocate(
     const rr_view& desc) {
   const device_guard guard{device};
   auto stream = raft::resource::get_cuda_stream(*owner);
-  return std::make_unique<rr_buffer>(
-      rr_buffer{owner, device, rmm::device_buffer{byte_size(desc), stream}});
+  return std::unique_ptr<rr_buffer>(new rr_buffer{
+      owner, device, rmm::device_buffer{byte_size(desc), stream}, 1});
 }
 
 void require_matrix(const rr_view& view) {
@@ -54,10 +54,11 @@ int rr_array_create(rr_resources* resources, const char* dtype, int32_t rank,
     auto& filled = *rr::require(view, "view");
     filled = rr_view{};
     auto& r = *rr::require(resources, "resources");
+    const auto& handle = rr::handle_of(r);
     const int32_t code = rr::dtype_named(dtype).code;
     const rr_view desc =
         rr::describe(code, rr::parse_layout(layout), rank, shape);
-    auto owned = rr::allocate(r.handle, r.device, desc);
+    auto owned = rr::allocate(handle, r.device, desc);
     filled = rr::bind(*owned, 0, desc);
     result = owned.release();
   });

@@ -74,7 +74,9 @@ struct touched_in_job {
   touched_in_job& operator=(const touched_in_job&) = delete;
   touched_in_job(touched_in_job&&) = delete;
   touched_in_job& operator=(touched_in_job&&) = delete;
-  ~touched_in_job() { alive = false; }
+  ~touched_in_job() {
+    alive = false;
+  }
   volatile bool alive = true;
 };
 
@@ -223,11 +225,10 @@ RR_API void rr_probe_mark_atexit(void) {
   static_cast<void>(registered);
 }
 
-#define RR_PROBE_JOB(name)                                                 \
-  RR_API void rr_probe_##name##_job(void* args, size_t args_len,           \
-                                    rr_job_outcome* outcome) {             \
-    raftrkt::run_job<&rr_probe_##name>(args, args_len, outcome,            \
-                                       probe_slot());                      \
+#define RR_PROBE_JOB(name)                                                     \
+  RR_API void rr_probe_##name##_job(void* args, size_t args_len,               \
+                                    rr_job_outcome* outcome) {                 \
+    raftrkt::run_job<&rr_probe_##name>(args, args_len, outcome, probe_slot()); \
   }
 
 RR_PROBE_JOB(gate)

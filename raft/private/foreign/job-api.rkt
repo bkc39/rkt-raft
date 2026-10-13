@@ -40,7 +40,9 @@
          rr-os-thread-id/original
          rr-resources-create-host)
 
-(define-raft rr-job-release (_fun _rr-job -> _void) #:wrap release-once)
+(define-raft rr-job-release
+  (_fun _rr-job -> _void)
+  #:wrap release-once)
 
 (define job-allocator (allocator rr-job-release))
 
@@ -79,7 +81,8 @@
 (define-raft rr-executor-threads (_fun -> _int64))
 
 (define-raft rr-exit-drain
-  (_fun #:blocking? #t
+  (_fun #:blocking?
+        #t
         (in-flight : (_ptr o _int64 atomic-interior))
         (still : (_ptr o _int64 atomic-interior))
         -> _void

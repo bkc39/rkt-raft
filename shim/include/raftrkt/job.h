@@ -11,10 +11,10 @@ extern "C" {
 #define RR_JOB_MESSAGE_BYTES 4096
 
 typedef struct rr_job_outcome {
-  int32_t status;                      /* 0 */
-  int32_t kind;                        /* 4 */
-  char message[RR_JOB_MESSAGE_BYTES];  /* 8 */
-} rr_job_outcome;                      /* 4104 bytes */
+  int32_t status;                     /* 0 */
+  int32_t kind;                       /* 4 */
+  char message[RR_JOB_MESSAGE_BYTES]; /* 8 */
+} rr_job_outcome;                     /* 4104 bytes */
 
 /* Runs on a raft worker thread, after the previous job on the same resources
    returned. Must not throw or call back into Racket. */

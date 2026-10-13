@@ -61,15 +61,16 @@ int rr_resources_create(int32_t device, rr_resources** out) {
     auto owner = std::make_shared<rr::owned_handle>();
     std::shared_ptr<raft::handle_t> handle(owner, &owner->handle);
     static_cast<void>(raft::resource::get_device_id(*handle));
-    result = new rr_resources{device, std::move(handle)};
+    result = new rr_resources{device, std::move(handle), {}};
   });
 }
 
 int rr_resources_sync(rr_resources* resources) {
   return rr::translate_exceptions([&] {
     auto& r = *rr::require(resources, "resources");
+    const auto& handle = rr::handle_of(r);
     const rr::device_guard guard{r.device};
-    raft::resource::sync_stream(*r.handle);
+    raft::resource::sync_stream(*handle);
   });
 }
 
@@ -77,7 +78,7 @@ int rr_resources_handle(rr_resources* resources, void** out) {
   return rr::translate_exceptions([&] {
     auto& result = *rr::require(out, "out");
     result = nullptr;
-    result = rr::require(resources, "resources")->handle.get();
+    result = rr::handle_of(*rr::require(resources, "resources")).get();
   });
 }
 
@@ -86,9 +87,10 @@ int rr_resources_ready(rr_resources* resources, int32_t* out) {
     auto& ready = *rr::require(out, "out");
     ready = 0;
     auto& r = *rr::require(resources, "resources");
+    const auto& handle = rr::handle_of(r);
     const rr::device_guard guard{r.device};
     const cudaError_t status =
-        cudaStreamQuery(raft::resource::get_cuda_stream(*r.handle));
+        cudaStreamQuery(raft::resource::get_cuda_stream(*handle));
     if (status == cudaErrorNotReady) {
       static_cast<void>(cudaGetLastError());
       return;

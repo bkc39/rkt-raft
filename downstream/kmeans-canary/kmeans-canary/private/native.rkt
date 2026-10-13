@@ -56,10 +56,11 @@
             canary-library
             "kc_make_blobs_job"
             (handle view view _int32 _double _int32 _double _double _uint64))
-(define-job kc-fit-job
-            canary-library
-            "kc_fit_job"
-            (handle view view view _int32 _int32 _double _int32 _double _uint64 (out _double) (out _int32)))
+(define-job
+ kc-fit-job
+ canary-library
+ "kc_fit_job"
+ (handle view view view _int32 _int32 _double _int32 _double _uint64 (out _double) (out _int32)))
 (define-job kc-predict-job
             canary-library
             "kc_predict_job"

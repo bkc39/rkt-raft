@@ -27,8 +27,7 @@
   (log-raft-debug "exit: jobs in flight: ~a; waited ~a ms" in-flight waited)
   (cond
     [(positive? still-running)
-     (log-raft-warning "exit: jobs still running: ~a; exiting without native teardown"
-                       still-running)]
+     (log-raft-warning "exit: jobs still running: ~a; exiting without native teardown" still-running)]
     [else (void)]))
 
 (define exit-hook ;; noqa

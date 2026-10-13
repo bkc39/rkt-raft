@@ -15,7 +15,7 @@ struct executor_slot {
   executor_slot& operator=(const executor_slot&) = delete;
   executor_slot(executor_slot&&) = delete;
   executor_slot& operator=(executor_slot&&) = delete;
-  ~executor_slot();
+  ~executor_slot() = default;
 
   void submit(rr_job* job);
 

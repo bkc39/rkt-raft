@@ -98,11 +98,5 @@
   (match-define (list n-samples _) (shape X))
   (define labels (device-vector n-samples #:dtype 'int32 #:resources resources))
   (define inertia
-    (kc-predict-job 'kmeans-predict
-                    resources
-                    centroids
-                    X
-                    sample-weight
-                    (if normalize? 1 0)
-                    labels))
+    (kc-predict-job 'kmeans-predict resources centroids X sample-weight (if normalize? 1 0) labels))
   (values labels inertia))

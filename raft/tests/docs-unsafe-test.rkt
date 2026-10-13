@@ -213,10 +213,11 @@
               canary
               "kc_make_blobs_job"
               (handle view view _int32 _double _int32 _double _double _uint64))
-  (define-job kc-fit-job
-              canary
-              "kc_fit_job"
-              (handle view view view _int32 _int32 _double _int32 _double _uint64 (out _double) (out _int32)))
+  (define-job
+   kc-fit-job
+   canary
+   "kc_fit_job"
+   (handle view view view _int32 _int32 _double _int32 _double _uint64 (out _double) (out _int32)))
   (define-job kc-fit-job/short canary "kc_fit_job" (handle view view view _int32))
   (define check (status-checker kc-last-error kc-last-error-kind))
   (define handle (resources->handle-pointer (current-device-resources)))
@@ -226,11 +227,20 @@
     (kc-fit-job 'kmeans-fit (current-device-resources) X #f fitted 0 300 1e-4 1 0.0 42))
   (check-equal? (list (> inertia 0) (>= n-iter 1)) '(#t #t))
   (define ints (list*->device-matrix '((1 2) (3 4) (5 6)) #:dtype 'int32))
-  (check-raft-error
-   'logic
-   "kmeans-fit: X: expected float32 or float64, got int32"
-   (lambda ()
-     (kc-fit-job 'kmeans-fit (current-device-resources) ints #f (device-matrix 2 2) 0 300 1e-4 1 0.0 42)))
+  (check-raft-error 'logic
+                    "kmeans-fit: X: expected float32 or float64, got int32"
+                    (lambda ()
+                      (kc-fit-job 'kmeans-fit
+                                  (current-device-resources)
+                                  ints
+                                  #f
+                                  (device-matrix 2 2)
+                                  0
+                                  300
+                                  1e-4
+                                  1
+                                  0.0
+                                  42)))
   (define big (device-matrix 1000000 32))
   (kc-make-blobs-job 'blobs
                      (current-device-resources)

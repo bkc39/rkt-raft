@@ -23,6 +23,7 @@ namespace {
 
 using rr::test::job_args;
 using rr::test::seconds_since;
+using one_buffer = std::array<rr_buffer*, 1>;
 
 void atexit_marker() {
   rr::test::say("atexit\n");
@@ -34,7 +35,9 @@ struct static_marker {
   static_marker& operator=(const static_marker&) = delete;
   static_marker(static_marker&&) = delete;
   static_marker& operator=(static_marker&&) = delete;
-  ~static_marker() { rr::test::say("static\n"); }
+  ~static_marker() {
+    rr::test::say("static\n");
+  }
 };
 
 void mark_exit() {
@@ -61,13 +64,13 @@ drained drain() {
   return d;
 }
 
-void require_drained(const drained& d, int64_t in_flight,
-                     int64_t still_running, double from, double to) {
+void require_drained(const drained& d, int64_t in_flight, int64_t still_running,
+                     double from, double to) {
   if (d.in_flight != in_flight || d.still_running != still_running ||
       d.seconds < from || d.seconds > to) {
     fail("drain gave (" + std::to_string(d.in_flight) + ", " +
-         std::to_string(d.still_running) + ") in " +
-         std::to_string(d.seconds) + " s");
+         std::to_string(d.still_running) + ") in " + std::to_string(d.seconds) +
+         " s");
   }
 }
 
@@ -93,15 +96,16 @@ rr_job* sleeper(rr_resources* r, int32_t ms, double bound,
 }
 
 rr_job* stuck(rr_resources* r, double bound) {
-  rr_job* job =
-      rr::test::submit(r, job_args{}, bound, rr::test::never_returns);
+  rr_job* job = rr::test::submit(r, job_args{}, bound, rr::test::never_returns);
   kept().push_back(job);
   return job;
 }
 
 class ExitDeathTest : public ::testing::Test {
  protected:
-  void SetUp() override { GTEST_FLAG_SET(death_test_style, "threadsafe"); }
+  void SetUp() override {
+    GTEST_FLAG_SET(death_test_style, "threadsafe");
+  }
 };
 
 }  // namespace
@@ -130,8 +134,7 @@ TEST_F(ExitDeathTest, AJobPastItsBoundSkipsTeardown) {
 TEST_F(ExitDeathTest, EveryWaiterWakes) {
   EXPECT_EXIT(
       {
-        sleeper(host(), 100,
-                std::numeric_limits<double>::infinity());
+        sleeper(host(), 100, std::numeric_limits<double>::infinity());
         drained other;
         std::thread second{[&] { other = drain(); }};
         const drained first = drain();
@@ -267,7 +270,7 @@ TEST_F(ExitDeathTest, ARefusedJobPinsNothing) {
         }
         require_drained(drain(), 0, 0, 0, 0.01);
         const uint64_t drops = rr_buffer_drop_count();
-        std::array<rr_buffer*, 1> pins{buffer};
+        one_buffer pins{buffer};
         rr_job* job = rr::test::submit(r, job_args{}, 1.0,
                                        rr::test::run_test_job, pins.data(), 1);
         rr_buffer_free(buffer);

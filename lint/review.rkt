@@ -9,7 +9,7 @@
          should-review?)
 
 (define scoped-test-forms
-  (seteq 'test-canary 'test-gpu 'test-pools 'test-probe 'test-twin 'test-without-gpu))
+  (seteq 'test-canary 'test-gpu 'test-host-probe 'test-pools 'test-probe 'test-twin 'test-without-gpu))
 
 (define (named? head name)
   (eq? (syntax-e head) name))

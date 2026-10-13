@@ -1,7 +1,7 @@
 #lang racket/base
 
-(require ;; whole-module: define-runtime-path needs bindings only-in strips
-         racket/runtime-path
+;; whole-module: define-runtime-path needs bindings only-in strips
+(require racket/runtime-path
          (only-in rackunit check-equal?)
          (only-in raft/tests/private/exit-run
                   check-lines

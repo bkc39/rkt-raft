@@ -42,10 +42,10 @@
 
 (define (check-lines actual expected)
   (with-check-info (['stderr actual])
-    (check-equal? (length actual) (length expected))
-    (for ([line (in-list actual)]
-          [want (in-list expected)])
-      (check-true (line-matches? want line) line))))
+                   (check-equal? (length actual) (length expected))
+                   (for ([line (in-list actual)]
+                         [want (in-list expected)])
+                     (check-true (line-matches? want line) line))))
 
 (define (environment-with pairs)
   (define variables (environment-variables-copy (current-environment-variables)))

@@ -17,7 +17,8 @@ _Static_assert(offsetof(rr_job_outcome, kind) == 4, "kind follows status");
 _Static_assert(offsetof(rr_job_outcome, message) == 8, "message follows kind");
 _Static_assert(RR_JOB_MESSAGE_BYTES == 4096, "RR_JOB_MESSAGE_BYTES is 4096");
 
-static void compile_job_entry(void* args, size_t args_len, rr_job_outcome* outcome) {
+static void compile_job_entry(void* args, size_t args_len,
+                              rr_job_outcome* outcome) {
   (void)args;
   (void)args_len;
   (void)outcome;

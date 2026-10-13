@@ -56,7 +56,8 @@ void meet(int32_t /*index*/) {
   std::unique_lock<std::mutex> held{meet_lock};
   ++arrived;
   met.notify_all();
-  if (met.wait_for(held, std::chrono::seconds(5), [] { return arrived >= 2; })) {
+  if (met.wait_for(held, std::chrono::seconds(5),
+                   [] { return arrived >= 2; })) {
     meetings.fetch_add(1);
   }
 }
@@ -128,8 +129,8 @@ TEST(Executor, OneJobRunsOnceOnAWorker) {
   EXPECT_EQ(rr_job_status(job, &kind), RR_OK);
   EXPECT_STREQ(rr_job_message(job), "");
   EXPECT_EQ(rr_job_read(job, into.data(), into.size()), RR_ERROR);
-  EXPECT_EQ(rr_last_error(), "into: expected " + std::to_string(sizeof args) +
-                                 " bytes, got 1");
+  EXPECT_EQ(rr_last_error(),
+            "into: expected " + std::to_string(sizeof args) + " bytes, got 1");
   job_args back{};
   EXPECT_EQ(rr_job_read(job, &back, sizeof back), RR_OK);
   EXPECT_EQ(back.held, &g);
@@ -196,8 +197,8 @@ TEST(Executor, EachReleaseOrderFreesTheJobOnce) {
   rr_job_release(nullptr);
   EXPECT_TRUE(rr::test::eventually([&] { return rr_jobs_live() == live; }));
   rr_resources_free(r);
-  EXPECT_TRUE(rr::test::eventually(
-      [&] { return rr::test::open_fds() == fds; }));
+  EXPECT_TRUE(
+      rr::test::eventually([&] { return rr::test::open_fds() == fds; }));
 }
 
 TEST(Executor, FreeingResourcesRunsTheQueueThenEndsTheWorker) {
@@ -218,8 +219,8 @@ TEST(Executor, FreeingResourcesRunsTheQueueThenEndsTheWorker) {
     rr_job_release(job);
   }
   EXPECT_EQ(order, (std::vector<int32_t>{0, 1, 2}));
-  EXPECT_TRUE(rr::test::eventually(
-      [&] { return rr_executor_threads() == threads; }));
+  EXPECT_TRUE(
+      rr::test::eventually([&] { return rr_executor_threads() == threads; }));
 }
 
 TEST(Executor, HostResourcesRefuseWhatNeedsADevice) {
@@ -291,8 +292,8 @@ void pin_in_order(const std::array<step, 3>& steps) {
         break;
       case step::finish:
         g.open_now();
-        ASSERT_TRUE(rr::test::eventually(
-            [] { return rr_jobs_in_flight() == 0; }));
+        ASSERT_TRUE(
+            rr::test::eventually([] { return rr_jobs_in_flight() == 0; }));
         finished = true;
         break;
     }
@@ -305,8 +306,7 @@ void pin_in_order(const std::array<step, 3>& steps) {
 
 TEST(Executor, AJobPinsItsBuffersUntilItIsDone) {
   RR_REQUIRE_GPU();
-  std::array<step, 3> steps{step::free_buffer, step::release_job,
-                            step::finish};
+  std::array<step, 3> steps{step::free_buffer, step::release_job, step::finish};
   std::sort(steps.begin(), steps.end());
   do {
     pin_in_order(steps);

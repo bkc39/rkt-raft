@@ -116,7 +116,8 @@
   (define start (current-inexact-milliseconds))
   (define callers
     (for/list ([resources (in-list resources-list)])
-      (thread (lambda () (list (inertia-on X resources) (milliseconds-since start))) #:keep 'results)))
+      (thread (lambda () (list (inertia-on X resources) (milliseconds-since start)))
+              #:keep 'results)))
   (map thread-wait callers))
 
 (define (close-to? expected actual)
@@ -131,7 +132,8 @@
   (define lone (milliseconds-since start))
   (define shared (fits-at-once X (list r r)))
   (define last-end (apply max (map cadr shared)))
-  (check-true (>= last-end (* 1.6 lone)) (format "the second fit ended at ~a ms; a lone fit takes ~a ms" last-end lone))
+  (check-true (>= last-end (* 1.6 lone))
+              (format "the second fit ended at ~a ms; a lone fit takes ~a ms" last-end lone))
   (for ([result (in-list shared)])
     (check-true (close-to? lone-inertia (car result))))
   (for ([result (in-list (fits-at-once X (list (device-resources) (device-resources))))])

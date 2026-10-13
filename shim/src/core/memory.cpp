@@ -2,6 +2,7 @@
 
 #include <atomic>
 #include <cstdint>
+#include <optional>
 
 #include "detail/handles.hpp"
 
@@ -32,7 +33,10 @@ void release_on_device(T* object, std::atomic<uint64_t>& drops) noexcept {
     return;
   }
   try {
-    const device_guard guard{object->device};
+    std::optional<device_guard> guard;
+    if (object->device >= 0) {
+      guard.emplace(object->device);
+    }
     delete object;
     drops.fetch_add(1, std::memory_order_relaxed);
   } catch (...) {
@@ -41,6 +45,21 @@ void release_on_device(T* object, std::atomic<uint64_t>& drops) noexcept {
 }
 
 }  // namespace
+
+void count_release_failure() noexcept {
+  release_failures().fetch_add(1, std::memory_order_relaxed);
+}
+
+void pin(rr_buffer& buffer) noexcept {
+  buffer.refs.fetch_add(1, std::memory_order_relaxed);
+}
+
+void unpin(rr_buffer* buffer) noexcept {
+  if (buffer != nullptr &&
+      buffer->refs.fetch_sub(1, std::memory_order_acq_rel) == 1) {
+    release_on_device(buffer, buffer_drops());
+  }
+}
 
 }  // namespace rr
 
@@ -51,7 +70,7 @@ void rr_resources_free(rr_resources* resources) {
 }
 
 void rr_buffer_free(rr_buffer* buffer) {
-  rr::release_on_device(buffer, rr::buffer_drops());
+  rr::unpin(buffer);
 }
 
 uint64_t rr_resources_drop_count(void) {
