@@ -25,10 +25,8 @@
   (define-values (in-flight still-running) (rr-exit-drain))
   (define waited (exact-floor (- (current-inexact-monotonic-milliseconds) start)))
   (log-raft-debug "exit: jobs in flight: ~a; waited ~a ms" in-flight waited)
-  (cond
-    [(positive? still-running)
-     (log-raft-warning "exit: jobs still running: ~a; exiting without native teardown" still-running)]
-    [else (void)]))
+  (when (positive? still-running)
+    (log-raft-warning "exit: jobs still running: ~a; exiting without native teardown" still-running)))
 
 (define exit-hook ;; noqa
   (and (= (rr-os-thread-id) (rr-os-thread-id/original))

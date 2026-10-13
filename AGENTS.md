@@ -204,7 +204,9 @@ plans/scoping-plan.md         the approved plan (revision 5), as Markdown
      sketches; when L1a and L1b need the plan's signatures (a stream and
      stream count, a memory kind), they get new names.
    - `scripts/check-bindings.rkt` compares the `rr_` exports (`nm -D`) with
-     the bindings, both ways.
+     the bindings, both ways. A C function is bound once per calling
+     convention: `rr_os_thread_id` also has an `#:in-original-place? #t`
+     binding.
 10. **Staging the native library.** `libraftrkt.so` reaches
     `raft/native-libs/` by temp file plus `rename(2)`, and only when the
     bytes differ (the flake's shell hook, `nix run .#copy-native-libs`, and

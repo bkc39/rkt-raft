@@ -561,8 +561,8 @@
   (check-true (< (- (current-inexact-monotonic-milliseconds) start) 2000)))
 
 (test-probe "a killed caller's arrays and resources live until its job returns"
-  (define counts
-    (lambda () (list (buffer-drop-count) (resources-drop-count) (release-failure-count))))
+  (define (counts)
+    (list (buffer-drop-count) (resources-drop-count) (release-failure-count)))
   (with-release ([g (closed-gate) release-gate])
     (define caller
       (thread (lambda ()

@@ -29,11 +29,10 @@
     [(list _ w) w]
     [_ #f]))
 
-(define (in-flight-line n low high)
-  (lambda (line)
-    (match (in-flight-parts line)
-      [(list (== n) w) (<= low w high)]
-      [_ #f])))
+(define ((in-flight-line n low high) line)
+  (match (in-flight-parts line)
+    [(list (== n) w) (<= low w high)]
+    [_ #f]))
 
 (define (line-matches? want line)
   (if (string? want)
