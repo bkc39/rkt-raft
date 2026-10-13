@@ -464,6 +464,10 @@ plans/scoping-plan.md         the approved plan (revision 5), as Markdown
   `tests/private/raft-error.rkt` (`check-raft-error kind message thunk`),
   `tests/private/ticker.rkt` (`call-with-ticker`, which answers how many
   10 ms waits another thread finished during the thunk, then its values),
+  `tests/private/gate.rkt` (`closed-gate`, released by `with-release`: a
+  call blocks in `wait-at-gate` until the test's `open-gate!`, and
+  `await-entry` waits for it to arrive, so a test checks mid-call state
+  without a clock),
   `tests/private/python-env.rkt` (the twin runner: `PYTHONSAFEPATH` probes,
   a temp directory, JSON in and out, `check-close`, `test-twin`),
   `tests/private/bindings.rkt` (the binding reader shared by the audit and
