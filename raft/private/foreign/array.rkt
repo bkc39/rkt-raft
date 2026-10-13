@@ -31,6 +31,7 @@
          (rename-out [rr-view-device view-device] [rr-view-dtype view-dtype-code]) ;; noqa
          view-shape
          view-strides
+         _rr-view
          _rr-view-pointer) ;; noqa
 
 (define max-rank 8)

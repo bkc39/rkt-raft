@@ -61,7 +61,7 @@ int rr_resources_create(int32_t device, rr_resources** out) {
     auto owner = std::make_shared<rr::owned_handle>();
     std::shared_ptr<raft::handle_t> handle(owner, &owner->handle);
     static_cast<void>(raft::resource::get_device_id(*handle));
-    result = new rr_resources{device, std::move(handle)};
+    result = new rr_resources{device, std::move(handle), {}};
   });
 }
 

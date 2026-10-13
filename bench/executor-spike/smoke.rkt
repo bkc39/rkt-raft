@@ -1,0 +1,17 @@
+#lang racket/base
+(require (only-in kmeans-canary blobs kmeans-fit kmeans-predict)
+         (only-in kmeans-canary/private/native kc-noop-job)
+         (only-in raft current-device-resources shape)
+         (only-in raft/unsafe current-job-wait jobs-live jobs-in-flight executor-threads))
+
+(define r (current-device-resources))
+(printf "noop poller: ~a\n" (kc-noop-job 'noop r 41))
+(printf "noop fd-evt: ~a\n" (parameterize ([current-job-wait 'fd-evt]) (kc-noop-job 'noop r 41)))
+(define-values (X y) (blobs 1000 4 #:centers 3 #:seed 1))
+(define-values (c inertia n-iter) (kmeans-fit X #:n-clusters 3 #:seed 1))
+(printf "fit: ~a ~a ~a\n" (shape c) inertia n-iter)
+(define-values (labels score) (kmeans-predict c X))
+(printf "predict: ~a ~a\n" (shape labels) score)
+(with-handlers ([exn:fail? (lambda (e) (printf "error ok: ~a\n" (exn-message e)))])
+  (kmeans-fit X #:n-clusters 2000))
+(printf "live ~a in-flight ~a threads ~a\n" (jobs-live) (jobs-in-flight) (executor-threads))

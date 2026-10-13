@@ -52,6 +52,13 @@ void release_on_device(T* object, std::atomic<uint64_t>& drops) noexcept {
 
 }  // namespace
 
+void unpin(rr_buffer* buffer) noexcept {
+  if (buffer != nullptr &&
+      buffer->refs->fetch_sub(1, std::memory_order_acq_rel) == 1) {
+    release_on_device(buffer, buffer_drops());
+  }
+}
+
 }  // namespace rr
 
 extern "C" {
@@ -61,7 +68,7 @@ void rr_resources_free(rr_resources* resources) {
 }
 
 void rr_buffer_free(rr_buffer* buffer) {
-  rr::release_on_device(buffer, rr::buffer_drops());
+  rr::unpin(buffer);
 }
 
 void rr_holder_free(rr_holder* holder) {

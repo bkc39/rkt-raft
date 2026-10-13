@@ -6,6 +6,7 @@
 #include "raftrkt/abi.h"
 #include "raftrkt/array.h"
 #include "raftrkt/deposit.h"
+#include "raftrkt/job.h"
 
 #ifdef __GNUC__
 #define KC_API __attribute__((visibility("default")))
@@ -51,6 +52,13 @@ KC_API int kc_current_is_async(int32_t device, int32_t* out);
 KC_API int kc_pool_bytes(int32_t device, int64_t* used, int64_t* high,
                          int64_t* reserved);
 KC_API int kc_pool_reset_high(int32_t device);
+KC_API int kc_noop(int32_t x, int32_t* out);
+KC_API int kc_sleep(int32_t milliseconds);
+KC_API void kc_fit_job(void* args, size_t n, rr_job_outcome* out);
+KC_API void kc_predict_job(void* args, size_t n, rr_job_outcome* out);
+KC_API void kc_noop_job(void* args, size_t n, rr_job_outcome* out);
+KC_API void kc_sleep_job(void* args, size_t n, rr_job_outcome* out);
+
 KC_API int kc_device_memory(int32_t device, int64_t* free_bytes,
                             int64_t* total_bytes);
 

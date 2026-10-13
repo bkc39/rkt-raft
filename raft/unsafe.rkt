@@ -14,11 +14,30 @@
          (only-in "private/error.rkt" call/raft exn:fail:raft)
          (only-in "private/foreign/array.rkt" clear-view! keep-reachable)
          (only-in "private/foreign/core.rkt" rr-abi rr-resources-handle)
+         (only-in "private/job.rkt"
+                  current-exit-wait
+                  current-job-breaks
+                  current-job-log
+                  current-job-wait
+                  define-job
+                  executor-threads
+                  jobs-in-flight
+                  jobs-live
+                  now-ns)
          (only-in "private/os-call.rkt" call-in-os-thread/deferring-breaks)
          (only-in "private/resource.rkt" drop-owner! hold-owner! with-release)
          (only-in "private/resources.rkt" current-device-resources resources-handle))
 
-(provide deposit
+(provide current-exit-wait
+         current-job-breaks ;; noqa
+         current-job-log ;; noqa
+         current-job-wait ;; noqa
+         define-job
+         executor-threads ;; noqa
+         jobs-in-flight ;; noqa
+         jobs-live ;; noqa
+         now-ns ;; noqa
+         deposit
          deposit->list ;; noqa
          deposit? ;; noqa
          raft-abi-pointer

@@ -14,9 +14,19 @@
          (only-in ffi/unsafe/define define-ffi-definer)
          (only-in ffi/unsafe/define/conventions convention:hyphen->underscore)
          (only-in raft exn:fail:raft)
-         (only-in raft/unsafe raft-abi-pointer status-checker with-array-views with-deposits))
+         (only-in raft/unsafe
+                  define-job
+                  raft-abi-pointer
+                  status-checker
+                  with-array-views
+                  with-deposits))
 
 (provide call/kc
+         kc-fit-job
+         kc-noop
+         kc-noop-job
+         kc-predict-job
+         kc-sleep-job
          canary-path
          deposit-members!
          kc-check-abi
@@ -49,6 +59,19 @@
 (define call/kc (status-checker kc-last-error kc-last-error-kind))
 
 (define-kc kc-check-abi (_fun _pointer -> _int))
+
+(define-job kc-fit-job
+            canary-library
+            "kc_fit_job"
+            (handle view view? view _int32 _int32 _double _int32 _double _uint64 (out _double) (out _int32)))
+
+(define-job kc-predict-job canary-library "kc_predict_job" (handle view view view? _int32 view (out _double)))
+
+(define-job kc-noop-job canary-library "kc_noop_job" (_int32 (out _int32)))
+
+(define-job kc-sleep-job canary-library "kc_sleep_job" (_int32))
+
+(define-kc kc-noop (_fun _int32 (out : (_ptr o _int32)) -> (status : _int) -> (values status out)))
 
 (define-kc kc-fit
   (_fun #:blocking?
