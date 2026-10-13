@@ -243,26 +243,41 @@ TEST(DepositHeader, TheChecksRunInOrder) {
                  "out: region 1 overlaps region 0");
 }
 
-TEST(DepositHeader, ARecordClosedAfterItsCheckIsNotPublished) {
-  raft::handle_t handle;
-  rr_deposit record = open_record(handle);
+template <typename Owner>
+std::string published(rr_deposit& record, std::unique_ptr<Owner>& owner) {
+  try {
+    raftrkt::detail::publish("out", record, owner);
+  } catch (const raftrkt::logic_error& e) {
+    return e.what();
+  }
+  return "no refusal";
+}
+
+outcome closed_before_publish(rr_deposit& record,
+                              const raft::handle_t& handle) {
   int drops = 0;
+  outcome result{"no refusal", false, 0, 0};
   {
     auto owner = std::make_unique<counted>(drops);
     rr_deposit& checked = raftrkt::detail::checked_fill(
         "out", &record, handle, owner, {raftrkt::region(floats(), 0)});
     record.state = RR_DEPOSIT_CLOSED;
-    std::string message = "no refusal";
-    try {
-      raftrkt::detail::publish("out", checked, owner);
-    } catch (const raftrkt::logic_error& e) {
-      message = e.what();
-    }
-    EXPECT_EQ(message, "out: closed");
-    EXPECT_EQ(drops, 0);
-    EXPECT_NE(owner, nullptr);
+    result.message = published(checked, owner);
+    result.untouched = owner != nullptr;
+    result.drops_before_scope_end = drops;
   }
-  EXPECT_EQ(drops, 1);
+  result.drops = drops;
+  return result;
+}
+
+TEST(DepositHeader, ARecordClosedAfterItsCheckIsNotPublished) {
+  raft::handle_t handle;
+  rr_deposit record = open_record(handle);
+  const outcome o = closed_before_publish(record, handle);
+  EXPECT_EQ(o.message, "out: closed");
+  EXPECT_TRUE(o.untouched) << "the caller still holds the owner";
+  EXPECT_EQ(o.drops_before_scope_end, 0);
+  EXPECT_EQ(o.drops, 1);
   EXPECT_EQ(record.state, RR_DEPOSIT_CLOSED);
   EXPECT_EQ(record.owner, nullptr);
   EXPECT_EQ(record.release, nullptr);

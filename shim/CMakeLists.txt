@@ -91,6 +91,7 @@ if(BUILD_TESTING)
     tests/array_test.cpp
     tests/core_test.cpp
     tests/cuda_language_test.cu
+    tests/deposit_race_test.cpp
     tests/deposit_test.cpp
     tests/memory_test.cpp
     tests/resources_test.cpp

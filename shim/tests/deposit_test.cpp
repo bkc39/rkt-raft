@@ -16,120 +16,18 @@
 #include <string>
 #include <vector>
 
+#include "deposit_fixture.hpp"
 #include "detail/array_api.h"
 #include "detail/deposit_api.h"
 #include "gpu.hpp"
 #include "raftrkt/c_api.h"
 
+namespace rr::test::deposit {
 namespace {
 
-constexpr int64_t rows = 3;
-constexpr int64_t cols = 4;
-constexpr int64_t matrix_size = rows * cols;
-constexpr int64_t index_count = 5;
 constexpr float written_base = 100.0F;
 constexpr int64_t view_offset_elements = 4;
 constexpr int64_t view_length = 8;
-
-struct tally {
-  int drops = 0;
-  int stale = 0;
-};
-
-struct owner {
-  owner(const raft::handle_t& h, tally& t)
-      : handle(h),
-        counts(&t),
-        matrix(matrix_size, raft::resource::get_cuda_stream(h)),
-        indices(index_count, raft::resource::get_cuda_stream(h)) {}
-  ~owner() {
-    ++counts->drops;
-    const cudaError_t status =
-        cudaStreamQuery(raft::resource::get_cuda_stream(handle).value());
-    if (status != cudaSuccess && status != cudaErrorNotReady) {
-      ++counts->stale;
-    }
-  }
-  owner(const owner&) = delete;
-  owner& operator=(const owner&) = delete;
-  owner(owner&&) = delete;
-  owner& operator=(owner&&) = delete;
-
-  const raft::handle_t& handle;
-  tally* counts;
-  rmm::device_uvector<float> matrix;
-  rmm::device_uvector<int64_t> indices;
-};
-
-template <typename T>
-std::vector<T> iota(int64_t n) {
-  std::vector<T> values(static_cast<std::size_t>(n));
-  std::iota(values.begin(), values.end(), T{});
-  return values;
-}
-
-struct session {
-  rr_resources* resources = nullptr;
-  rr_holder* holder = nullptr;
-  rr_deposit* record = nullptr;
-  const raft::handle_t* handle = nullptr;
-};
-
-session open_session() {
-  session s;
-  EXPECT_EQ(rr_resources_create(0, &s.resources), RR_OK) << rr_last_error();
-  void* handle = nullptr;
-  EXPECT_EQ(rr_resources_handle(s.resources, &handle), RR_OK);
-  s.handle = static_cast<const raft::handle_t*>(handle);
-  EXPECT_EQ(rr_holder_create(s.resources, &s.holder), RR_OK) << rr_last_error();
-  EXPECT_EQ(rr_holder_record(s.holder, &s.record), RR_OK) << rr_last_error();
-  return s;
-}
-
-void fill(const session& s, tally& t) {
-  auto o = std::make_unique<owner>(*s.handle, t);
-  const auto stream = raft::resource::get_cuda_stream(*s.handle);
-  const std::vector<float> m = iota<float>(matrix_size);
-  const std::vector<int64_t> i = iota<int64_t>(index_count);
-  ASSERT_EQ(
-      cudaMemcpyAsync(o->matrix.data(), m.data(), m.size() * sizeof(float),
-                      cudaMemcpyHostToDevice, stream.value()),
-      cudaSuccess);
-  ASSERT_EQ(
-      cudaMemcpyAsync(o->indices.data(), i.data(), i.size() * sizeof(int64_t),
-                      cudaMemcpyHostToDevice, stream.value()),
-      cudaSuccess);
-  ASSERT_EQ(cudaStreamSynchronize(stream.value()), cudaSuccess);
-  const std::initializer_list<rr_view> regions{
-      raftrkt::region(o->matrix.data(), rows, cols, raftrkt::layout::row_major),
-      raftrkt::region(o->indices)};
-  raftrkt::deposit(s.record, "out", *s.handle, std::move(o), regions);
-}
-
-std::string failure(int status) {
-  return status == RR_OK ? std::string("no refusal")
-                         : std::string(rr_last_error());
-}
-
-struct counters {
-  uint64_t holders = rr_holder_drop_count();
-  uint64_t owners = rr_owner_release_count();
-  uint64_t buffers = rr_buffer_drop_count();
-  uint64_t failures = rr_release_failure_count();
-};
-
-struct released {
-  uint64_t holders;
-  uint64_t owners;
-  uint64_t buffers;
-};
-
-void expect_released(const counters& before, const released& delta) {
-  EXPECT_EQ(rr_holder_drop_count(), before.holders + delta.holders);
-  EXPECT_EQ(rr_owner_release_count(), before.owners + delta.owners);
-  EXPECT_EQ(rr_buffer_drop_count(), before.buffers + delta.buffers);
-  EXPECT_EQ(rr_release_failure_count(), before.failures);
-}
 
 void expect_open(const session& s) {
   EXPECT_EQ(s.record->state, RR_DEPOSIT_OPEN);
@@ -182,29 +80,6 @@ void expect_adoption_refusals(rr_holder* holder) {
   EXPECT_EQ(twice, nullptr);
 }
 
-rr_buffer* adopted(rr_holder* holder, int32_t index, rr_view& view) {
-  rr_buffer* buffer = nullptr;
-  EXPECT_EQ(rr_holder_adopt(holder, index, &view, &buffer), RR_OK)
-      << rr_last_error();
-  return buffer;
-}
-
-void expect_count(rr_holder* holder, int32_t expected) {
-  int32_t count = -1;
-  ASSERT_EQ(rr_holder_count(holder, &count), RR_OK) << rr_last_error();
-  EXPECT_EQ(count, expected);
-}
-
-void free_holder_then_buffers(rr_holder* holder,
-                              const std::array<rr_buffer*, 2>& buffers,
-                              const tally& t) {
-  rr_holder_free(holder);
-  rr_buffer_free(buffers[0]);
-  EXPECT_EQ(t.drops, 0);
-  rr_buffer_free(buffers[1]);
-  EXPECT_EQ(t.drops, 1);
-}
-
 TEST(Deposit, AHolderGoesFromOpenToFilledToClosed) {
   RR_REQUIRE_GPU();
   const counters before;
@@ -229,77 +104,6 @@ TEST(Deposit, AHolderGoesFromOpenToFilledToClosed) {
   rr_resources_free(s.resources);
   EXPECT_EQ(t.stale, 0);
   expect_released(before, {1, 1, 2});
-}
-
-TEST(Deposit, AHolderHandsOutItsRecordOnce) {
-  RR_REQUIRE_GPU();
-  const counters before;
-  session s = open_session();
-  rr_deposit* again = nullptr;
-  EXPECT_EQ(failure(rr_holder_record(s.holder, &again)),
-            "the deposit is closed");
-  EXPECT_EQ(again, nullptr);
-  EXPECT_EQ(s.record->state, RR_DEPOSIT_OPEN);
-  rr_holder_free(s.holder);
-  rr_resources_free(s.resources);
-  expect_released(before, {1, 0, 0});
-}
-
-TEST(Deposit, AHolderClosedBeforeThePublishLeavesTheOwnerToTheCaller) {
-  RR_REQUIRE_GPU();
-  const counters before;
-  tally t;
-  session s = open_session();
-  {
-    auto o = std::make_unique<owner>(*s.handle, t);
-    rr_deposit& record = raftrkt::detail::checked_fill(
-        "out", s.record, *s.handle, o,
-        {raftrkt::region(o->matrix.data(), rows, cols,
-                         raftrkt::layout::row_major)});
-    EXPECT_EQ(rr_holder_close(s.holder), RR_OK);
-    std::string message = "no refusal";
-    try {
-      raftrkt::detail::publish("out", record, o);
-    } catch (const raftrkt::logic_error& e) {
-      message = e.what();
-    }
-    EXPECT_EQ(message, "out: closed");
-    EXPECT_NE(o, nullptr);
-    EXPECT_EQ(s.record->state, RR_DEPOSIT_CLOSED);
-    EXPECT_EQ(s.record->owner, nullptr);
-  }
-  EXPECT_EQ(t.drops, 1);
-  expect_count(s.holder, 0);
-  rr_holder_free(s.holder);
-  rr_resources_free(s.resources);
-  EXPECT_EQ(t.drops, 1);
-  EXPECT_EQ(t.stale, 0);
-  expect_released(before, {1, 0, 0});
-}
-
-TEST(Deposit, AFailedAdoptionForgetsEveryAdoptionSoARetryStartsAgain) {
-  RR_REQUIRE_GPU();
-  const counters before;
-  tally t;
-  session s = open_session();
-  fill(s, t);
-  rr_view view{};
-  rr_buffer* abandoned = adopted(s.holder, 0, view);
-  s.record->regions[1].rank = 3;
-  rr_buffer* none = nullptr;
-  EXPECT_EQ(failure(rr_holder_adopt(s.holder, 1, &view, &none)),
-            "region 1: expected rank 1 or 2, got rank 3");
-  EXPECT_EQ(none, nullptr);
-  s.record->regions[1].rank = 1;
-  const std::array<rr_buffer*, 2> buffers{adopted(s.holder, 0, view),
-                                          adopted(s.holder, 1, view)};
-  ASSERT_NE(buffers[0], nullptr);
-  ASSERT_NE(buffers[1], nullptr);
-  rr_buffer_free(abandoned);
-  free_holder_then_buffers(s.holder, buffers, t);
-  rr_resources_free(s.resources);
-  EXPECT_EQ(t.stale, 0);
-  expect_released(before, {1, 1, 3});
 }
 
 std::vector<float> written_values() {
@@ -544,3 +348,4 @@ TEST(Deposit, EveryOrderOfFreeingReleasesTheOwnerOnceWithItsHandleAlive) {
 }
 
 }  // namespace
+}  // namespace rr::test::deposit
