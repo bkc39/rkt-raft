@@ -48,6 +48,7 @@ struct rr_holder {
   std::shared_ptr<void> keep;
   rr_deposit record{};
   bool filled_at_close = false;
+  std::atomic<bool> issued{false};
   std::array<bool, RR_MAX_REGIONS> adopted{};
 };
 

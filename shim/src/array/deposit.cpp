@@ -71,6 +71,38 @@ int32_t checked_count(const rr_holder& holder) {
   return record.count;
 }
 
+// Racket adopts regions 0..count-1 in order and frees what it got when one
+// fails, so a failure forgets every adoption and a retry starts again.
+template <typename F>
+auto all_or_nothing(rr_holder& holder, F&& step) -> decltype(step()) {
+  try {
+    return std::forward<F>(step)();
+  } catch (...) {
+    holder.adopted.fill(false);
+    throw;
+  }
+}
+
+struct adoption {
+  std::unique_ptr<rr_buffer> buffer;
+  rr_view view;
+};
+
+adoption adopted_buffer(rr_holder& holder, std::size_t i) {
+  const rr_view& region = holder.record.regions[i];
+  const std::size_t bytes = raftrkt::detail::region_bytes("", region);
+  const device_guard guard{holder.device};
+  keep_owner(holder);
+  adoption result{std::make_unique<rr_buffer>(
+                      rr_buffer{holder.handle, holder.device, holder.keep,
+                                rmm::device_buffer{}, region.data, bytes}),
+                  region};
+  result.view.data = bytes == 0 ? nullptr : region.data;
+  result.view.memory = RR_MEMORY_DEVICE;
+  result.view.device = holder.device;
+  return result;
+}
+
 }  // namespace
 
 }  // namespace rr
@@ -110,7 +142,7 @@ int rr_holder_record(rr_holder* holder, rr_deposit** out) {
     if (state == RR_DEPOSIT_FILLED) {
       throw rr::logic_error("the deposit is already filled");
     }
-    if (state != RR_DEPOSIT_OPEN) {
+    if (state != RR_DEPOSIT_OPEN || h.issued.exchange(true)) {
       throw rr::logic_error("the deposit is closed");
     }
     result = &h.record;
@@ -148,7 +180,8 @@ int rr_holder_adopt(rr_holder* holder, int32_t index, rr_view* view,
     auto& filled = *rr::require(view, "view");
     filled = rr_view{};
     auto& h = *rr::require(holder, "holder");
-    const int32_t count = rr::checked_count(h);
+    const int32_t count =
+        rr::all_or_nothing(h, [&] { return rr::checked_count(h); });
     if (index < 0 || index >= count) {
       throw rr::logic_error("the deposit has no region " +
                             std::to_string(index) + "; it holds " +
@@ -159,18 +192,11 @@ int rr_holder_adopt(rr_holder* holder, int32_t index, rr_view* view,
       throw rr::logic_error("region " + std::to_string(index) +
                             " is already adopted");
     }
-    const rr_view& region = h.record.regions[i];
-    const std::size_t bytes = raftrkt::detail::region_bytes("", region);
-    const rr::device_guard guard{h.device};
-    rr::keep_owner(h);
-    auto adopted = std::make_unique<rr_buffer>(rr_buffer{
-        h.handle, h.device, h.keep, rmm::device_buffer{}, region.data, bytes});
-    filled = region;
-    filled.data = bytes == 0 ? nullptr : region.data;
-    filled.memory = RR_MEMORY_DEVICE;
-    filled.device = h.device;
+    auto adopted =
+        rr::all_or_nothing(h, [&] { return rr::adopted_buffer(h, i); });
+    filled = adopted.view;
     h.adopted.at(i) = true;
-    result = adopted.release();
+    result = adopted.buffer.release();
   });
 }
 }

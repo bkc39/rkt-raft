@@ -309,8 +309,9 @@ Binds each @racket[id] to a pointer to the deposit's @tt{rr_deposit}
 (@secref["ref-unsafe-c"]) for the extent of the @racket[body]s, and holds
 the deposit reachable, even across a killed caller's call. Every exit closes
 the deposit: a native call can no longer fill it, and a deposit left empty
-holds no arrays. A closed or already filled deposit raises
-@racket[exn:fail:raft] of kind @racket['logic]. Make the deposit on the
+holds no arrays. A deposit is bound once: binding it again, even while a
+killed caller's call is still filling it, raises @racket[exn:fail:raft] of
+kind @racket['logic]. Make the deposit on the
 resources the call runs on. Two identical @racket[id]s are a syntax error.}
 
 @defproc[(deposit->list [d deposit?]) (listof (or/c device-vector? device-matrix?))]{
@@ -502,11 +503,13 @@ and its contents are complete when the call returns.
        @tt{NULL} record, a record that is not open (@tt{"out: already
        filled"}, @tt{"out: closed"}), a record on other resources than
        @tt{handle}'s, no owner, more than 8 regions, a region of another
-       rank, element type, layout or alignment, or without data, overlapping
+       rank or element type, with a negative extent, a byte size that
+       overflows, another layout, no data or misaligned data, overlapping
        regions, and memory that is not on the record's device. A refusal
        throws @tt{raftrkt::logic_error}, touches nothing, and leaves the
        owner to the caller's @tt{unique_ptr}. Otherwise it fills the record
-       and takes the owner.}]
+       and takes the owner; a record closed during the checks is refused
+       with @tt{"out: closed"} and the owner is still the caller's.}]
 
 @listing["C++"]|{
 auto owner = std::make_unique<members<T>>(handle, m, d);

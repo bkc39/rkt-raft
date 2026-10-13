@@ -14,12 +14,12 @@
          (only-in ffi/unsafe/define define-ffi-definer)
          (only-in ffi/unsafe/define/conventions convention:hyphen->underscore)
          (only-in raft exn:fail:raft)
-         (only-in raft/unsafe raft-abi-pointer status-checker))
+         (only-in raft/unsafe raft-abi-pointer status-checker with-array-views with-deposits))
 
 (provide call/kc
          canary-path
+         deposit-members!
          kc-check-abi
-         kc-cluster-members
          kc-current-is-async
          kc-device-memory
          kc-fit
@@ -87,6 +87,12 @@
 
 (define-kc kc-cluster-members
   (_fun #:blocking? #t _pointer _pointer _pointer _int32 _pointer -> _int))
+
+(define (deposit-members! members X labels cluster #:resources resources)
+  (with-deposits ([out members])
+                 (with-array-views #:resources [handle resources] ([x X] [y labels])
+                   (call/kc 'cluster-members
+                            (lambda () (kc-cluster-members handle x y cluster out))))))
 
 (define-kc kc-owner-drop-count (_fun -> _uint64))
 (define-kc kc-owner-stale-count (_fun -> _uint64))

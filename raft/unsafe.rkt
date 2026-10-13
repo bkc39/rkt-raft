@@ -5,15 +5,20 @@
          ;; whole-module: it also provides syntax/parse at phase 1
          syntax/parse/define
          (only-in "private/array.rkt" settled-view)
-         (only-in "private/deposit.rkt" close-deposit! deposit deposit->list deposit-record deposit?)
+         (only-in "private/deposit.rkt"
+                  deposit->list
+                  deposit-record
+                  deposit-release
+                  deposit?
+                  open-deposit)
          (only-in "private/error.rkt" call/raft exn:fail:raft)
          (only-in "private/foreign/array.rkt" clear-view! keep-reachable)
          (only-in "private/foreign/core.rkt" rr-abi rr-resources-handle)
          (only-in "private/os-call.rkt" call-in-os-thread/deferring-breaks)
          (only-in "private/resource.rkt" drop-owner! hold-owner! with-release)
-         (only-in "private/resources.rkt" resources-handle))
+         (only-in "private/resources.rkt" current-device-resources resources-handle))
 
-(provide deposit ;; noqa
+(provide deposit
          deposit->list ;; noqa
          deposit? ;; noqa
          raft-abi-pointer
@@ -102,11 +107,8 @@
     #:description "a [name deposit-expr] binding"
     (pattern [name:id deposit:expr])))
 
-(define (deposit-release d) ;; noqa
-  (lambda (record)
-    (drop-owner! record)
-    (close-deposit! d)
-    (keep-reachable d)))
+(define (deposit #:resources [resources (current-device-resources)])
+  (open-deposit resources))
 
 (define-syntax-parse-rule (with-deposits (b:deposit-binding ...) body:expr ...+)
   #:fail-when (check-duplicate-identifier (syntax->list #'(b.name ...))) "duplicate binding name"

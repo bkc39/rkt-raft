@@ -231,6 +231,77 @@ TEST(Deposit, AHolderGoesFromOpenToFilledToClosed) {
   expect_released(before, {1, 1, 2});
 }
 
+TEST(Deposit, AHolderHandsOutItsRecordOnce) {
+  RR_REQUIRE_GPU();
+  const counters before;
+  session s = open_session();
+  rr_deposit* again = nullptr;
+  EXPECT_EQ(failure(rr_holder_record(s.holder, &again)),
+            "the deposit is closed");
+  EXPECT_EQ(again, nullptr);
+  EXPECT_EQ(s.record->state, RR_DEPOSIT_OPEN);
+  rr_holder_free(s.holder);
+  rr_resources_free(s.resources);
+  expect_released(before, {1, 0, 0});
+}
+
+TEST(Deposit, AHolderClosedBeforeThePublishLeavesTheOwnerToTheCaller) {
+  RR_REQUIRE_GPU();
+  const counters before;
+  tally t;
+  session s = open_session();
+  {
+    auto o = std::make_unique<owner>(*s.handle, t);
+    rr_deposit& record = raftrkt::detail::checked_fill(
+        "out", s.record, *s.handle, o,
+        {raftrkt::region(o->matrix.data(), rows, cols,
+                         raftrkt::layout::row_major)});
+    EXPECT_EQ(rr_holder_close(s.holder), RR_OK);
+    std::string message = "no refusal";
+    try {
+      raftrkt::detail::publish("out", record, o);
+    } catch (const raftrkt::logic_error& e) {
+      message = e.what();
+    }
+    EXPECT_EQ(message, "out: closed");
+    EXPECT_NE(o, nullptr);
+    EXPECT_EQ(s.record->state, RR_DEPOSIT_CLOSED);
+    EXPECT_EQ(s.record->owner, nullptr);
+  }
+  EXPECT_EQ(t.drops, 1);
+  expect_count(s.holder, 0);
+  rr_holder_free(s.holder);
+  rr_resources_free(s.resources);
+  EXPECT_EQ(t.drops, 1);
+  EXPECT_EQ(t.stale, 0);
+  expect_released(before, {1, 0, 0});
+}
+
+TEST(Deposit, AFailedAdoptionForgetsEveryAdoptionSoARetryStartsAgain) {
+  RR_REQUIRE_GPU();
+  const counters before;
+  tally t;
+  session s = open_session();
+  fill(s, t);
+  rr_view view{};
+  rr_buffer* abandoned = adopted(s.holder, 0, view);
+  s.record->regions[1].rank = 3;
+  rr_buffer* none = nullptr;
+  EXPECT_EQ(failure(rr_holder_adopt(s.holder, 1, &view, &none)),
+            "region 1: expected rank 1 or 2, got rank 3");
+  EXPECT_EQ(none, nullptr);
+  s.record->regions[1].rank = 1;
+  const std::array<rr_buffer*, 2> buffers{adopted(s.holder, 0, view),
+                                          adopted(s.holder, 1, view)};
+  ASSERT_NE(buffers[0], nullptr);
+  ASSERT_NE(buffers[1], nullptr);
+  rr_buffer_free(abandoned);
+  free_holder_then_buffers(s.holder, buffers, t);
+  rr_resources_free(s.resources);
+  EXPECT_EQ(t.stale, 0);
+  expect_released(before, {1, 1, 3});
+}
+
 std::vector<float> written_values() {
   std::vector<float> written(matrix_size);
   std::transform(written.begin(), written.end(), written.begin(),

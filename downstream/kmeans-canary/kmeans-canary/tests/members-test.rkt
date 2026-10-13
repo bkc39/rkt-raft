@@ -14,9 +14,9 @@
          (only-in raft/tests/private/collect drain-finalizers!)
          (only-in raft/tests/private/gpu test-gpu)
          (only-in raft/tests/private/raft-error check-raft-error)
-         (only-in raft/unsafe deposit with-array-views with-deposits)
+         (only-in raft/unsafe deposit)
          (only-in "../main.rkt" blobs cluster-members kmeans-fit kmeans-predict)
-         (only-in "../private/native.rkt" call/kc kc-cluster-members kc-owner-drop-count))
+         (only-in "../private/native.rkt" deposit-members! kc-owner-drop-count))
 
 (define k 3)
 
@@ -27,13 +27,14 @@
   (values X labels centroids))
 
 (define (host-members X labels c)
-  (define indices
-    (for/list ([l (in-list (device-vector->list labels))]
-               [i (in-naturals)]
-               #:when (= l c))
-      i))
-  (define rows (device-matrix->list* X))
-  (values indices (map (lambda (i) (list-ref rows i)) indices)))
+  (for/fold ([indices '()]
+             [rows '()]
+             #:result (values (reverse indices) (reverse rows)))
+            ([l (in-list (device-vector->list labels))]
+             [row (in-list (device-matrix->list* X))]
+             [i (in-naturals)]
+             #:when (= l c))
+    (values (cons i indices) (cons row rows))))
 
 (test-gpu "law 13: cluster-members gives each cluster's indices and rows, and nothing for k"
   (for ([element-type (in-list '(float32 float64))])
@@ -73,13 +74,10 @@
   (drain-finalizers!)
   (define drops (kc-owner-drop-count))
   (define releases (owner-release-count))
-  (check-raft-error
-   'logic
-   "cluster-members: out: on resources other than the call's"
-   (lambda ()
-     (with-deposits ([out elsewhere])
-                    (with-array-views #:resources [h (current-device-resources)] ([x X] [y labels])
-                      (call/kc 'cluster-members (lambda () (kc-cluster-members h x y 0 out)))))))
+  (check-raft-error 'logic
+                    "cluster-members: out: on resources other than the call's"
+                    (lambda ()
+                      (deposit-members! elsewhere X labels 0 #:resources (current-device-resources))))
   (check-equal? (- (kc-owner-drop-count) drops) 1)
   (drain-finalizers!)
   (check-equal? (- (owner-release-count) releases) 0))

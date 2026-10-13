@@ -145,6 +145,63 @@ void release_owner(void* owner) noexcept {
   delete static_cast<Owner*>(owner);
 }
 
+template <typename Owner>
+rr_deposit& checked_fill(const std::string& who, rr_deposit* into,
+                         const raft::handle_t& handle,
+                         const std::unique_ptr<Owner>& owner,
+                         std::initializer_list<rr_view> regions) {
+  rr_deposit& record = *require(into, who.c_str());
+  const int32_t state =
+      std::atomic_ref<int32_t>(record.state).load(std::memory_order_acquire);
+  if (state == RR_DEPOSIT_FILLED) {
+    throw logic_error(who + ": already filled");
+  }
+  if (state != RR_DEPOSIT_OPEN) {
+    throw logic_error(who + ": closed");
+  }
+  if (record.handle != static_cast<const void*>(&handle)) {
+    throw logic_error(who + ": on resources other than the call's");
+  }
+  if (!owner) {
+    throw logic_error(who + ": no owner");
+  }
+  const std::string prefix = who + ": ";
+  const auto count = static_cast<int64_t>(regions.size());
+  const auto bytes = check_regions(prefix, count, regions.begin());
+  check_device_memory(prefix, regions.begin(), bytes, record.device);
+  std::size_t i = 0;
+  for (const rr_view& region : regions) {
+    rr_view& kept = record.regions[i];
+    kept = region;
+    kept.memory = RR_MEMORY_DEVICE;
+    kept.device = record.device;
+    kept.data = bytes.at(i) == 0 ? nullptr : region.data;
+    ++i;
+  }
+  record.count = static_cast<int32_t>(count);
+  return record;
+}
+
+// The record can be closed after checked_fill saw it OPEN; only the CAS
+// publishes, and the owner is the record's only once it has.
+template <typename Owner>
+void publish(const std::string& who, rr_deposit& record,
+             std::unique_ptr<Owner>& owner) {
+  record.release = &release_owner<Owner>;
+  record.owner = owner.get();
+  int32_t seen = RR_DEPOSIT_OPEN;
+  if (!std::atomic_ref<int32_t>(record.state)
+           .compare_exchange_strong(seen, RR_DEPOSIT_FILLED,
+                                    std::memory_order_acq_rel)) {
+    record.owner = nullptr;
+    record.release = nullptr;
+    record.count = 0;
+    throw logic_error(
+        who + (seen == RR_DEPOSIT_FILLED ? ": already filled" : ": closed"));
+  }
+  static_cast<void>(owner.release());
+}
+
 }  // namespace detail
 
 template <typename T>
@@ -170,39 +227,8 @@ void deposit(rr_deposit* into, const char* name, const raft::handle_t& handle,
              std::unique_ptr<Owner>&& owner,
              std::initializer_list<rr_view> regions) {
   const std::string who(name);
-  rr_deposit& record = *require(into, name);
-  const int32_t state =
-      std::atomic_ref<int32_t>(record.state).load(std::memory_order_acquire);
-  if (state == RR_DEPOSIT_FILLED) {
-    throw logic_error(who + ": already filled");
-  }
-  if (state != RR_DEPOSIT_OPEN) {
-    throw logic_error(who + ": closed");
-  }
-  if (record.handle != static_cast<const void*>(&handle)) {
-    throw logic_error(who + ": on resources other than the call's");
-  }
-  if (!owner) {
-    throw logic_error(who + ": no owner");
-  }
-  const std::string prefix = who + ": ";
-  const auto count = static_cast<int64_t>(regions.size());
-  const auto bytes = detail::check_regions(prefix, count, regions.begin());
-  detail::check_device_memory(prefix, regions.begin(), bytes, record.device);
-  std::size_t i = 0;
-  for (const rr_view& region : regions) {
-    rr_view& kept = record.regions[i];
-    kept = region;
-    kept.memory = RR_MEMORY_DEVICE;
-    kept.device = record.device;
-    kept.data = bytes.at(i) == 0 ? nullptr : region.data;
-    ++i;
-  }
-  record.count = static_cast<int32_t>(count);
-  record.release = &detail::release_owner<Owner>;
-  record.owner = owner.release();
-  std::atomic_ref<int32_t>(record.state)
-      .store(RR_DEPOSIT_FILLED, std::memory_order_release);
+  detail::publish(who, detail::checked_fill(who, into, handle, owner, regions),
+                  owner);
 }
 
 }  // namespace raftrkt

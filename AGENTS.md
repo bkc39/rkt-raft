@@ -1201,6 +1201,18 @@ since cuSPARSE's error string for it is only "out of memory"). The frozen rule i
 - **`with-deposits` is its own form**, so `with-array-views` stays frozen.
   It holds the deposit through `hold-owner!` (a killed caller's call can
   still fill it) and closes it on every exit; a closed record refuses a fill.
+  `rr_holder_record` hands the record out once (every exit closes, so no
+  legitimate second binding exists), and `deposit.hpp` publishes with a
+  compare-and-swap from OPEN to FILLED, taking the owner only after it
+  succeeds, so a fill racing a close never overwrites CLOSED.
+- **`deposit.hpp` checks a region's byte size before its layout**, unlike
+  the spec's order: canonical strides of overflowing extents overflow too,
+  so the layout check would report a misleading "neither row-major nor
+  col-major".
+- **Adoption is all or nothing.** `deposit->list` adopts regions in order;
+  a failure after the index checks clears every adopted flag, and Racket
+  frees the arrays it already made, so a retry starts again instead of
+  failing "region 0 is already adopted".
 - **Ownership.** The holder and every adopted `rr_buffer` share one
   `shared_ptr<void>(owner, release)`, made on the first adopt or at holder
   free; the handle `shared_ptr` is declared before it, so the owner is

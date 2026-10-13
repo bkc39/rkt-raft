@@ -2,7 +2,7 @@
 
 (require (only-in ffi/unsafe cpointer?)
          (only-in racket/generator in-generator yield)
-         (only-in racket/match match-define)
+         (only-in racket/match match match-define)
          (only-in rackunit check-equal? check-exn check-false check-pred check-true test-case)
          (only-in syntax/macro-testing convert-syntax-error)
          (only-in "../main.rkt"
@@ -19,7 +19,7 @@
                   list->device-vector
                   shape
                   with-device-resources)
-         (only-in "../private/array.rkt" array-device)
+         (only-in "../private/array.rkt" array-device release-array!)
          (only-in "../private/dtype.rkt" dtype->code)
          (only-in "../private/foreign/memory.rkt"
                   buffer-drop-count
@@ -76,10 +76,10 @@
         (exact->inexact x)
         x))
   (if cols
-      (for/list ([i rows])
-        (for/list ([j cols])
+      (for/list ([i (in-range rows)])
+        (for/list ([j (in-range cols)])
           (v (+ (* r 1000) (* i cols) j))))
-      (for/list ([i rows])
+      (for/list ([i (in-range rows)])
         (v (+ (* r 1000) i)))))
 
 (define (contents a)
@@ -119,15 +119,16 @@
   (collect-until (lambda () (equal? (since before) expected)))
   (since before))
 
-(define shapes '((0 #f) (1 #f) (7 #f) (1000 #f) (3 4 row-major) (3 4 col-major) (0 4 row-major)))
+(define shapes
+  '((0 #f #f) (1 #f #f) (7 #f #f) (1000 #f #f) (3 4 row-major) (3 4 col-major) (0 4 row-major)))
 
 (test-probe "law 1: every dtype and shape round-trips through deposit->list"
   (for* ([dt (in-list '(float32 float64 int32 int64))]
          [s (in-list shapes)])
-    (match-define (list* rows cols order) s)
+    (match-define (list rows cols order) s)
     (define label (format "~a ~a" dt s))
     (define flags
-      (if (equal? order '(col-major))
+      (if (eq? order 'col-major)
           (probe-flags 'col-major)
           0))
     (define arrays (deposit->list (filled dt rows cols #:flags flags)))
@@ -141,7 +142,7 @@
                         (list rows))
                     label)
       (if cols
-          (check-equal? (layout a) (car order) label)
+          (check-equal? (layout a) order label)
           (check-pred device-vector? a label)))))
 
 (test-probe "law 2: deposit->list answers the same arrays, from two threads at once too"
@@ -149,14 +150,12 @@
   (define once (deposit->list d))
   (check-true (andmap eq? once (deposit->list d)))
   (define shared (filled 'int64 5 #f))
-  (define answers (make-vector 2 #f))
-  (define threads
-    (for/list ([i (in-range 2)])
-      (thread (lambda () (vector-set! answers i (deposit->list shared))))))
-  (for-each thread-wait threads)
-  (check-equal? (length (vector-ref answers 0)) 2)
-  (check-true (andmap eq? (vector-ref answers 0) (vector-ref answers 1)))
-  (check-pattern (vector-ref answers 0) 'int64 5 #f))
+  (match-define (list first second)
+    (map thread-wait
+         (for/list ([_ (in-range 2)])
+           (thread (lambda () (deposit->list shared)) #:keep 'results))))
+  (check-true (andmap eq? first second))
+  (check-pattern first 'int64 5 #f))
 
 (define (released-once label run expected)
   (drain-finalizers!)
@@ -166,53 +165,68 @@
   (check-equal? (settles-to before expected) expected label)
   (check-equal? (probe-owner-stale) stale label))
 
+(define (held dt #:resources [r (current-device-resources)])
+  (define d (filled dt 3 4 #:resources r))
+  (make-hasheq (list (cons 'deposit d) (cons 'arrays (deposit->list d)) (cons 'dtype dt))))
+
+(define (drop! h what)
+  (match what
+    ['released-arrays
+     (for-each release-array! (hash-ref h 'arrays))
+     (hash-remove! h 'arrays)]
+    [_ (hash-remove! h what)]))
+
+(define (read-back h label)
+  (match (hash-ref h 'arrays #f)
+    [#f (void)]
+    [arrays (check-pattern arrays (hash-ref h 'dtype) 3 4 label)]))
+
+(define (in-order make steps)
+  (lambda ()
+    (define before (counters))
+    (define h (make))
+    (for ([step (in-list steps)])
+      (match-define (list what expected) step)
+      (define label (symbol->string what))
+      (drop! h what)
+      (check-equal? (settles-to before expected) expected label)
+      (read-back h label))))
+
+(define (held-past-resources)
+  (define drops (resources-drop-count))
+  (define h
+    (with-device-resources ([r (device-resources)])
+      (held 'int32 #:resources r)))
+  (drain-finalizers!)
+  (check-equal? (- (resources-drop-count) drops) 1)
+  h)
+
+(define (failed-after-filling)
+  (define d (deposit))
+  (check-raft-error 'logic
+                    "probe-deposit: failed after filling"
+                    (lambda () (fill! d 'float32 3 4 #:flags (probe-flags 'fail-after))))
+  (check-pattern (deposit->list d) 'float32 3 4))
+
 (test-probe "law 3: the owner is released exactly once, whatever is dropped first"
-  (released-once "arrays first"
-                 (lambda ()
-                   (define before (counters))
-                   (define d (box (filled 'float32 3 4)))
-                   (define arrays (box (deposit->list (unbox d))))
-                   (set-box! arrays #f)
-                   (drain-finalizers!)
-                   (check-equal? (since before) (counts 0 0 0 0 0))
-                   (set-box! d #f))
-                 (counts 1 1 1 2 0))
-  (released-once "deposit first"
-                 (lambda ()
-                   (define before (counters))
-                   (define d (box (filled 'float32 3 4)))
-                   (define arrays (box (deposit->list (unbox d))))
-                   (set-box! d #f)
-                   (check-equal? (settles-to before (counts 0 0 1 0 0)) (counts 0 0 1 0 0))
-                   (check-pattern (unbox arrays) 'float32 3 4)
-                   (set-box! arrays #f))
-                 (counts 1 1 1 2 0))
-  (released-once "resources first"
-                 (lambda ()
-                   (define resources-drops (resources-drop-count))
-                   (define arrays
-                     (box (with-device-resources ([r (device-resources)])
-                            (deposit->list (filled 'int32 3 4 #:resources r)))))
-                   (drain-finalizers!)
-                   (check-equal? (- (resources-drop-count) resources-drops) 1)
-                   (check-pattern (unbox arrays) 'int32 3 4)
-                   (set-box! arrays #f))
-                 (counts 1 1 1 2 0))
-  (released-once "never converted" (lambda () (filled 'float64 7 #f)) (counts 1 1 1 0 0))
-  (released-once "never filled"
-                 (lambda ()
-                   (define d (deposit))
-                   (with-deposits ([out d]) (check-pred cpointer? out)))
-                 (counts 0 0 1 0 0))
-  (released-once "filled, then the call failed"
-                 (lambda ()
-                   (define d (deposit))
-                   (check-raft-error 'logic
-                                     "probe-deposit: failed after filling"
-                                     (lambda ()
-                                       (fill! d 'float32 3 4 #:flags (probe-flags 'fail-after))))
-                   (check-pattern (deposit->list d) 'float32 3 4))
-                 (counts 1 1 1 2 0)))
+  (for ([case (in-list
+               `(("arrays first" ,(lambda () (held 'float32))
+                                 ((released-arrays ,(counts 0 0 0 2 0)))
+                                 ,(counts 1 1 1 2 0))
+                 ("deposit first" ,(lambda () (held 'float32))
+                                  ((deposit ,(counts 0 0 1 0 0)))
+                                  ,(counts 1 1 1 2 0))
+                 ("resources first" ,held-past-resources
+                                    ((deposit ,(counts 0 0 1 0 0)))
+                                    ,(counts 1 1 1 2 0))
+                 ("never converted" ,(lambda () (filled 'float64 7 #f)) () ,(counts 1 1 1 0 0))
+                 ("never filled" ,(lambda ()
+                                    (with-deposits ([out (deposit)]) (check-pred cpointer? out)))
+                                 ()
+                                 ,(counts 0 0 1 0 0))
+                 ("filled, then the call failed" ,failed-after-filling () ,(counts 1 1 1 2 0))))])
+    (match-define (list label make steps expected) case)
+    (released-once label (in-order make steps) expected)))
 
 (test-probe "law 4: adopted arrays outlive their resources object"
   (drain-finalizers!)
@@ -300,16 +314,24 @@
     (thread (lambda () (fill! retained 'int64 3 4 #:flags (probe-flags 'wait) #:resources r))))
   (sleep 0.05)
   (kill-thread caller)
+  (check-raft-error 'logic
+                    "with-deposits: the deposit is closed"
+                    (lambda () (with-deposits ([out retained]) out)))
   (probe-release!)
   (await-calls)
   (check-pattern (deposit->list retained) 'int64 3 4)
   (released-once "unretained"
                  (lambda ()
+                   (define before (counters))
                    (check-true (probe-hold! (resources-handle 'test r)))
                    (define lost
                      (thread (lambda () (fill! (deposit) 'float32 3 4 #:flags (probe-flags 'wait)))))
                    (sleep 0.05)
                    (kill-thread lost)
+                   (for ([_ (in-range 3)])
+                     (collect-garbage 'major))
+                   (drain-finalizers!)
+                   (check-equal? (counts-holders (since before)) 0 "held across the killed call")
                    (probe-release!)
                    (await-calls))
                  (counts 1 1 1 0 0)))

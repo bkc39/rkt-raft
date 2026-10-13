@@ -1,6 +1,7 @@
 #lang racket/base
 
 (require (only-in racket/list remove-duplicates)
+         (only-in racket/match match-define)
          (only-in racket/port with-output-to-string)
          (only-in racket/system system*)
          (only-in rackunit check-equal? check-true)
@@ -33,6 +34,18 @@
        (lambda ()
          (system* nvidia-smi "--query-compute-apps=pid,process_name,used_memory" "--format=csv")))
       "nvidia-smi is not on PATH"))
+
+(define (check-device-free baseline-free lowest-free)
+  (define floor-free (- baseline-free device-slack))
+  (define settled-free
+    (if (>= lowest-free floor-free)
+        lowest-free
+        (caddr (pool-sample))))
+  (check-true
+   (>= settled-free floor-free)
+   (format "device-wide free memory fell ~a bytes below the baseline (twice); other processes:\n~a"
+           (- baseline-free settled-free)
+           (other-processes))))
 
 (define (pool-sample)
   (drain-finalizers!)
@@ -78,16 +91,7 @@
   (for ([u (in-list used)])
     (check-equal? u (car baseline) "pool use returns to the baseline after a collection"))
   (check-equal? (apply max reserved) (cadr baseline) "the pool reserves no more than after warm-up")
-  (define floor-free (- (caddr baseline) device-slack))
-  (define settled-free
-    (if (>= lowest-free floor-free)
-        lowest-free
-        (caddr (pool-sample))))
-  (check-true
-   (>= settled-free floor-free)
-   (format "device-wide free memory fell ~a bytes below the baseline (twice); other processes:\n~a"
-           (- (caddr baseline) settled-free)
-           (other-processes)))
+  (check-device-free (caddr baseline) lowest-free)
   (check-equal? (map shape (list X truth)) '((2000 8) (2000)) "the data stayed live throughout"))
 
 (define member-cycles 1000)
@@ -101,10 +105,11 @@
                              (with-device-resources ([r (device-resources)])
                                (cluster-members X labels 2 #:resources r)))
                            list)))
-  (check-equal? (car (shape (car (unbox kept)))) (car (shape (cadr (unbox kept)))))
+  (match-define (list (list kept-count) (list kept-rows _)) (map shape (unbox kept)))
+  (check-equal? kept-count kept-rows)
   (define stale (kc-owner-stale-count))
   (define failures (release-failure-count))
-  (define baseline (pool-sample))
+  (match-define (list base-used base-reserved base-free) (pool-sample))
   (define drops (kc-owner-drop-count))
   (define releases (owner-release-count))
   (for ([i (in-range member-cycles)])
@@ -112,22 +117,25 @@
   (check-true (collect-until (lambda ()
                                (and (>= (owner-release-count) (+ releases member-cycles))
                                     (>= (kc-owner-drop-count) (+ drops member-cycles))))))
-  (define after (pool-sample))
+  (match-define (list used reserved free-bytes) (pool-sample))
   (printf
-   "memory: ~a cluster-members cycles; pool used ~a bytes before, ~a after; reserved ~a before, ~a after; ~a owners released, ~a dropped by the canary, ~a stale; ~a release failures\n"
+   "memory: ~a cluster-members cycles; pool used ~a bytes before, ~a after; reserved ~a before, ~a after; device free ~a before, ~a after (cudaMemGetInfo, shared GPU); ~a owners released, ~a dropped by the canary, ~a stale; ~a release failures\n"
    member-cycles
-   (car baseline)
-   (car after)
-   (cadr baseline)
-   (cadr after)
+   base-used
+   used
+   base-reserved
+   reserved
+   base-free
+   free-bytes
    (- (owner-release-count) releases)
    (- (kc-owner-drop-count) drops)
    (- (kc-owner-stale-count) stale)
    (- (release-failure-count) failures))
   (check-equal? (- (owner-release-count) releases) member-cycles)
   (check-equal? (- (kc-owner-drop-count) drops) member-cycles)
-  (check-equal? (car after) (car baseline) "pool use returns to the baseline after a collection")
-  (check-equal? (cadr after) (cadr baseline) "the pool reserves no more than after warm-up")
+  (check-equal? used base-used "pool use returns to the baseline after a collection")
+  (check-equal? reserved base-reserved "the pool reserves no more than after warm-up")
+  (check-device-free base-free free-bytes)
   (check-equal? (- (release-failure-count) failures) 0)
   (set-box! kept #f)
   (check-true (collect-until (lambda () (>= (kc-owner-drop-count) (+ drops member-cycles 1)))))

@@ -243,6 +243,32 @@ TEST(DepositHeader, TheChecksRunInOrder) {
                  "out: region 1 overlaps region 0");
 }
 
+TEST(DepositHeader, ARecordClosedAfterItsCheckIsNotPublished) {
+  raft::handle_t handle;
+  rr_deposit record = open_record(handle);
+  int drops = 0;
+  {
+    auto owner = std::make_unique<counted>(drops);
+    rr_deposit& checked = raftrkt::detail::checked_fill(
+        "out", &record, handle, owner, {raftrkt::region(floats(), 0)});
+    record.state = RR_DEPOSIT_CLOSED;
+    std::string message = "no refusal";
+    try {
+      raftrkt::detail::publish("out", checked, owner);
+    } catch (const raftrkt::logic_error& e) {
+      message = e.what();
+    }
+    EXPECT_EQ(message, "out: closed");
+    EXPECT_EQ(drops, 0);
+    EXPECT_NE(owner, nullptr);
+  }
+  EXPECT_EQ(drops, 1);
+  EXPECT_EQ(record.state, RR_DEPOSIT_CLOSED);
+  EXPECT_EQ(record.owner, nullptr);
+  EXPECT_EQ(record.release, nullptr);
+  EXPECT_EQ(record.count, 0);
+}
+
 TEST(DepositHeader, EmptyRegionsNeedNoDeviceAndFillTheRecord) {
   raft::handle_t handle;
   rr_deposit record = open_record(handle);
