@@ -16,7 +16,7 @@
          (only-in raft/tests/private/raft-error check-raft-error)
          (only-in raft/unsafe deposit)
          (only-in "../main.rkt" blobs cluster-members kmeans-fit kmeans-predict)
-         (only-in "../private/native.rkt" deposit-members! kc-owner-drop-count))
+         (only-in "../private/native.rkt" kc-cluster-members-job kc-owner-drop-count))
 
 (define k 3)
 
@@ -74,10 +74,11 @@
   (drain-finalizers!)
   (define drops (kc-owner-drop-count))
   (define releases (owner-release-count))
-  (check-raft-error 'logic
-                    "cluster-members: out: on resources other than the call's"
-                    (lambda ()
-                      (deposit-members! elsewhere X labels 0 #:resources (current-device-resources))))
+  (check-raft-error
+   'logic
+   "cluster-members: out: on resources other than the call's"
+   (lambda ()
+     (kc-cluster-members-job 'cluster-members (current-device-resources) X labels 0 elsewhere)))
   (check-equal? (- (kc-owner-drop-count) drops) 1)
   (drain-finalizers!)
   (check-equal? (- (owner-release-count) releases) 0))

@@ -54,6 +54,8 @@ KC_API void kc_predict_job(void* args, size_t args_len,
                            rr_job_outcome* outcome);
 KC_API void kc_make_blobs_job(void* args, size_t args_len,
                               rr_job_outcome* outcome);
+KC_API void kc_cluster_members_job(void* args, size_t args_len,
+                                   rr_job_outcome* outcome);
 
 KC_API int kc_noop(int32_t value, int32_t* out);
 KC_API void kc_noop_job(void* args, size_t args_len, rr_job_outcome* outcome);

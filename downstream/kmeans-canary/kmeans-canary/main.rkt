@@ -11,7 +11,11 @@
                   list*->device-matrix
                   shape)
          (only-in raft/unsafe deposit deposit->list)
-         (only-in "private/native.rkt" deposit-members! kc-fit-job kc-make-blobs-job kc-predict-job))
+         (only-in "private/native.rkt"
+                  kc-cluster-members-job
+                  kc-fit-job
+                  kc-make-blobs-job
+                  kc-predict-job))
 
 (provide blobs
          cluster-members
@@ -105,5 +109,5 @@
 
 (define (cluster-members X labels cluster #:resources [resources (current-device-resources)])
   (define members (deposit #:resources resources))
-  (deposit-members! members X labels cluster #:resources resources)
+  (kc-cluster-members-job 'cluster-members resources X labels cluster members)
   (apply values (deposit->list members)))

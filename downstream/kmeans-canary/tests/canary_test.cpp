@@ -229,10 +229,13 @@ TEST(KMeans, EveryBufferOfARunIsFreed) {
 constexpr size_t fit_block_bytes = 520;
 constexpr size_t predict_block_bytes = 632;
 constexpr size_t make_blobs_block_bytes = 360;
+constexpr size_t cluster_members_block_bytes = 328;
 
 static_assert(raftrkt::job_args_size<&kc_fit> == fit_block_bytes);
 static_assert(raftrkt::job_args_size<&kc_predict> == predict_block_bytes);
 static_assert(raftrkt::job_args_size<&kc_make_blobs> == make_blobs_block_bytes);
+static_assert(raftrkt::job_args_size<&kc_cluster_members> ==
+              cluster_members_block_bytes);
 
 struct fit_block {
   void* handle;

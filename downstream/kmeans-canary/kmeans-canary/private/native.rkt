@@ -14,17 +14,12 @@
          (only-in ffi/unsafe/define define-ffi-definer)
          (only-in ffi/unsafe/define/conventions convention:hyphen->underscore)
          (only-in raft exn:fail:raft)
-         (only-in raft/unsafe
-                  define-job
-                  raft-abi-pointer
-                  status-checker
-                  with-array-views
-                  with-deposits))
+         (only-in raft/unsafe define-job raft-abi-pointer status-checker))
 
 (provide call/kc
          canary-path
-         deposit-members!
          kc-check-abi
+         kc-cluster-members-job
          kc-current-is-async
          kc-device-memory
          kc-fit-job
@@ -76,14 +71,10 @@
 (define-job kc-noop-job canary-library "kc_noop_job" (_int32 (out _int32)))
 (define-job kc-sleep-job canary-library "kc_sleep_job" (_int32))
 
-(define-kc kc-cluster-members
-  (_fun _pointer _pointer _pointer _int32 _pointer -> _int))
-
-(define (deposit-members! members X labels cluster #:resources resources)
-  (with-deposits ([out members])
-                 (with-array-views #:resources [handle resources] ([x X] [y labels])
-                   (call/kc 'cluster-members
-                            (lambda () (kc-cluster-members handle x y cluster out))))))
+(define-job kc-cluster-members-job
+            canary-library
+            "kc_cluster_members_job"
+            (handle view view _int32 deposit))
 
 (define-kc kc-owner-drop-count (_fun -> _uint64))
 (define-kc kc-owner-stale-count (_fun -> _uint64))
