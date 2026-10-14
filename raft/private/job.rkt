@@ -24,13 +24,14 @@
                   ptr-set!)
          (only-in ffi/unsafe/atomic in-atomic-mode?)
          (only-in ffi/unsafe/schedule unsafe-poll-ctx-fd-wakeup unsafe-poller)
-         (only-in racket/match match match*)
+         (only-in racket/list count)
+         (only-in racket/match match-define)
          ;; whole-module: it also provides syntax/parse at phase 1
          syntax/parse/define
          (only-in "array.rkt" array-buffer-handle settled-view)
-         (only-in "error.rkt" call/raft exn:fail:raft)
+         (only-in "error.rkt" call/raft)
          (only-in "exit.rkt" current-exit-wait)
-         (only-in "exn.rkt" raise-raft)
+         (only-in "exn.rkt" exn:fail:raft raise-native raise-raft)
          (only-in "foreign/array.rkt" _rr-view blank-view keep-reachable)
          (only-in "foreign/core.rkt" rr-resources-handle)
          (only-in "foreign/job-api.rkt"
@@ -48,21 +49,23 @@
          (only-in "resources.rkt" resources-handle))
 
 (provide define-job
-         (rename-out [rr-executor-threads executor-threads] ;; noqa
-                     [rr-jobs-in-flight jobs-in-flight] ;; noqa
-                     [rr-jobs-live jobs-live])) ;; noqa
+         executor-threads
+         jobs-in-flight
+         jobs-live)
 
-(struct slot (kind type)) ;; noqa
+(struct slot (type pack takes? output?)) ;; noqa
 
 (define job-done 1)
 (define job-refused 2)
 
-(define error-kinds #(generic out-of-memory cuda logic))
+(define (executor-threads)
+  (rr-executor-threads))
 
-(define (code->kind code)
-  (if (< -1 code (vector-length error-kinds))
-      (vector-ref error-kinds code)
-      'generic))
+(define (jobs-in-flight)
+  (rr-jobs-in-flight))
+
+(define (jobs-live)
+  (rr-jobs-live))
 
 (struct job-evt (job)
   #:property prop:evt
@@ -70,10 +73,10 @@
                    (define job (job-evt-job self))
                    (cond
                      [(= (rr-job-state job) job-done) (values (list job) #f)]
-                     [wakeups
-                      (unsafe-poll-ctx-fd-wakeup wakeups (rr-job-fd job) 'read)
-                      (values #f self)]
-                     [else (values #f self)]))))
+                     [else
+                      (when wakeups
+                        (unsafe-poll-ctx-fd-wakeup wakeups (rr-job-fd job) 'read))
+                      (values #f self)]))))
 
 (define (set-number! who block type offset v)
   (with-handlers ([exn:fail:contract?
@@ -85,74 +88,84 @@
                              (exn-continuation-marks e))))])
     (ptr-set! block type 'abs offset v)))
 
+(define (pack-handle who block offset native args pins) ;; noqa
+  (ptr-set! block _pointer 'abs offset (call/raft who (lambda () (rr-resources-handle native))))
+  (values args pins))
+
+(define (pack-nothing _who _block _offset _native args pins) ;; noqa
+  (values args pins))
+
+(define (pack-view who block offset _native args pins) ;; noqa
+  (match-define (cons a rest) args)
+  (cond
+    [a
+     (ptr-set! block _rr-view 'abs offset (settled-view who a))
+     (values rest (cons (array-buffer-handle a) pins))]
+    [else
+     (ptr-set! block _rr-view 'abs offset (blank-view))
+     (values rest pins)]))
+
+(define ((pack-number type) who block offset _native args pins) ;; noqa
+  (match-define (cons v rest) args)
+  (set-number! who block type offset v)
+  (values rest pins))
+
 (define (pack! who block native slots offsets args)
   (for/fold ([args args]
              [pins '()]
              #:result pins)
             ([s (in-list slots)]
              [offset (in-list offsets)])
-    (match* ((slot-kind s) args)
-      [('handle _)
-       (ptr-set! block _pointer 'abs offset (call/raft who (lambda () (rr-resources-handle native))))
-       (values args pins)]
-      [('out _) (values args pins)]
-      [('view (cons #f rest))
-       (ptr-set! block _rr-view 'abs offset (blank-view))
-       (values rest pins)]
-      [('view (cons a rest))
-       (ptr-set! block _rr-view 'abs offset (settled-view who a))
-       (values rest (cons (array-buffer-handle a) pins))]
-      [('in (cons v rest))
-       (set-number! who block (slot-type s) offset v)
-       (values rest pins)])))
+    ((slot-pack s) who block offset native args pins)))
 
-(define (job-outcome who job block outputs)
+(define (waited-status job)
   (sync (job-evt job))
-  (define-values (status kind) (rr-job-status job))
+  (define-values (status _kind) (rr-job-status job))
+  status)
+
+(define (job-finish who job block outputs exn)
   (cond
-    [(zero? status)
+    [(= (rr-job-state job) job-refused) (lambda () (sync never-evt))]
+    [(zero? (waited-status job))
      (call/raft who (lambda () (rr-job-read job block)))
-     (cons 'returned
-           (for/list ([output (in-list outputs)])
-             (ptr-ref block (car output) 'abs (cdr output))))]
-    [else (list 'failed kind (bytes->string/utf-8 (rr-job-message job) #\uFFFD))]))
+     (define results
+       (for/list ([output (in-list outputs)])
+         (match-define (cons type at) output)
+         (ptr-ref block type 'abs at)))
+     (lambda () (apply values results))]
+    [else
+     (define-values (_status kind) (rr-job-status job))
+     (define message (bytes->string/utf-8 (rr-job-message job) #\uFFFD))
+     (lambda () (raise-native exn who kind message))]))
 
 (define (run-job who resources entry slots offsets size outputs exn args)
-  (cond
-    [(in-atomic-mode?) (raise-raft who 'logic "cannot wait for a job in atomic mode")]
-    [else
-     (define seconds (real->double-flonum (current-exit-wait)))
-     (define native (resources-handle who resources))
-     (define block (make-bytes size 0))
-     (define pins (pack! who block native slots offsets args))
-     (define outcome
-       (parameterize-break
-        #f
-        (define job (call/raft who (lambda () (rr-job-submit native entry block pins '() seconds))))
-        (cond
-          [(= (rr-job-state job) job-refused)
-           (rr-job-release job)
-           '(refused)]
-          [else
-           (with-release #:who who ([j job rr-job-release])
-             (job-outcome who j block outputs))])))
-     (keep-reachable (list resources args))
-     (parameterize-break (break-enabled) (void))
-     (match outcome
-       [(list 'refused) (sync never-evt)]
-       [(list 'failed kind message)
-        (raise (exn (format "~a: ~a" who message) (current-continuation-marks) (code->kind kind)))]
-       [(cons 'returned results) (apply values results)])]))
+  (when (in-atomic-mode?)
+    (raise-raft who 'logic "cannot wait for a job in atomic mode"))
+  (define seconds (real->double-flonum (current-exit-wait)))
+  (define native (resources-handle who resources))
+  (define block (make-bytes size 0))
+  (define pins (pack! who block native slots offsets args))
+  (define finish
+    (parameterize-break
+     #f
+     (with-release #:who
+                   who
+                   ([job
+                     (call/raft who (lambda () (rr-job-submit native entry block pins '() seconds)))
+                     rr-job-release])
+       (job-finish who job block outputs exn))))
+  (keep-reachable (list resources args))
+  (parameterize-break (break-enabled) (void))
+  (finish))
 
 (define (job-procedure name entry slots exn) ;; noqa
-  (define types (map slot-type slots))
-  (define offsets (compute-offsets types))
-  (define size (ctype-sizeof (make-cstruct-type types)))
-  (define arity (+ 2 (for/sum ([s (in-list slots)]) (if (memq (slot-kind s) '(handle out)) 0 1))))
+  (define offsets (compute-offsets (map slot-type slots)))
+  (define size (ctype-sizeof (make-cstruct-type (map slot-type slots))))
+  (define arity (+ 2 (count slot-takes? slots)))
   (define outputs
     (for/list ([s (in-list slots)]
                [at (in-list offsets)]
-               #:when (eq? (slot-kind s) 'out))
+               #:when (slot-output? s))
       (cons (slot-type s) at)))
   (procedure-rename
    (procedure-reduce-arity (lambda (who resources . args)
@@ -180,36 +193,23 @@
 
   (define-syntax-class out-type
     #:description "an output type: _int8 … _double"
-    #:opaque (pattern (~or* (~literal _int8)
-                            (~literal _uint8)
-                            (~literal _int16)
-                            (~literal _uint16)
-                            (~literal _int32)
-                            (~literal _uint32)
-                            (~literal _int64)
-                            (~literal _uint64)
-                            (~literal _float)
-                            (~literal _double))))
+    #:opaque (pattern (~and (~not (~literal _double*)) :in-type)))
 
   (define-syntax-class job-param
     #:description job-param-description
     #:datum-literals (handle out view)
     (pattern handle
       #:attr kind 'handle
-      #:with spec #'(slot 'handle _pointer))
+      #:with spec #'(slot _pointer pack-handle #f #f))
     (pattern view
       #:attr kind 'view
-      #:with spec #'(slot 'view _rr-view))
+      #:with spec #'(slot _rr-view pack-view #t #f))
     (pattern ((~describe #:opaque job-param-description out) type:out-type)
       #:attr kind 'out
-      #:with spec #'(slot 'out type))
+      #:with spec #'(slot type pack-nothing #f #t))
     (pattern type:in-type
       #:attr kind 'in
-      #:with spec #'(slot 'in type)))
-
-  (define-splicing-syntax-class job-exn ;; noqa
-                                #:description "#:exn and an exception constructor"
-                                (pattern (~seq #:exn make:expr)))
+      #:with spec #'(slot type (pack-number type) #t #f)))
 
   (define (second-handle params kinds) ;; noqa
     (match (for/list ([p (in-list (syntax->list params))]
@@ -223,10 +223,10 @@
                                       library:expr
                                       c-id:expr
                                       (p:job-param ...)
-                                      (~optional e:job-exn))
+                                      (~optional (~seq #:exn make:expr)))
   #:fail-when (second-handle #'(p ...) (attribute p.kind)) "at most one handle parameter"
   (define id
     (job-procedure 'id
                    (get-ffi-obj c-id library _fpointer)
                    (list p.spec ...)
-                   (~? e.make exn:fail:raft))))
+                   (~? make exn:fail:raft))))

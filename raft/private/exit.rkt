@@ -1,7 +1,6 @@
 #lang racket/base
 
 (require (only-in ffi/unsafe/custodian make-custodian-at-root register-custodian-shutdown)
-         (only-in racket/math exact-floor)
          (only-in "exn.rkt" raise-raft)
          (only-in "foreign/job-api.rkt" rr-exit-drain rr-os-thread-id rr-os-thread-id/original))
 
@@ -23,11 +22,10 @@
 (define (drain-at-exit _value)
   (define start (current-inexact-monotonic-milliseconds))
   (define-values (in-flight still-running) (rr-exit-drain))
-  (define waited (exact-floor (- (current-inexact-monotonic-milliseconds) start)))
-  (log-raft-debug "exit: jobs in flight: ~a; waited ~a ms" in-flight waited)
+  (define elapsed (- (current-inexact-monotonic-milliseconds) start))
+  (log-raft-debug "exit: jobs in flight: ~a; waited ~a ms" in-flight (inexact->exact (floor elapsed)))
   (when (positive? still-running)
     (log-raft-warning "exit: jobs still running: ~a; exiting without native teardown" still-running)))
 
-(define exit-hook ;; noqa
-  (and (= (rr-os-thread-id) (rr-os-thread-id/original))
-       (register-custodian-shutdown 'raft drain-at-exit (make-custodian-at-root) #:at-exit? #t)))
+(when (= (rr-os-thread-id) (rr-os-thread-id/original))
+  (void (register-custodian-shutdown 'raft drain-at-exit (make-custodian-at-root) #:at-exit? #t)))

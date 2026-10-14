@@ -39,7 +39,7 @@
 (define (device-resources #:device [device 0]) ;; noqa
   (open-resources 'device-resources device))
 
-(define (host-resources) ;; noqa
+(define (host-resources)
   (handle->device-resources (call/raft 'host-resources rr-resources-create-host) -1))
 
 (define (resources-device r)
