@@ -22,6 +22,9 @@
 
 (define (should-review? stx)
   (syntax-parse stx
+    [(head:id (_ . _))
+     #:when (named? #'head 'quote)
+     #t]
     [(head:id (_:id . _) _ ...)
      #:when (named? #'head 'define-syntax-parse-rule)
      #t]
@@ -41,6 +44,9 @@
 
 (define (review-syntax stx)
   (syntax-parse stx
+    [(head:id (_ . _))
+     #:when (named? #'head 'quote)
+     (void)]
     [(head:id (name:id . _) _ ...)
      #:when (named? #'head 'define-syntax-parse-rule)
      (track-binding #'name)]

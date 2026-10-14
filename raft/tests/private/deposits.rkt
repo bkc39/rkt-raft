@@ -1,7 +1,7 @@
 #lang racket/base
 
-(require (only-in racket/match match-define)
-         (only-in rackunit check-equal? check-pred)
+(require (only-in racket/match match match-define)
+         (only-in rackunit check-equal? check-pred check-true)
          (only-in "../../main.rkt"
                   current-device-resources
                   device-matrix->list*
@@ -17,22 +17,27 @@
                   holder-drop-count
                   owner-release-count
                   release-failure-count)
+         (only-in "../../private/resource.rkt" with-release)
          (only-in "../../unsafe.rkt" deposit deposit->list with-array-views with-deposits)
          (only-in "collect.rkt" collect-until drain-finalizers!)
+         (only-in "gate.rkt" await-entry closed-gate release-gate)
          (only-in "probe.rkt"
                   call/probe
                   probe-deposit
                   probe-flags
                   probe-owner-drops
-                  probe-owner-stale))
+                  probe-owner-stale)
+         (only-in "raft-error.rkt" check-raft-error))
 
-(provide check-pattern
+(provide call-with-gated-job
+         check-deposit-closed
+         check-pattern
          check-round-trips
          counters
          (struct-out counts)
          fill!
          filled
-         pattern
+         region-values
          released-once
          settles-to
          since)
@@ -60,36 +65,41 @@
   (fill! d dt rows cols #:count k #:flags flags #:resources r)
   d)
 
-(define (pattern dt
-          r
-          rows
-          cols)
+(define (region-values dt r rows cols)
   (define (v x)
     (if (memq dt '(float32 float64))
         (exact->inexact x)
         x))
-  (if cols
-      (for/list ([i (in-range rows)])
-        (for/list ([j (in-range cols)])
-          (v (+ (* r 1000) (* i cols) j))))
-      (for/list ([i (in-range rows)])
-        (v (+ (* r 1000) i)))))
+  (match cols
+    [#f
+     (for/list ([i (in-range rows)])
+       (v (+ (* r 1000) i)))]
+    [_
+     (for/list ([i (in-range rows)])
+       (for/list ([j (in-range cols)])
+         (v (+ (* r 1000) (* i cols) j))))]))
 
 (define (contents a)
-  (if (device-matrix? a)
-      (device-matrix->list* a)
-      (device-vector->list a)))
+  (cond
+    [(device-matrix? a) (device-matrix->list* a)]
+    [else (device-vector->list a)]))
 
 (define (check-pattern arrays dt rows cols [label ""])
   (check-equal? (length arrays) 2 label)
   (for ([a (in-list arrays)]
         [r (in-naturals)])
-    (check-equal? (contents a)
-                  (pattern dt
-                    r
-                    rows
-                    cols)
-                  label)))
+    (check-equal? (contents a) (region-values dt r rows cols) label)))
+
+(define (check-deposit-closed d)
+  (check-raft-error 'logic
+                    "with-deposits: the deposit is closed"
+                    (lambda () (with-deposits ([o d]) o))))
+
+(define (call-with-gated-job start proc)
+  (with-release ([g (closed-gate) release-gate])
+    (define caller (thread (lambda () (start g)) #:keep 'results))
+    (check-true (await-entry g))
+    (proc g caller)))
 
 (struct counts (owners probe-drops holders buffers failures) #:transparent)
 
@@ -129,14 +139,13 @@
     (check-pattern arrays dt rows cols label)
     (for ([a (in-list arrays)])
       (check-equal? (dtype a) dt label)
-      (check-equal? (shape a)
-                    (if cols
-                        (list rows cols)
-                        (list rows))
-                    label)
-      (if cols
-          (check-equal? (layout a) order label)
-          (check-pred device-vector? a label)))))
+      (match cols
+        [#f
+         (check-equal? (shape a) (list rows) label)
+         (check-pred device-vector? a label)]
+        [_
+         (check-equal? (shape a) (list rows cols) label)
+         (check-equal? (layout a) order label)]))))
 
 (define (released-once label run expected)
   (drain-finalizers!)

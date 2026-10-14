@@ -3,14 +3,7 @@
 (require (only-in ffi/unsafe cpointer?)
          (only-in racket/generator in-generator yield)
          (only-in racket/match match match-define)
-         (only-in rackunit
-                  check-equal?
-                  check-exn
-                  check-false
-                  check-pred
-                  check-true
-                  require/expose
-                  test-case)
+         (only-in rackunit check-equal? check-exn check-false check-pred check-true test-case)
          (only-in syntax/macro-testing convert-syntax-error)
          (only-in "../main.rkt"
                   contiguous
@@ -27,6 +20,7 @@
                   shape
                   with-device-resources)
          (only-in "../private/array.rkt" array-device release-array!)
+         (only-in "../private/deposit.rkt" deposit-handle)
          (only-in "../private/foreign/memory.rkt" resources-drop-count)
          (only-in "../unsafe.rkt" deposit deposit->list deposit? with-array-views with-deposits)
          (only-in "private/collect.rkt" collect-until drain-finalizers!)
@@ -42,7 +36,7 @@
                   counters
                   fill!
                   filled
-                  pattern
+                  region-values
                   released-once
                   settles-to
                   since)
@@ -53,8 +47,6 @@
                   test-pools
                   test-probe)
          (only-in "private/raft-error.rkt" check-raft-error))
-
-(require/expose "../private/deposit.rkt" (deposit-handle))
 
 (test-probe "law 1: every dtype and shape round-trips through deposit->list"
   (check-round-trips filled))
@@ -234,10 +226,7 @@
   (check-equal? (array-device m) 0)
   (match-define (list col _) (deposit->list (filled 'int32 3 4 #:flags (probe-flags 'col-major))))
   (check-equal? (device-matrix->list* (contiguous col #:layout 'row-major))
-                (pattern 'int32
-                  0
-                  3
-                  4)))
+                (region-values 'int32 0 3 4)))
 
 (define cycles 1000)
 

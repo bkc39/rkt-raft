@@ -96,6 +96,9 @@
         -> (values status inertia)))
 (define-kc kc-cluster-members (_fun _pointer _pointer _pointer _int32 _pointer -> _int))
 
+(define (canary-job name)
+  (dynamic-require 'kmeans-canary/private/native name))
+
 (define (no-values thunk)
   (call-with-values thunk list))
 
@@ -276,14 +279,8 @@
                     "kmeans-fit: the argument block is 472 bytes; the job expects 520"
                     (lambda ()
                       (kc-fit-job/short 'kmeans-fit (current-device-resources) X #f fitted 0)))
-  (define-job kc-predict-job
-              canary
-              "kc_predict_job"
-              (handle view view view _int32 view (out _double)))
-  (define-job kc-cluster-members-job
-              canary
-              "kc_cluster_members_job"
-              (handle view view _int32 deposit))
+  (define kc-predict-job (canary-job 'kc-predict-job))
+  (define kc-cluster-members-job (canary-job 'kc-cluster-members-job))
   (define labels (device-vector 300 #:dtype 'int32))
   (kc-predict-job 'kmeans-predict (current-device-resources) fitted X #f 1 labels)
   (define found (deposit))
