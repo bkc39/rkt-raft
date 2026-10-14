@@ -497,4 +497,11 @@
              ((get-ffi-obj "rr_probe_mark_atexit" (ffi-lib (getenv "RAFT_SHIM_PROBE")) (_fun -> _void)))
              (define worker (start-worker))
              (void (place-channel-get worker))
-             (exit 21)))))
+             (exit 21))))
+        (stuck-release
+         .
+         (module program racket/base
+           (require raft raft/tests/private/probe)
+           (probe-mark-atexit!)
+           (probe-stuck-release! 5000)
+           (exit 22))))

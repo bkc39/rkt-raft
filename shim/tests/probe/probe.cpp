@@ -3,8 +3,10 @@
 #include <chrono>
 #include <condition_variable>
 #include <cstdint>
+#include <memory>
 #include <cuda/memory_resource>
 #include <mutex>
+#include <thread>
 #include <raft/core/resource/cuda_stream.hpp>
 #include <rmm/cuda_device.hpp>
 #include <rmm/mr/cuda_async_memory_resource.hpp>
@@ -93,5 +95,13 @@ RR_API void rr_probe_release(void) {
     g.open = true;
   }
   g.opened.notify_all();
+}
+
+RR_API rr_resources* rr_probe_stuck_resources(int32_t hold_ms) {
+  std::shared_ptr<raft::handle_t> handle{
+      static_cast<raft::handle_t*>(nullptr), [hold_ms](raft::handle_t*) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(hold_ms));
+      }};
+  return new rr_resources{-1, std::move(handle), {}};
 }
 }

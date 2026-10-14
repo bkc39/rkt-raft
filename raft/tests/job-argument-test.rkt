@@ -2,6 +2,7 @@
 
 (require (only-in rackunit check-true)
          (only-in "../main.rkt" device-resources device-vector)
+         (only-in "../private/array.rkt" release-array!)
          (only-in "../private/foreign/memory.rkt" rr-resources-free)
          (only-in "../private/resource.rkt" with-release)
          (only-in "../private/resources.rkt" host-resources resources-handle resources-sync!)
@@ -43,3 +44,22 @@
                       "demo: the device resources on device 0 were released"
                       (lambda ()
                         (probe-hold-views-job 'demo r (gate-entered-fd g) (gate-fd g) v #f)))))
+
+(test-probe "an array released while another view settles is refused, naming the job"
+  (define r (device-resources))
+  (define held (device-resources))
+  (define v1 (device-vector 4 #:resources r))
+  (define v (device-vector 4 #:resources held))
+  (resources-sync! r)
+  (resources-sync! held)
+  (check-true (probe-hold! (resources-handle 'hold held)))
+  (thread (lambda ()
+            (sleep 0.2)
+            (release-array! v1)
+            (probe-release!)))
+  (with-release ([g (closed-gate) release-gate])
+    (open-gate! g)
+    (check-raft-error 'logic
+                      "demo: a device array passed to the job was released"
+                      (lambda ()
+                        (probe-hold-views-job 'demo r (gate-entered-fd g) (gate-fd g) v1 v)))))

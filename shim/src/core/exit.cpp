@@ -56,7 +56,8 @@ registry& jobs() noexcept {
 
 struct drained {
   int64_t in_flight = 0;
-  int64_t still_running = 0;
+  int64_t jobs = 0;
+  int64_t releases = 0;
 };
 
 int64_t count(const registry& r) noexcept {
@@ -65,6 +66,10 @@ int64_t count(const registry& r) noexcept {
 
 int64_t running(const registry& r) noexcept {
   return count(r) + r.releases;
+}
+
+drained left(const registry& r, int64_t in_flight) noexcept {
+  return {in_flight, count(r), r.releases};
 }
 
 double longest_bound(const registry& r) noexcept {
@@ -79,7 +84,7 @@ drained skip(registry& r, int64_t in_flight) noexcept {
     static_cast<void>(on_exit(skip_teardown, nullptr));
   }
   r.changed.notify_all();
-  return {in_flight, running(r)};
+  return left(r, in_flight);
 }
 
 drained wait_out(registry& r, std::unique_lock<std::mutex>& held) noexcept {
@@ -89,7 +94,7 @@ drained wait_out(registry& r, std::unique_lock<std::mutex>& held) noexcept {
     if (running(r) == 0) {
       r.decided = verdict::clean;
       r.changed.notify_all();
-      return {in_flight, 0};
+      return {in_flight, 0, 0};
     }
     const double longest = longest_bound(r);
     if (std::isinf(longest)) {
@@ -111,7 +116,7 @@ drained drain() noexcept {
   std::unique_lock<std::mutex> held{r.lock};
   r.closing = true;
   if (r.decided != verdict::open) {
-    return {count(r), running(r)};
+    return left(r, count(r));
   }
   ++r.waiters;
   const drained d = wait_out(r, held);
@@ -129,7 +134,8 @@ void backstop(int status, void* /*unused*/) noexcept {
     const std::lock_guard<std::mutex> held{r.lock};
     decided = r.decided != verdict::open;
   }
-  if (!decided && drain().still_running > 0) {
+  const drained d = decided ? drained{} : drain();
+  if (d.jobs + d.releases > 0) {
     skip_teardown(status, nullptr);
   }
 }
@@ -148,15 +154,20 @@ bool& on_native_worker() noexcept {
   return on;
 }
 
-bool admit_release() noexcept {
+admission admit_release() noexcept {
   registry& r = jobs();
   const std::lock_guard<std::mutex> held{r.lock};
-  if (r.decided != verdict::open) {
-    return false;
+  switch (r.decided) {
+    case verdict::open:
+      arm_backstop(r);
+      ++r.releases;
+      return admission::queued;
+    case verdict::clean:
+      return admission::in_place;
+    case verdict::skip:
+      return admission::leaked;
   }
-  arm_backstop(r);
-  ++r.releases;
-  return true;
+  return admission::leaked;
 }
 
 void retire_release() noexcept {
@@ -220,14 +231,18 @@ int64_t rr_exit_waiters(void) {
 }
 
 // NOLINTBEGIN(bugprone-easily-swappable-parameters) -- the C ABI
-void rr_exit_drain(int64_t* in_flight, int64_t* still_running) {
+void rr_exit_drain(int64_t* in_flight, int64_t* jobs_running,
+                   int64_t* releases_running) {
   // NOLINTEND(bugprone-easily-swappable-parameters)
   const rr::drained d = rr::drain();
   if (in_flight != nullptr) {
     *in_flight = d.in_flight;
   }
-  if (still_running != nullptr) {
-    *still_running = d.still_running;
+  if (jobs_running != nullptr) {
+    *jobs_running = d.jobs;
+  }
+  if (releases_running != nullptr) {
+    *releases_running = d.releases;
   }
 }
 }

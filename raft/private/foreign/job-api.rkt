@@ -86,9 +86,10 @@
   (_fun #:blocking?
         #t
         (in-flight : (_ptr o _int64 atomic-interior))
-        (still : (_ptr o _int64 atomic-interior))
+        (jobs : (_ptr o _int64 atomic-interior))
+        (releases : (_ptr o _int64 atomic-interior))
         -> _void
-        -> (values in-flight still)))
+        -> (values in-flight jobs releases)))
 
 (define-raft rr-exit-waiters (_fun -> _int64))
 

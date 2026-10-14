@@ -360,7 +360,7 @@
       });
 
       sanitizerOptions = {
-        asan = "protect_shadow_gap=0:detect_leaks=1:abort_on_error=1";
+        asan = "protect_shadow_gap=0:detect_leaks=1:detect_stack_use_after_return=1:abort_on_error=1";
         ubsan = "print_stacktrace=1:halt_on_error=1";
       };
 

@@ -333,14 +333,17 @@ waits until the job returns.
 The value is read when a job is made, on the calling thread, so
 @racket[parameterize] covers the jobs made in its body and in threads created
 there. The exit logs to the @racket['raft] topic: the jobs in flight and the
-time waited at @racket['debug], and a skipped teardown at
-@racket['warning]. If only a place, and not the main place, instantiates
-@racketmodname[raft], the exit still waits, but native destructors registered
-after the first job may run first. Instantiating it from a parallel thread of
-the main place counts as the main place. A release still running on the
-library thread that tears resources and arrays down holds the exit the same
-way, for up to the largest bound in flight or one second, whichever is
-longer.
+time waited at @racket['debug], and a skipped teardown, with the jobs and the
+releases still running, at @racket['warning]. If only a place, and not the
+main place, instantiates @racketmodname[raft], the exit still waits, but native
+destructors registered after the first job or release may run first.
+Instantiating it from a parallel thread of the main place counts as the main
+place. A release still running on the library threads that tear resources and
+arrays down holds the exit the same way, for up to the largest bound in flight
+or one second, whichever is longer. A job or a release that itself calls the C
+@tt{exit} skips the teardown, but the C @tt{atexit} handlers and static
+destructors registered after the first job or release run first, on that
+thread, while other jobs and releases keep running.
 
 @examples[#:eval ev
 (current-exit-wait)

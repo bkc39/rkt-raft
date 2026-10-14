@@ -77,7 +77,10 @@ struct drained {
 drained drain() {
   drained d;
   const auto start = std::chrono::steady_clock::now();
-  rr_exit_drain(&d.in_flight, &d.still_running);
+  int64_t jobs = -1;
+  int64_t releases = -1;
+  rr_exit_drain(&d.in_flight, &jobs, &releases);
+  d.still_running = jobs + releases;
   d.seconds = seconds_since(start);
   return d;
 }

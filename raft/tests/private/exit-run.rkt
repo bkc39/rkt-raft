@@ -17,8 +17,10 @@
 
 (define atexit-line "probe: atexit")
 
-(define (still-running-line n)
-  (format "raft: exit: jobs still running: ~a; exiting without native teardown" n))
+(define (still-running-line jobs [releases 0])
+  (format "raft: exit: jobs still running: ~a; releases still running: ~a; exiting without native teardown"
+          jobs
+          releases))
 
 (define (in-flight-parts line)
   (match (regexp-match #px"^raft: exit: jobs in flight: (\\d+); waited (\\d+) ms$" line)

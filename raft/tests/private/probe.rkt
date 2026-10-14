@@ -21,6 +21,7 @@
          ;; whole-module: its syntax classes come with it
          syntax/parse/define
          (only-in "../../private/foreign/library.rkt" _rr-resources)
+         (only-in "../../private/foreign/memory.rkt" rr-resources-free)
          (only-in "../../private/job.rkt" define-job)
          (only-in "../../unsafe.rkt" status-checker)
          (only-in "gate.rkt" gate-entered-fd gate-fd)
@@ -41,6 +42,7 @@
          probe-pool-used
          probe-release!
          probe-sleep-job
+         probe-stuck-release!
          probe-thread-id-job
          probe-token-job
          probe-tokens
@@ -91,6 +93,10 @@
 (define-probe probe-tokens-clear! (_fun -> _void) #:c-id rr_probe_tokens_clear)
 (define-probe probe-open-after! (_fun _int32 _int32 -> _void) #:c-id rr_probe_open_after)
 (define-probe probe-mark-atexit! (_fun -> _void) #:c-id rr_probe_mark_atexit)
+(define-probe probe-stuck-resources (_fun _int32 -> _rr-resources) #:c-id rr_probe_stuck_resources)
+
+(define (probe-stuck-release! hold-ms)
+  (rr-resources-free (probe-stuck-resources hold-ms)))
 
 (define (probe-tokens)
   (for/list ([i (in-range (probe-token-count))])

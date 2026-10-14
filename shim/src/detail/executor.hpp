@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <memory>
 #include <mutex>
 
@@ -26,7 +27,9 @@ struct executor_slot {
 bool admit_job(double bound);
 void retire_job(double bound) noexcept;
 double exit_bound(double seconds) noexcept;
-bool admit_release() noexcept;
+enum class admission : uint8_t { queued, in_place, leaked };
+
+admission admit_release() noexcept;
 void retire_release() noexcept;
 bool& on_native_worker() noexcept;
 
