@@ -98,11 +98,12 @@ struct job_signature<int (*)(Ps...)>
   static int call(std::byte* block, std::index_sequence<I...> /*slots*/) {
     static_cast<void>(block);
     std::tuple<typename job_slot<Ps>::type...> slots{};
-    (std::memcpy(&std::get<I>(slots), block + layout::offsets[I],
-                 layout::sizes[I]),
+    (std::memcpy(static_cast<void*>(&std::get<I>(slots)),
+                 block + layout::offsets[I], layout::sizes[I]),
      ...);
     const int status = Fn(job_slot<Ps>::arg(std::get<I>(slots))...);
-    (std::memcpy(block + layout::offsets[I], &std::get<I>(slots),
+    (std::memcpy(block + layout::offsets[I],
+                 static_cast<const void*>(&std::get<I>(slots)),
                  layout::sizes[I]),
      ...);
     return status;

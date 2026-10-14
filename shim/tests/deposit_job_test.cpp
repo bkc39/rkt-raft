@@ -50,6 +50,39 @@ void expect_closed(rr_holder* holder, const rr_deposit* record, bool filled) {
   EXPECT_EQ(count, filled ? 2 : 0);
 }
 
+struct progress {
+  bool freed = false;
+  bool finished = false;
+};
+
+void check_step(step s, progress& p, const session& d, const counters& before,
+                bool filled) {
+  p.freed = p.freed || s == step::free_holder;
+  p.finished = p.finished || s == step::finish;
+  EXPECT_EQ(rr_holder_drop_count(),
+            before.holders + ((p.freed && p.finished) ? 1 : 0));
+  if (p.finished && !p.freed) {
+    expect_closed(d.holder, d.record, filled);
+  }
+}
+
+void submit_pinned(const session& d, rr::test::job_args& args, rr_job** job) {
+  std::array<rr_holder*, 1> holders{d.holder};
+  ASSERT_EQ(
+      rr_job_submit(d.resources, rr::test::run_test_job, &args, sizeof args,
+                    nullptr, 0, holders.data(), 1, pin_bound, job),
+      RR_OK)
+      << rr_last_error();
+  ASSERT_TRUE(args.held->await_entry(std::chrono::seconds(10)));
+}
+
+void expect_released(const counters& before, const tally& t, bool filled) {
+  EXPECT_EQ(t.drops, filled ? 1 : 0);
+  EXPECT_EQ(t.stale, 0);
+  EXPECT_EQ(rr_owner_release_count(), before.owners + (filled ? 1 : 0));
+  EXPECT_EQ(rr_release_failure_count(), before.failures);
+}
+
 void pin_holder_in_order(const std::array<step, 3>& steps, bool filled) {
   const counters before;
   tally t;
@@ -60,31 +93,18 @@ void pin_holder_in_order(const std::array<step, 3>& steps, bool filled) {
   rr::test::gate g;
   rr::test::job_args args{};
   args.held = &g;
-  std::array<rr_holder*, 1> holders{d.holder};
   rr_job* job = nullptr;
-  ASSERT_EQ(
-      rr_job_submit(d.resources, rr::test::run_test_job, &args, sizeof args,
-                    nullptr, 0, holders.data(), 1, pin_bound, &job),
-      RR_OK)
-      << rr_last_error();
-  ASSERT_TRUE(g.await_entry(std::chrono::seconds(10)));
-  bool freed = false;
-  bool finished = false;
+  submit_pinned(d, args, &job);
+  if (job == nullptr) {
+    return;
+  }
+  progress p;
   for (const step s : steps) {
     take_step(s, d.holder, job, g);
-    freed = freed || s == step::free_holder;
-    finished = finished || s == step::finish;
-    EXPECT_EQ(rr_holder_drop_count(),
-              before.holders + ((freed && finished) ? 1 : 0));
-    if (finished && !freed) {
-      expect_closed(d.holder, d.record, filled);
-    }
+    check_step(s, p, d, before, filled);
   }
   rr_resources_free(d.resources);
-  EXPECT_EQ(t.drops, filled ? 1 : 0);
-  EXPECT_EQ(t.stale, 0);
-  EXPECT_EQ(rr_owner_release_count(), before.owners + (filled ? 1 : 0));
-  EXPECT_EQ(rr_release_failure_count(), before.failures);
+  expect_released(before, t, filled);
 }
 
 }  // namespace
