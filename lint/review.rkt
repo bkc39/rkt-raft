@@ -1,6 +1,7 @@
 #lang racket/base
 
-(require (only-in racket/set seteq set-member?)
+(require (only-in racket/list append-map)
+         (only-in racket/set seteq set-member?)
          (only-in review/ext pop-scope push-scope recur track-binding)
          ;; whole-module: its syntax classes come with it
          syntax/parse/pre)
@@ -25,6 +26,9 @@
     [(head:id (_ . _))
      #:when (named? #'head 'quote)
      #t]
+    [(head:id _)
+     #:when (named? #'head 'quasiquote)
+     #t]
     [(head:id (_:id . _) _ ...)
      #:when (named? #'head 'define-syntax-parse-rule)
      #t]
@@ -35,6 +39,24 @@
      #:when (set-member? scoped-test-forms (syntax-e #'head))
      #t]
     [_ #f]))
+
+(define (unquote? head)
+  (memq (syntax-e head) '(unquote unquote-splicing)))
+
+(define (unquoted stx depth)
+  (syntax-parse stx
+    [(head:id e)
+     #:when (and (unquote? #'head) (= depth 1))
+     (list #'e)]
+    [(head:id e)
+     #:when (unquote? #'head)
+     (unquoted #'e (sub1 depth))]
+    [(head:id e)
+     #:when (named? #'head 'quasiquote)
+     (unquoted #'e (add1 depth))]
+    [(a . d) (append (unquoted #'a depth) (unquoted #'d depth))]
+    [#(e ...) (append-map (lambda (e) (unquoted e depth)) (syntax->list #'(e ...)))]
+    [_ '()]))
 
 (define (review-scoped-body leading body)
   (for-each recur leading)
@@ -47,6 +69,9 @@
     [(head:id (_ . _))
      #:when (named? #'head 'quote)
      (void)]
+    [(head:id datum)
+     #:when (named? #'head 'quasiquote)
+     (for-each recur (unquoted #'datum 1))]
     [(head:id (name:id . _) _ ...)
      #:when (named? #'head 'define-syntax-parse-rule)
      (track-binding #'name)]
