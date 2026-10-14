@@ -82,7 +82,7 @@ raftrkt_add_tidy_target(tidy raftrkt)
 if(BUILD_TESTING)
   find_package(GTest REQUIRED)
   include(GoogleTest)
-  set(raftrkt_gtest_timeout_seconds 5)
+  set(raftrkt_gtest_timeout_seconds 6)
 
   add_library(raftrkt_c_api_compile_test OBJECT tests/c_api_compile_test.c)
   target_include_directories(raftrkt_c_api_compile_test

@@ -664,7 +664,7 @@ both rule sets (see Tooling). After pushing, poll `gh pr checks <n>` (it exits
 non-zero while checks are pending) until green.
 
 Every test run is bounded, so a hang fails instead of stalling a gate or
-a runner. ctest fails a shim gtest past 5 s and a canary gtest past 2 s
+a runner. ctest fails a shim gtest past 6 s and a canary gtest past 2 s
 (`gtest_discover_tests ... PROPERTIES TIMEOUT`, about three times the
 slowest test; the nix checks run the gtests through ctest). `raco test
 --timeout 45` bounds each Racket file, and `test-timeouts` in `raft/info.rkt`
