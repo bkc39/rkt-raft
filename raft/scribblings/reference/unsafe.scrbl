@@ -171,8 +171,11 @@ A failure of the entry point raises @racket[(exn message marks kind)] as
 kind; @racket[exn] is @racket[exn:fail:raft] unless @racket[#:exn] says
 otherwise. Released resources or arrays raise @racket[exn:fail:raft] of kind
 @racket['logic] before the job is made, as does a call in atomic mode,
-where the calling thread cannot wait. A number its type refuses raises
-@racket[exn:fail:contract] naming @racket[who].
+where the calling thread cannot wait. A @racket[view] argument that is
+neither a device array nor @racket[#f], or a @racket[deposit] argument that is
+not a deposit, raises @racket[exn:fail:raft] of kind @racket['logic] naming
+@racket[who], also before the job is made. A number
+its type refuses raises @racket[exn:fail:contract] naming @racket[who].
 
 The job holds what it uses, the handle, each array's memory and each
 deposit, until it returns, even if the calling thread is killed or the
@@ -200,6 +203,13 @@ A failure raises with the job's own message:
 @examples[#:eval ev #:label #f
 (eval:error
  (kc-fit-job 'kmeans-fit (current-device-resources) ints #f centers 0 300 1e-4 1 0.0 42))
+]
+
+A view that is not an array raises before the job is made:
+
+@examples[#:eval ev #:label #f
+(eval:error
+ (kc-fit-job 'kmeans-fit (current-device-resources) 'not-an-array #f centers 0 300 1e-4 1 0.0 42))
 ]
 
 Other threads run while a job does:
@@ -242,6 +252,7 @@ A deposit parameter takes outputs sized by the call (@racket[deposit]):
 (kc-cluster-members-job 'cluster-members (current-device-resources) X labels 0 found)
 (deposit->list found)
 (eval:error (kc-cluster-members-job 'cluster-members (current-device-resources) X labels 0 found))
+(eval:error (kc-cluster-members-job 'cluster-members (current-device-resources) X labels 0 'not-a-deposit))
 ]}
 
 @section[#:tag "ref-unsafe-abi"]{The ABI tag}

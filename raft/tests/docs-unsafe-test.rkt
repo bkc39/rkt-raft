@@ -251,6 +251,20 @@
                                   1
                                   0.0
                                   42)))
+  (check-raft-error 'logic
+                    "kmeans-fit: expected a device array or #f for a view, given 'not-an-array"
+                    (lambda ()
+                      (kc-fit-job 'kmeans-fit
+                                  (current-device-resources)
+                                  'not-an-array
+                                  #f
+                                  (device-matrix 2 2)
+                                  0
+                                  300
+                                  1e-4
+                                  1
+                                  0.0
+                                  42)))
   (define big (device-matrix 1000000 32))
   (kc-make-blobs-job 'blobs
                      (current-device-resources)
@@ -290,7 +304,12 @@
   (check-raft-error
    'logic
    "cluster-members: the deposit is closed"
-   (lambda () (kc-cluster-members-job 'cluster-members (current-device-resources) X labels 0 found))))
+   (lambda () (kc-cluster-members-job 'cluster-members (current-device-resources) X labels 0 found)))
+  (check-raft-error
+   'logic
+   "cluster-members: expected a deposit for a deposit parameter, given 'not-a-deposit"
+   (lambda ()
+     (kc-cluster-members-job 'cluster-members (current-device-resources) X labels 0 'not-a-deposit))))
 
 (test-canary "unsafe reference: outputs sized by the call"
   (define check (status-checker kc-last-error kc-last-error-kind))

@@ -114,10 +114,11 @@ TEST(KMeans, FitsAndPredictsTheBlobsItMade) {
 }
 
 constexpr int release_polls = 1000;
+constexpr auto release_poll_interval = std::chrono::milliseconds(10);
 
 bool releases_settled() {
   for (int i = 0; i < release_polls && rr_releases_pending() != 0; ++i) {
-    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    std::this_thread::sleep_for(release_poll_interval);
   }
   return rr_releases_pending() == 0;
 }

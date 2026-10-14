@@ -35,6 +35,7 @@
          (only-in "exn.rkt" exn:fail:raft raise-native raise-raft)
          (only-in "foreign/array.rkt" _rr-view blank-view keep-reachable)
          (only-in "foreign/core.rkt" rr-resources-handle)
+         (only-in "foreign/memory.rkt" released?)
          (only-in "foreign/job-api.rkt"
                   rr-executor-threads
                   rr-job-fd
@@ -137,7 +138,7 @@
                                 (ptr-set! block _pointer 'abs offset record))
                               (proc holders))))
 
-(define (submit who native entry block pins deposits seconds)
+(define (submit who resources entry block pins deposits seconds)
   (call-as-atomic
    (lambda ()
      (bind-deposits!
@@ -145,7 +146,14 @@
       block
       deposits
       (lambda (holders)
-        (call/raft who (lambda () (rr-job-submit native entry block pins holders seconds))))))))
+        (call/raft who
+                   (lambda ()
+                     (rr-job-submit (live-handle who resources pins)
+                                    entry
+                                    block
+                                    pins
+                                    holders
+                                    seconds))))))))
 
 (define (waited-status job)
   (sync (job-evt job))
@@ -167,6 +175,12 @@
      (define message (bytes->string/utf-8 (rr-job-message job) #\uFFFD))
      (lambda () (raise-native exn who kind message))]))
 
+(define (live-handle who resources pins)
+  (define handle (resources-handle who resources))
+  (cond
+    [(ormap released? pins) (raise-raft who 'logic "a device array passed to the job was released")]
+    [else handle]))
+
 (define (run-job who resources entry slots offsets size outputs exn args)
   (when (in-atomic-mode?)
     (raise-raft who 'logic "cannot wait for a job in atomic mode"))
@@ -174,13 +188,12 @@
   (define native (resources-handle who resources))
   (define block (make-bytes size 0))
   (define-values (deposits pins) (pack! who block native slots offsets args))
-  (define packed (resources-handle who resources))
   (define finish
     (parameterize-break
      #f
      (with-release #:who
                    who
-                   ([job (submit who packed entry block pins deposits seconds) rr-job-release])
+                   ([job (submit who resources entry block pins deposits seconds) rr-job-release])
        (job-finish who job block outputs exn))))
   (keep-reachable (list resources args))
   (parameterize-break (break-enabled) (void))

@@ -1,6 +1,7 @@
 #include <poll.h>
 #include <unistd.h>
 
+#include <atomic>
 #include <cerrno>
 #include <chrono>
 #include <cstdint>
@@ -28,7 +29,12 @@ raftrkt::error_slot& probe::slot() noexcept {
 namespace {
 
 constexpr int32_t slice_ms = 10;
-constexpr int32_t hold_timeout_ms = 10000;
+constexpr int32_t default_hold_timeout_ms = 10000;
+
+std::atomic<int32_t>& hold_timeout_ms() noexcept {
+  static std::atomic<int32_t> ms{default_hold_timeout_ms};
+  return ms;
+}
 
 void say(std::string_view text) noexcept {
   [[maybe_unused]] const ssize_t written = write(2, text.data(), text.size());
@@ -56,7 +62,7 @@ bool wait_for_gate(int32_t gate_fd, int32_t timeout_ms) {
 }
 
 void require_gate(int32_t gate_fd) {
-  if (!wait_for_gate(gate_fd, hold_timeout_ms)) {
+  if (!wait_for_gate(gate_fd, hold_timeout_ms().load())) {
     throw std::runtime_error("gate timed out");
   }
 }
@@ -208,7 +214,7 @@ RR_API int rr_probe_hold_views(int32_t entered_fd, int32_t gate_fd,
     auto& result = *raftrkt::require(elements, "elements");
     result = 0;
     enter(entered_fd);
-    wait_for_gate(gate_fd, hold_timeout_ms);
+    wait_for_gate(gate_fd, hold_timeout_ms().load());
     const int64_t xs =
         x == nullptr ? 0
                      : static_cast<int64_t>(
@@ -278,6 +284,10 @@ RR_API int rr_probe_deposit_before_gate(int32_t entered_fd, int32_t gate_fd,
                              enter(entered_fd);
                              require_gate(gate_fd);
                            });
+}
+
+RR_API void rr_probe_set_hold_timeout(int32_t ms) {
+  hold_timeout_ms().store(ms);
 }
 
 #define RR_PROBE_JOB(name)                                       \

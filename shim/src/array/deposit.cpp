@@ -68,6 +68,9 @@ bool adoptable(const rr_holder& holder, int32_t state) noexcept {
 
 int32_t checked_count(const rr_holder& holder) {
   const int32_t state = state_of(holder);
+  if (holder.between_loads != nullptr) {
+    holder.between_loads(holder);
+  }
   if (!adoptable(holder, state)) {
     throw logic_error("the deposit is still open");
   }

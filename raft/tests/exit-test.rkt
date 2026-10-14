@@ -172,3 +172,6 @@
 
 (test-host-probe "raft only in a place gets the native backstop"
   (check-exit 'place-only 21 (list "probe: gate opened" atexit-line)))
+
+(test-host-probe "a stuck release is logged apart from the jobs and skips teardown"
+  (check-exit 'stuck-release 22 (list (in-flight-line 0 1000 1500) (still-running-line 0 1))))

@@ -18,6 +18,7 @@
 #include <rmm/mr/per_device_resource.hpp>
 #include <rmm/resource_ref.hpp>
 #include <string>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -324,5 +325,13 @@ RR_API uint64_t rr_probe_owner_drops(void) {
 
 RR_API uint64_t rr_probe_owner_stale(void) {
   return owner_stale().load(std::memory_order_relaxed);
+}
+
+RR_API rr_resources* rr_probe_stuck_resources(int32_t hold_ms) {
+  std::shared_ptr<raft::handle_t> handle{
+      static_cast<raft::handle_t*>(nullptr), [hold_ms](raft::handle_t*) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(hold_ms));
+      }};
+  return new rr_resources{-1, std::move(handle), {}};
 }
 }

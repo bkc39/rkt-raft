@@ -5,10 +5,12 @@
 #include <cstddef>
 #include <cstdint>
 #include <deque>
+#include <memory>
 #include <mutex>
 #include <new>
 #include <optional>
 #include <thread>
+#include <utility>
 
 #include "detail/executor.hpp"
 #include "detail/handles.hpp"
@@ -78,8 +80,12 @@ struct reaper {
   bool started = false;
 };
 
+enum class lane : uint8_t { buffers, handles };
+
 // Allocated on first use and never destroyed, like the exit registry: the
-// reaper thread outlives exit()'s static destructors.
+// reaper threads outlive exit()'s static destructors. Buffer memory has its
+// own lane so a free never waits behind a handle drop that synchronizes.
+template <lane L>
 reaper& releases() noexcept {
   alignas(reaper) static std::byte storage[sizeof(reaper)];
   static reaper* const shared = ::new (static_cast<void*>(storage)) reaper;
@@ -101,11 +107,7 @@ reaper& releases() noexcept {
   }
 }
 
-bool hand_off(release_item item) noexcept {
-  if (!admit_release()) {
-    return false;
-  }
-  reaper& q = releases();
+bool hand_off(reaper& q, release_item item) noexcept {
   try {
     const std::lock_guard<std::mutex> held{q.lock};
     if (!q.started) {
@@ -114,11 +116,28 @@ bool hand_off(release_item item) noexcept {
     }
     q.queue.push_back(item);
   } catch (...) {
-    retire_release();
     return false;
   }
   q.wake.notify_one();
   return true;
+}
+
+template <lane L, typename T, std::atomic<uint64_t>& (*Drops)() noexcept>
+void release_on(T* object, void (*off_thread)(void*) noexcept) noexcept {
+  switch (admit_release()) {
+    case admission::queued:
+      if (!hand_off(releases<L>(), {off_thread, static_cast<void*>(object)})) {
+        retire_release();
+        release_on_device(object, Drops());
+      }
+      return;
+    case admission::in_place:
+      release_on_device(object, Drops());
+      return;
+    case admission::leaked:
+      release_failures().fetch_add(1, std::memory_order_relaxed);
+      return;
+  }
 }
 
 template <typename T, std::atomic<uint64_t>& (*Drops)() noexcept>
@@ -126,10 +145,46 @@ void release(T* object) noexcept {
   if (object == nullptr) {
     return;
   }
-  if (on_native_worker() ||
-      !hand_off({release_erased<T, Drops>, static_cast<void*>(object)})) {
+  if (on_native_worker()) {
     release_on_device(object, Drops());
+    return;
   }
+  release_on<lane::handles, T, Drops>(object, release_erased<T, Drops>);
+}
+
+std::atomic<uint64_t>& owner_drops() noexcept {
+  static std::atomic<uint64_t> count{0};
+  return count;
+}
+
+// handle is declared before keep, as in rr_buffer: the deposit's owner is
+// released while the handle lives.
+struct owner_ref {
+  int32_t device;
+  std::shared_ptr<raft::handle_t> handle;
+  std::shared_ptr<void> keep;
+};
+
+void drop_buffer(void* object) noexcept {
+  auto* buffer = static_cast<rr_buffer*>(object);
+  owner_ref* owner = nullptr;
+  if (buffer->owner || buffer->keep) {
+    owner = new (std::nothrow)
+        owner_ref{buffer->device, buffer->owner, std::move(buffer->keep)};
+  }
+  release_on_device(buffer, buffer_drops());
+  if (owner != nullptr) {
+    release_on<lane::handles, owner_ref, owner_drops>(
+        owner, release_erased<owner_ref, owner_drops>);
+  }
+}
+
+void release_buffer(rr_buffer* buffer) noexcept {
+  if (on_native_worker()) {
+    release_on_device(buffer, buffer_drops());
+    return;
+  }
+  release_on<lane::buffers, rr_buffer, buffer_drops>(buffer, drop_buffer);
 }
 
 }  // namespace
@@ -145,7 +200,7 @@ void pin(rr_buffer& buffer) noexcept {
 void unpin(rr_buffer* buffer) noexcept {
   if (buffer != nullptr &&
       buffer->refs.fetch_sub(1, std::memory_order_acq_rel) == 1) {
-    release<rr_buffer, buffer_drops>(buffer);
+    release_buffer(buffer);
   }
 }
 

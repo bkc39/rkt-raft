@@ -5,6 +5,7 @@
          (only-in "../private/deposit.rkt" call-with-deposits-bound)
          (only-in "../private/dtype.rkt" dtype->code)
          (only-in "../private/job.rkt" define-job jobs-in-flight jobs-live)
+         (only-in "../private/resource.rkt" with-release)
          (only-in "../unsafe.rkt" deposit deposit->list with-deposits)
          (only-in "private/collect.rkt" collect-until drain-finalizers!)
          (only-in "private/deposits.rkt"
@@ -17,14 +18,15 @@
                   counts-holders
                   released-once
                   since)
-         (only-in "private/gate.rkt" gate-entered-fd gate-fd open-gate!)
+         (only-in "private/gate.rkt" closed-gate gate-entered-fd gate-fd open-gate! release-gate)
          (only-in "private/probe.rkt"
                   probe-deposit-after-gate-job
                   probe-deposit-before-gate-job
                   probe-deposit-job
                   probe-flags
                   probe-library
-                  test-probe)
+                  test-probe
+                  with-hold-timeout)
          (only-in "private/raft-error.rkt" check-raft-error))
 
 (define (deposit-job d dt rows cols #:count [k 2] #:flags [flags 0])
@@ -187,3 +189,12 @@
                          (open-gate! g)
                          (check-equal? (thread-wait caller) 'returned)))
   (check-pattern (deposit->list d) 'int32 3 4))
+
+(test-probe "a deposit job whose gate stays closed fails once the probe's hold times out"
+  (define d (deposit))
+  (with-release ([g (closed-gate) release-gate])
+    (with-hold-timeout 100
+      (check-raft-error 'generic
+                        "demo: gate timed out"
+                        (lambda () ((gated probe-deposit-after-gate-job d 'float32) g)))))
+  (check-deposit-closed d))

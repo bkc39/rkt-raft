@@ -16,6 +16,7 @@
 #include <rmm/device_uvector.hpp>
 #include <stdexcept>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "deposit_fixture.hpp"
@@ -272,7 +273,7 @@ void release_as(void* owned) {
 }
 
 struct blocking_owner {
-  explicit blocking_owner(gate& g) : dropping(&g) {}
+  explicit blocking_owner(std::shared_ptr<gate> g) : dropping(std::move(g)) {}
   ~blocking_owner() {
     dropping->enter_and_wait_for(std::chrono::seconds(5));
   }
@@ -281,21 +282,21 @@ struct blocking_owner {
   blocking_owner(blocking_owner&&) = delete;
   blocking_owner& operator=(blocking_owner&&) = delete;
 
-  gate* dropping;
+  std::shared_ptr<gate> dropping;
 };
 
 TEST(Deposit, AHolderFreeReturnsWhileItsOwnerIsReleasedElsewhere) {
   RR_REQUIRE_GPU();
   session s = open_session();
-  gate dropping;
+  const auto dropping = std::make_shared<gate>();
   raftrkt::deposit(s.record, "out", *s.handle,
                    std::make_unique<blocking_owner>(dropping), {});
   const auto start = std::chrono::steady_clock::now();
   rr_holder_free(s.holder);
   const double freeing = seconds_since(start);
-  ASSERT_TRUE(dropping.await_entry(std::chrono::seconds(5)));
+  ASSERT_TRUE(dropping->await_entry(std::chrono::seconds(5)));
   EXPECT_LT(freeing, 1.0);
-  dropping.open_now();
+  dropping->open_now();
   EXPECT_TRUE(releases_settled());
   rr_resources_free(s.resources);
 }

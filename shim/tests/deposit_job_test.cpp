@@ -138,8 +138,9 @@ void pin_holder_in_order(const std::array<step, 3>& steps, bool filled) {
   session d = rr::test::deposit::open_session();
   rr::test::deposit::fill(d, t);
   int64_t in_flight = -1;
-  int64_t still_running = -1;
-  rr_exit_drain(&in_flight, &still_running);
+  int64_t jobs = -1;
+  int64_t releases = -1;
+  rr_exit_drain(&in_flight, &jobs, &releases);
   std::array<rr_holder*, 1> holders{d.holder};
   rr::test::job_args args{};
   rr_job* job = nullptr;
