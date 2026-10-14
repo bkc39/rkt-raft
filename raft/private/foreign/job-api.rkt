@@ -27,6 +27,7 @@
 
 (provide rr-executor-threads
          rr-exit-drain
+         rr-exit-waiters
          rr-job-fd
          rr-job-message
          rr-job-read
@@ -87,6 +88,8 @@
         (still : (_ptr o _int64 atomic-interior))
         -> _void
         -> (values in-flight still)))
+
+(define-raft rr-exit-waiters (_fun -> _int64))
 
 (define-raft rr-os-thread-id (_fun -> _uint64))
 

@@ -275,7 +275,9 @@ plans/scoping-plan.md         the approved plan (revision 5), as Markdown
   `src/detail/executor_api.h` declares the executor's internal entry
   points the same way (`rr_resources_create_host`, `rr_job_submit` and the
   job accessors, the counters, `rr_exit_drain`, `rr_os_thread_id`), bound
-  in `private/foreign/job-api.rkt`.
+  in `private/foreign/job-api.rkt`. `rr_exit_waiters` counts the threads
+  waiting inside a drain, so the exit gtests can open a job only once
+  every drain is waiting.
 - **The executor** (`src/core/executor.cpp`, #32). Each `rr_resources`
   owns an `rr::executor_slot`: one worker thread, started on first use,
   that runs that object's jobs in FIFO order, one at a time; workers of
@@ -1246,4 +1248,18 @@ since cuSPARSE's error string for it is only "out of memory"). The frozen rule i
   count. A submit after the drain began answers a refused job, and its
   caller parks. One window is known: a job still running may register a
   destructor between the hook's arming and `exit()`.
+- **The exit gtests gate their jobs instead of timing them** (#27 round
+  3, a departure from laws 96, 97 and 103). A job that sleeps a fixed time
+  is timed from the worker's start and each drain from its own, so under
+  load a window such as law 96's 100–200 ms missed either way. The job now
+  waits on a gate that opens once `rr_exit_waiters` shows every drain
+  waiting. Law 96 asserts both drains get (1, 0); a waiter left asleep
+  never returns, and the child's 5 s alarm fails the test. Law 97's
+  1e300 and `+inf` cases assert (1, 0) with no window. Law 97's recompute
+  case bounds the gated job at 10 s beside a stuck job bound to 0.1 and
+  asserts (2, 1) in 0.1–3 s: without the recompute the drain waits out the
+  10 s and the alarm fires. Law 103 asserts (2, 0) with no window. The
+  windows of laws 94, 95 and 98 to 102 are measured from the drain's own
+  start against bounds the drain computes, so no thread's start moves
+  them.
 - **#26 and #28 are closed by #32.**
