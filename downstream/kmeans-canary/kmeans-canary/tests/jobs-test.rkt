@@ -1,7 +1,7 @@
 #lang racket/base
 
 (require (only-in racket/list make-list)
-         (only-in racket/match match match-define match-lambda)
+         (only-in racket/match match-define match-lambda)
          (only-in rackunit check-equal? check-pred check-true)
          (only-in raft
                   contiguous
@@ -94,12 +94,11 @@
           (list "kmeans-predict: X: expected 3 columns, got 2" (lambda () (kmeans-predict wide X)))))
   (define callers
     (for/list ([case (in-list cases)])
-      (match case
-        [(list message thunk) (cons message (raised-errors 25 thunk))])))
+      (match-define (list message thunk) case)
+      (cons message (raised-errors 25 thunk))))
   (for ([started (in-list callers)])
-    (match started
-      [(cons message caller)
-       (check-equal? (thread-wait caller) (make-list 25 (list 'logic message)))])))
+    (match-define (cons message caller) started)
+    (check-equal? (thread-wait caller) (make-list 25 (list 'logic message)))))
 
 (test-gpu "a thread killed mid kmeans-fit leaves its arrays to the fit, and later fits work"
   (define-values (X truth) (blobs 2500000 32 #:centers 64 #:cluster-std 4.0 #:seed 1))
