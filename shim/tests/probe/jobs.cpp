@@ -13,12 +13,12 @@
 #include <thread>
 #include <vector>
 
+#include "probe.hpp"
 #include "raftrkt/array.h"
 #include "raftrkt/core.h"
 #include "raftrkt/error.hpp"
 #include "raftrkt/job.hpp"
 #include "raftrkt/view.hpp"
-#include "probe.hpp"
 
 raftrkt::error_slot& probe::slot() noexcept {
   thread_local raftrkt::error_slot slot;
@@ -242,10 +242,27 @@ RR_API void rr_probe_mark_atexit(void) {
   static_cast<void>(registered);
 }
 
-#define RR_PROBE_JOB(name)                                                     \
-  RR_API void rr_probe_##name##_job(void* args, size_t args_len,               \
-                                    rr_job_outcome* outcome) {                 \
-    raftrkt::run_job<&rr_probe_##name>(args, args_len, outcome, probe::slot()); \
+// NOLINTBEGIN(bugprone-easily-swappable-parameters) -- the probe C ABI
+RR_API int rr_probe_deposit_after_gate(int32_t entered_fd, int32_t gate_fd,
+                                       void* handle, rr_deposit* out,
+                                       int32_t dtype, int32_t count,
+                                       int64_t rows, int64_t cols,
+                                       uint32_t flags) {
+  // NOLINTEND(bugprone-easily-swappable-parameters)
+  const int status = raftrkt::translate_exceptions(probe::slot(), [&] {
+    enter(entered_fd);
+    wait_for_gate(gate_fd, hold_timeout_ms);
+  });
+  return status != RR_OK
+             ? status
+             : rr_probe_deposit(handle, out, dtype, count, rows, cols, flags);
+}
+
+#define RR_PROBE_JOB(name)                                       \
+  RR_API void rr_probe_##name##_job(void* args, size_t args_len, \
+                                    rr_job_outcome* outcome) {   \
+    raftrkt::run_job<&rr_probe_##name>(args, args_len, outcome,  \
+                                       probe::slot());           \
   }
 
 RR_PROBE_JOB(gate)
@@ -256,4 +273,6 @@ RR_PROBE_JOB(sleep)
 RR_PROBE_JOB(late_static)
 RR_PROBE_JOB(thread_id)
 RR_PROBE_JOB(hold_views)
+RR_PROBE_JOB(deposit)
+RR_PROBE_JOB(deposit_after_gate)
 }

@@ -71,6 +71,17 @@ void unpin(rr_buffer* buffer) noexcept {
   }
 }
 
+void pin(rr_holder& holder) noexcept {
+  holder.refs.fetch_add(1, std::memory_order_relaxed);
+}
+
+void unpin(rr_holder* holder) noexcept {
+  if (holder != nullptr &&
+      holder->refs.fetch_sub(1, std::memory_order_acq_rel) == 1) {
+    release_on_device(holder, holder_drops());
+  }
+}
+
 }  // namespace rr
 
 extern "C" {
@@ -84,7 +95,7 @@ void rr_buffer_free(rr_buffer* buffer) {
 }
 
 void rr_holder_free(rr_holder* holder) {
-  rr::release_on_device(holder, rr::holder_drops());
+  rr::unpin(holder);
 }
 
 uint64_t rr_resources_drop_count(void) {

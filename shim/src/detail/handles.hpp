@@ -56,6 +56,7 @@ struct rr_holder {
   std::array<bool, RR_MAX_REGIONS> adopted{};
   // Set only by the test probe: adopting this region fails, once.
   int32_t refused_adoption = -1;
+  std::atomic<int32_t> refs{1};
 };
 
 namespace rr {
@@ -88,6 +89,9 @@ void count_release_failure() noexcept;
 
 void pin(rr_buffer& buffer) noexcept;
 void unpin(rr_buffer* buffer) noexcept;
+void pin(rr_holder& holder) noexcept;
+void unpin(rr_holder* holder) noexcept;
+void close_holder(rr_holder& holder) noexcept;
 
 inline const std::shared_ptr<raft::handle_t>& handle_of(
     const rr_resources& resources) {

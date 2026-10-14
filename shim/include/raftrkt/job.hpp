@@ -12,6 +12,7 @@
 #include <utility>
 
 #include "raftrkt/array.h"
+#include "raftrkt/deposit.h"
 #include "raftrkt/error.hpp"
 #include "raftrkt/job.h"
 
@@ -20,7 +21,7 @@ namespace raftrkt {
 template <typename P>
 concept job_parameter =
     std::same_as<P, void*> || std::same_as<P, const rr_view*> ||
-    std::is_arithmetic_v<P> ||
+    std::same_as<P, rr_deposit*> || std::is_arithmetic_v<P> ||
     (std::is_pointer_v<P> && std::is_arithmetic_v<std::remove_pointer_t<P>> &&
      !std::is_const_v<std::remove_pointer_t<P>>);
 

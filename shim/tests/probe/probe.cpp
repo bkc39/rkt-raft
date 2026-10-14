@@ -1,3 +1,5 @@
+#include "probe.hpp"
+
 #include <cuda_runtime_api.h>
 
 #include <atomic>
@@ -25,7 +27,6 @@
 #include "raftrkt/deposit.hpp"
 #include "raftrkt/error.hpp"
 #include "raftrkt/view.hpp"
-#include "probe.hpp"
 
 namespace {
 
@@ -59,7 +60,6 @@ const rmm::mr::cuda_async_memory_resource* current_async(
 
 constexpr uint32_t col_major_flag = 1U;
 constexpr uint32_t fail_after_flag = 2U;
-constexpr uint32_t wait_flag = 4U;
 constexpr uint32_t twice_flag = 8U;
 constexpr uint32_t overlap_flag = 16U;
 constexpr uint32_t raw_flag = 32U;
@@ -231,9 +231,6 @@ void filled_by_hand(rr_deposit& out, std::unique_ptr<probe_owner>&& owner,
 }
 
 void probe_deposit(void* handle, rr_deposit* out, const request& q) {
-  if ((q.flags & wait_flag) != 0U) {
-    wait_for_gate();
-  }
   const raft::handle_t& h = raftrkt::handle_of(handle);
   const raftrkt::device_scope scope{raftrkt::device_of(h)};
   std::vector<rr_view> regions;

@@ -110,6 +110,19 @@ adoption adopted_buffer(rr_holder& holder, std::size_t i) {
 
 }  // namespace
 
+void close_holder(rr_holder& holder) noexcept {
+  auto state = state_of(holder.record);
+  int32_t seen = RR_DEPOSIT_OPEN;
+  while (!state.compare_exchange_weak(seen, RR_DEPOSIT_CLOSED,
+                                      std::memory_order_acq_rel)) {
+    if (seen == RR_DEPOSIT_CLOSED) {
+      return;
+    }
+    holder.filled_at_close =
+        holder.filled_at_close || seen == RR_DEPOSIT_FILLED;
+  }
+}
+
 }  // namespace rr
 
 rr_holder::rr_holder(std::shared_ptr<raft::handle_t> h, int32_t d)
@@ -134,7 +147,7 @@ int rr_holder_create(rr_resources* resources, rr_holder** out) {
     auto& result = *rr::require(out, "out");
     result = nullptr;
     const auto& r = *rr::require(resources, "resources");
-    result = new rr_holder(r.handle, r.device);
+    result = new rr_holder(rr::handle_of(r), r.device);
   });
 }
 
@@ -158,18 +171,8 @@ int rr_holder_record(rr_holder* holder, rr_deposit** out) {
 }
 
 int rr_holder_close(rr_holder* holder) {
-  return rr::translate_exceptions([&] {
-    auto& h = *rr::require(holder, "holder");
-    auto state = rr::state_of(h.record);
-    int32_t seen = RR_DEPOSIT_OPEN;
-    while (!state.compare_exchange_weak(seen, RR_DEPOSIT_CLOSED,
-                                        std::memory_order_acq_rel)) {
-      if (seen == RR_DEPOSIT_CLOSED) {
-        return;
-      }
-      h.filled_at_close = h.filled_at_close || seen == RR_DEPOSIT_FILLED;
-    }
-  });
+  return rr::translate_exceptions(
+      [&] { rr::close_holder(*rr::require(holder, "holder")); });
 }
 
 int rr_holder_count(const rr_holder* holder, int32_t* out) {

@@ -16,7 +16,6 @@ extern "C" {
 #define RR_JOB_REFUSED 2
 
 typedef struct rr_job rr_job;
-typedef struct rr_holder rr_holder;
 
 RR_API int rr_resources_create_host(rr_resources** out);
 RR_API int rr_job_submit(rr_resources* resources, rr_job_fn fn,

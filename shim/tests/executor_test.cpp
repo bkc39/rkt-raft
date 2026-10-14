@@ -15,6 +15,7 @@
 #include <vector>
 
 #include "detail/array_api.h"
+#include "detail/deposit_api.h"
 #include "detail/executor_api.h"
 #include "detail/internal_api.h"
 #include "gpu.hpp"
@@ -102,10 +103,10 @@ TEST(Executor, SubmitRefusesWhatItCannotRun) {
   expect_refusal(rr_job_submit(r, rr::test::run_test_job, &args, sizeof args,
                                nullptr, 0, nullptr, 1, 1.0, &job),
                  job, "holders is NULL");
-  std::array<rr_holder*, 1> holder{reinterpret_cast<rr_holder*>(&order)};
+  std::array<rr_holder*, 1> no_holder{nullptr};
   expect_refusal(rr_job_submit(r, rr::test::run_test_job, &args, sizeof args,
-                               nullptr, 0, holder.data(), 1, 1.0, &job),
-                 job, "holders: expected none");
+                               nullptr, 0, no_holder.data(), 1, 1.0, &job),
+                 job, "holders[0] is NULL");
   EXPECT_EQ(rr_job_submit(r, rr::test::run_test_job, &args, sizeof args,
                           nullptr, 0, nullptr, 0, 1.0, nullptr),
             RR_ERROR);
@@ -299,6 +300,10 @@ TEST(Executor, HostResourcesRefuseWhatNeedsADevice) {
             RR_ERROR);
   EXPECT_STREQ(rr_last_error(), message);
   EXPECT_EQ(buffer, nullptr);
+  rr_holder* holder = reinterpret_cast<rr_holder*>(&order);
+  EXPECT_EQ(rr_holder_create(r, &holder), RR_ERROR);
+  EXPECT_STREQ(rr_last_error(), message);
+  EXPECT_EQ(holder, nullptr);
   rr_resources_free(r);
 }
 

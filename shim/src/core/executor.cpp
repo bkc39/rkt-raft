@@ -69,6 +69,11 @@ struct rr_job {
       rr::unpin(buffer);
     }
     pins.clear();
+    for (rr_holder* holder : holders) {
+      rr::close_holder(*holder);
+      rr::unpin(holder);
+    }
+    holders.clear();
     if (!handle) {
       return;
     }
@@ -92,6 +97,7 @@ struct rr_job {
   std::vector<std::max_align_t> storage;
   size_t args_len = 0;
   std::vector<rr_buffer*> pins;
+  std::vector<rr_holder*> holders;
   std::shared_ptr<raft::handle_t> handle;
   int32_t device = -1;
   double bound = 0;
@@ -187,7 +193,7 @@ std::shared_ptr<executor> start_worker() {
 // rr_job_submit
 rr_job* queued_job(rr_resources& r, rr_job_fn fn, const void* args,
                    size_t args_len, rr_buffer* const* buffers, size_t n_buffers,
-                   double bound) {
+                   rr_holder* const* holders, size_t n_holders, double bound) {
   // NOLINTEND(bugprone-easily-swappable-parameters)
   job_ptr job{new rr_job};
   job->fn = fn;
@@ -205,6 +211,11 @@ rr_job* queued_job(rr_resources& r, rr_job_fn fn, const void* args,
   for (size_t i = 0; i < n_buffers; ++i) {
     pin(*buffers[i]);
     job->pins.push_back(buffers[i]);
+  }
+  job->holders.reserve(n_holders);
+  for (size_t i = 0; i < n_holders; ++i) {
+    pin(*holders[i]);
+    job->holders.push_back(holders[i]);
   }
   job->handle = r.handle;
   job->device = r.device;
@@ -231,7 +242,11 @@ void require_parts(rr_buffer* const* buffers, size_t n_buffers,
   }
   if (n_holders > 0) {
     require(holders, "holders");
-    throw logic_error("holders: expected none");
+  }
+  for (size_t i = 0; i < n_holders; ++i) {
+    if (holders[i] == nullptr) {
+      throw logic_error("holders[" + std::to_string(i) + "] is NULL");
+    }
   }
 }
 
@@ -285,7 +300,8 @@ int rr_job_submit(rr_resources* resources, rr_job_fn fn, const void* args,
       return;
     }
     try {
-      result = rr::queued_job(r, fn, args, args_len, buffers, n_buffers, bound);
+      result = rr::queued_job(r, fn, args, args_len, buffers, n_buffers,
+                              holders, n_holders, bound);
     } catch (...) {
       rr::retire_job(bound);
       throw;
