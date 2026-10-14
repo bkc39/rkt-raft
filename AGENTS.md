@@ -379,7 +379,11 @@ plans/scoping-plan.md         the approved plan (revision 5), as Markdown
   on a stream that still exists, even after its resources were released.
   Its native reference count is Racket's reference plus one per pinning
   job; `rr_buffer_free` drops Racket's, and the last drop frees the buffer
-  on its device, counted by `rr_buffer_drop_count`.
+  on its device, counted by `rr_buffer_drop_count`. `rr_holder` (#22)
+  counts the same way: a job that takes a deposit pins its holder, and the
+  worker closes the holder (as `rr_holder_close` does) and drops the pin
+  when the entry returns; `rr_holder_create` refuses resources without a
+  device.
 - Visibility: our code is `-fvisibility=hidden` and exports only `RR_API`
   names. RAFT and RMM declare their namespaces default-visibility on purpose
   and must stay exported: RMM's per-device memory-resource registry is a set
@@ -394,7 +398,9 @@ plans/scoping-plan.md         the approved plan (revision 5), as Markdown
   check with the cuML canary. #22 makes it a downstream too:
   `rr_probe_deposit` fills a deposit through `deposit.hpp` (or by hand, to
   test the shim's re-check) with its own error slot and owner counters, so
-  `deposit-test.rkt` drives a second library through `status-checker`. The
+  `deposit-test.rkt` drives a second library through `status-checker`, and
+  `deposit-job-test.rkt` through its job twins `rr_probe_deposit_job` and
+  the pipe-gated `rr_probe_deposit_after_gate_job`. The
   static CUDA runtime that `rmm::rmm` links is hidden with
   `--exclude-libs,ALL`; `--no-undefined` catches a missing library at link
   (except under `RAFTRKT_SANITIZE`, where the sanitizer runtime's symbols
@@ -473,7 +479,8 @@ plans/scoping-plan.md         the approved plan (revision 5), as Markdown
   `_rr-deposit`.
 - `private/job.rkt`: `define-job` and `job-procedure`, which packs the
   arguments into a block laid out as the C side's `run_job` unpacks it,
-  submits it, and waits on an `unsafe-poller` over the job's eventfd with
+  binds each `deposit` parameter's record and submits it in one
+  `call-as-atomic` (closing the deposits it bound if either raises), and waits on an `unsafe-poller` over the job's eventfd with
   breaks deferred until the job returns; it also provides `jobs-in-flight`,
   `jobs-live` and `executor-threads` for the tests. `private/exit.rkt`:
   `current-exit-wait` and the main place's at-exit hook, which calls
@@ -524,7 +531,9 @@ plans/scoping-plan.md         the approved plan (revision 5), as Markdown
   `tests/private/python-env.rkt` (the twin runner: `PYTHONSAFEPATH` probes,
   a temp directory, JSON in and out, `check-close`, `test-twin`),
   `tests/private/bindings.rkt` (the binding reader shared by the audit and
-  the census).
+  the census), `tests/private/deposits.rkt` (the probe's fill helpers,
+  owner and drop counters and `released-once`, shared by `deposit-test.rkt`
+  and `deposit-job-test.rkt`).
 
 ## Build and test
 
@@ -1034,7 +1043,8 @@ canary changes with it in the same pull request:
 - **Additions at version 1 (#32):** `raftrkt/job.h` (`rr_job_outcome`, 4104
   bytes, its offsets pinned by `tests/c_api_compile_test.c`;
   `RR_JOB_MESSAGE_BYTES`; `rr_job_fn`), `raftrkt/job.hpp` (`run_job`,
-  `job_args_size`, the `job_parameter` concept) and `define-job` in
+  `job_args_size`, the `job_parameter` concept, which admits #22's
+  `rr_deposit*`) and `define-job` in
   `raft/unsafe`. A downstream detects them with
   `__has_include(<raftrkt/job.hpp>)`.
 
@@ -1217,9 +1227,10 @@ since cuSPARSE's error string for it is only "out of memory"). The frozen rule i
   `parameterize-break #f` does not raise a queued break, so the job
   re-enters the caller's break setting. A job called in atomic mode raises
   `'logic` (the spike's process died there).
-- **Native pins replace the owner table.** A job pins each buffer through
-  its native reference count and keeps the handle's `shared_ptr`, so a
-  killed caller's arrays and resources live until the job returns; the
+- **Native pins replace the owner table.** A job pins each buffer and each
+  deposit's holder through its native reference count and keeps the
+  handle's `shared_ptr`, so a killed caller's arrays, deposits and resources
+  live until the job returns; the
   worker drops them before the job leaves the registry. `hold-owner!` and
   its ephemeron table are gone.
 - **A job leaves the registry before it is done** (#32 preflight, a
@@ -1249,7 +1260,7 @@ since cuSPARSE's error string for it is only "out of memory"). The frozen rule i
   main place's at-exit hook, with a C backstop (R1); a submit during exit
   answers a refused job, not NULL (R2); outputs are copied back with
   `rr_job_read` (R3); the spike's timing and tracing knobs are dropped (R4);
-  [30] a job pins its deposits' holders (R5); `run_job` catches escaping
+  a job pins its deposits' holders and closes them on the worker (R5); `run_job` catches escaping
   exceptions, refuses a wrong block size without allocating, and constrains
   its parameters with a concept (R6); a job in atomic mode raises (R7); CI
   runs the executor on host resources (R8); `define-job` takes only listed
@@ -1326,4 +1337,6 @@ since cuSPARSE's error string for it is only "out of memory"). The frozen rule i
 - **The canary's `cluster-members`** gathers on the host side of the copy
   engine (labels to host, one device-to-device copy per run of rows), since
   the canary has no CUDA language; its owner holds two `device_uvector`s and
-  the handle, like cuML's outputs.
+  the handle, like cuML's outputs. It runs as a job
+  (`kc_cluster_members_job`, a `deposit` parameter, a 328-byte block);
+  `with-deposits` stays for short calls.

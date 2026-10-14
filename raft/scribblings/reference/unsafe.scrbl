@@ -141,7 +141,7 @@ extern "C" KC_API void kc_fit_job(void* args, size_t args_len, rr_job_outcome* o
 On the Racket side, @racket[define-job] declares the entry point's parameters in order.
 
 @defform[(define-job id library-expr c-id-expr (param ...) maybe-exn)
-         #:grammar ([param handle view (code:line (out out-type)) in-type]
+         #:grammar ([param handle view deposit (code:line (out out-type)) in-type]
                     [in-type _int8 _uint8 _int16 _uint16 _int32 _uint32 _int64 _uint64
                              _float _double _double*]
                     [out-type _int8 _uint8 _int16 _uint16 _int32 _uint32 _int64 _uint64
@@ -156,10 +156,13 @@ runs the job entry @racket[c-id-expr] of @racket[library-expr] on the worker
 of @racket[resources] and returns the entry point's outputs, in order, as
 values. Each @racket[param] is one parameter of the C entry point:
 @racket[handle] its @tt{void*} handle, taken from @racket[resources];
-@racket[view] a @tt{const rr_view*}; @racket[(out type)] a pointer to an
-output; an @racket[in-type] a number. An @racket[arg] is given for each
-@racket[view] (a device array, or @racket[#f] for @tt{NULL}) and each
-@racket[in-type] (converted as by the type), in order. The three expressions
+@racket[view] a @tt{const rr_view*}; @racket[deposit] an @tt{rr_deposit*},
+for which the @racket[arg] is a deposit, bound once as by
+@racket[with-deposits] and closed when the job returns; @racket[(out type)]
+a pointer to an output; an @racket[in-type] a number. An @racket[arg] is
+given for each @racket[view] (a device array, or @racket[#f] for @tt{NULL}),
+each @racket[deposit] and each @racket[in-type] (converted as by the type),
+in order. The three expressions
 are evaluated once, when @racket[id] is defined; a missing entry raises then.
 Two @racket[handle]s are a syntax error.
 
@@ -224,6 +227,20 @@ A declaration of the wrong size is refused:
 @examples[#:eval ev #:label #f
 (define-job kc-fit-job/short canary "kc_fit_job" (handle view view view _int32))
 (eval:error (kc-fit-job/short 'kmeans-fit (current-device-resources) X #f fitted 0))
+]
+
+A deposit parameter takes outputs sized by the call (@racket[deposit]); the
+job closes the deposit when it returns:
+
+@examples[#:eval ev #:label #f
+(define labels (device-vector 300 #:dtype 'int32))
+(kc-predict-job 'kmeans-predict (current-device-resources) fitted X #f 1 labels)
+(define-job kc-cluster-members-job canary "kc_cluster_members_job" (handle view view _int32 deposit))
+(define found (deposit))
+(kc-cluster-members-job 'cluster-members (current-device-resources) X labels 0 found)
+(match-define (list found-indices found-rows) (deposit->list found))
+(= (car (shape found-rows)) (car (shape found-indices)))
+(eval:error (kc-cluster-members-job 'cluster-members (current-device-resources) X labels 0 found))
 ]}
 
 @section[#:tag "ref-unsafe-abi"]{The ABI tag}
@@ -347,7 +364,6 @@ returns with work still queued must run on the arrays' own resources or
 synchronise before it returns.
 
 @examples[#:eval ev
-(define labels (device-vector 300 #:dtype 'int32))
 (define score
   (with-array-views #:resources [handle (current-device-resources)]
                     ([c fitted] [x X] [w #f] [y labels])
@@ -402,14 +418,15 @@ Recognises deposits.}
          #:contracts ([deposit-expr deposit?])]{
 
 Binds each @racket[id] to a pointer to the deposit's @tt{rr_deposit}
-(@secref["ref-unsafe-c"]) for the extent of the @racket[body]s, and holds
-the deposit reachable, even across a killed caller's call. Every exit closes
-the deposit: a native call can no longer fill it, and a deposit left empty
-holds no arrays. A deposit is bound once: binding it again, even while a
-killed caller's call is still filling it, raises @racket[exn:fail:raft] of
+(@secref["ref-unsafe-c"]) for the extent of the @racket[body]s. Every exit
+closes the deposit: a native call can no longer fill it, and a deposit left
+empty holds no arrays. A deposit is bound once: binding it again, even while
+a @tech{job} is still filling it, raises @racket[exn:fail:raft] of
 kind @racket['logic]: ``the deposit is already bound'', ``already filled''
 or ``closed'', whichever it is. Make the deposit on the
-resources the call runs on. Two identical @racket[id]s are a syntax error.}
+resources the call runs on. Two identical @racket[id]s are a syntax error.
+A @tech{job} takes a deposit as a @racket[deposit] parameter instead
+(@racket[define-job]); the job closes it when its entry returns.}
 
 @defproc[(deposit->list [d deposit?]) (listof (or/c device-vector? device-matrix?))]{
 
@@ -635,8 +652,8 @@ same resources returned, and must not throw or call Racket.
 records its status and, on failure, the kind and message from @tt{slot}, the
 library's error slot, read on the worker right after @tt{f} returns. @tt{f}
 returns @tt{int} and takes only @tt{void*} (the handle), @tt{const rr_view*},
-numbers, and pointers to non-const numbers (its outputs); anything else does
-not compile (@tt{raftrkt::job_parameter}). @tt{raftrkt::job_args_size<&f>}
+@tt{rr_deposit*}, numbers, and pointers to non-const numbers (its outputs);
+anything else does not compile (@tt{raftrkt::job_parameter}). @tt{raftrkt::job_args_size<&f>}
 is the block's size.
 
 @bold{What is frozen.} @tt{rr_view}, @tt{RR_MAX_RANK} and the dtype and memory

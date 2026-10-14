@@ -94,8 +94,7 @@
   (_fun _pointer _pointer _pointer _pointer _int32 _pointer (inertia : (_ptr o _double))
         -> (status : _int)
         -> (values status inertia)))
-(define-kc kc-cluster-members
-  (_fun _pointer _pointer _pointer _int32 _pointer -> _int))
+(define-kc kc-cluster-members (_fun _pointer _pointer _pointer _int32 _pointer -> _int))
 
 (define (no-values thunk)
   (call-with-values thunk list))
@@ -276,7 +275,25 @@
   (check-raft-error 'logic
                     "kmeans-fit: the argument block is 472 bytes; the job expects 520"
                     (lambda ()
-                      (kc-fit-job/short 'kmeans-fit (current-device-resources) X #f fitted 0))))
+                      (kc-fit-job/short 'kmeans-fit (current-device-resources) X #f fitted 0)))
+  (define-job kc-predict-job
+              canary
+              "kc_predict_job"
+              (handle view view view _int32 view (out _double)))
+  (define-job kc-cluster-members-job
+              canary
+              "kc_cluster_members_job"
+              (handle view view _int32 deposit))
+  (define labels (device-vector 300 #:dtype 'int32))
+  (kc-predict-job 'kmeans-predict (current-device-resources) fitted X #f 1 labels)
+  (define found (deposit))
+  (kc-cluster-members-job 'cluster-members (current-device-resources) X labels 0 found)
+  (match-define (list found-indices found-rows) (deposit->list found))
+  (check-equal? (car (shape found-rows)) (car (shape found-indices)))
+  (check-raft-error
+   'logic
+   "cluster-members: the deposit is closed"
+   (lambda () (kc-cluster-members-job 'cluster-members (current-device-resources) X labels 0 found))))
 
 (test-canary "unsafe reference: outputs sized by the call"
   (define check (status-checker kc-last-error kc-last-error-kind))
