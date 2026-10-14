@@ -31,6 +31,8 @@
          gate-job
          probe-current-is-async?
          probe-deposit
+         probe-deposit-after-gate-job
+         probe-deposit-job
          probe-echo-job
          probe-fail-job
          probe-flags
@@ -97,15 +99,7 @@
 (define-probe probe-owner-stale (_fun -> _uint64) #:c-id rr_probe_owner_stale)
 
 (define flag-bits
-  (hasheq 'col-major 1
-          'fail-after 2
-          'wait 4
-          'twice 8
-          'overlap 16
-          'raw 32
-          'misalign 64
-          'host 128
-          'rank3 256))
+  (hasheq 'col-major 1 'fail-after 2 'twice 8 'overlap 16 'raw 32 'misalign 64 'host 128 'rank3 256))
 
 (define (probe-flags . names)
   (apply bitwise-ior 0 (map (lambda (name) (hash-ref flag-bits name)) names)))
@@ -165,6 +159,12 @@
 (define-probe-job probe-hold-views-job
                   "rr_probe_hold_views_job"
                   (_int32 _int32 view view (out _int64)))
+(define-probe-job probe-deposit-job
+                  "rr_probe_deposit_job"
+                  (handle deposit _int32 _int32 _int64 _int64 _uint32))
+(define-probe-job probe-deposit-after-gate-job
+                  "rr_probe_deposit_after_gate_job"
+                  (_int32 _int32 handle deposit _int32 _int32 _int64 _int64 _uint32))
 
 (define (gate-job who r g #:timeout-ms [timeout-ms 10000] #:say? [say? #f] #:fail-kind [fail-kind -1])
   (probe-gate-job who r (gate-entered-fd g) (gate-fd g) timeout-ms (if say? 1 0) fail-kind))

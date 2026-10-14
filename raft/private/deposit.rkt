@@ -13,6 +13,7 @@
          (only-in "resources.rkt" resources-device resources-handle))
 
 (provide deposit->list
+         deposit-handle
          deposit-record
          deposit-release
          deposit?

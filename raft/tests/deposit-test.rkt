@@ -27,133 +27,37 @@
                   shape
                   with-device-resources)
          (only-in "../private/array.rkt" array-device release-array!)
-         (only-in "../private/dtype.rkt" dtype->code)
-         (only-in "../private/foreign/memory.rkt"
-                  buffer-drop-count
-                  holder-drop-count
-                  owner-release-count
-                  release-failure-count
-                  resources-drop-count)
-         (only-in "../private/job.rkt" jobs-in-flight)
-         (only-in "../private/resources.rkt" resources-handle)
+         (only-in "../private/foreign/memory.rkt" resources-drop-count)
          (only-in "../unsafe.rkt" deposit deposit->list deposit? with-array-views with-deposits)
          (only-in "private/collect.rkt" collect-until drain-finalizers!)
+         (only-in "private/deposits.rkt"
+                  check-pattern
+                  check-round-trips
+                  counts
+                  counts-buffers
+                  counts-failures
+                  counts-holders
+                  counts-owners
+                  counts-probe-drops
+                  counters
+                  fill!
+                  filled
+                  pattern
+                  released-once
+                  settles-to
+                  since)
          (only-in "private/probe.rkt"
-                  call/probe
-                  probe-deposit
                   probe-flags
-                  probe-hold!
-                  probe-owner-drops
-                  probe-owner-stale
                   probe-pool-used
                   probe-refuse-adoption!
-                  probe-release!
                   test-pools
                   test-probe)
          (only-in "private/raft-error.rkt" check-raft-error))
 
 (require/expose "../private/deposit.rkt" (deposit-handle))
 
-(define (fill! d
-               dt
-               rows
-               cols
-               #:count [k 2]
-               #:flags [flags 0]
-               #:resources [r (current-device-resources)])
-  (with-deposits ([out d])
-                 (with-array-views #:resources [h r] ()
-                   (call/probe 'probe-deposit
-                               (lambda ()
-                                 (probe-deposit h out (dtype->code dt) k rows (or cols -1) flags))))))
-
-(define (filled dt
-                rows
-                cols
-                #:count [k 2]
-                #:flags [flags 0]
-                #:resources [r (current-device-resources)])
-  (define d (deposit #:resources r))
-  (fill! d dt rows cols #:count k #:flags flags #:resources r)
-  d)
-
-(define (pattern dt
-          r
-          rows
-          cols)
-  (define (v x)
-    (if (memq dt '(float32 float64))
-        (exact->inexact x)
-        x))
-  (if cols
-      (for/list ([i (in-range rows)])
-        (for/list ([j (in-range cols)])
-          (v (+ (* r 1000) (* i cols) j))))
-      (for/list ([i (in-range rows)])
-        (v (+ (* r 1000) i)))))
-
-(define (contents a)
-  (if (device-matrix? a)
-      (device-matrix->list* a)
-      (device-vector->list a)))
-
-(define (check-pattern arrays dt rows cols [label ""])
-  (check-equal? (length arrays) 2 label)
-  (for ([a (in-list arrays)]
-        [r (in-naturals)])
-    (check-equal? (contents a)
-                  (pattern dt
-                    r
-                    rows
-                    cols)
-                  label)))
-
-(struct counts (owners probe-drops holders buffers failures) #:transparent)
-
-(define (counters)
-  (counts (owner-release-count)
-          (probe-owner-drops)
-          (holder-drop-count)
-          (buffer-drop-count)
-          (release-failure-count)))
-
-(define (since before)
-  (define now (counters))
-  (counts (- (counts-owners now) (counts-owners before))
-          (- (counts-probe-drops now) (counts-probe-drops before))
-          (- (counts-holders now) (counts-holders before))
-          (- (counts-buffers now) (counts-buffers before))
-          (- (counts-failures now) (counts-failures before))))
-
-(define (settles-to before expected)
-  (collect-until (lambda () (equal? (since before) expected)))
-  (since before))
-
-(define shapes
-  '((0 #f #f) (1 #f #f) (7 #f #f) (1000 #f #f) (3 4 row-major) (3 4 col-major) (0 4 row-major)))
-
 (test-probe "law 1: every dtype and shape round-trips through deposit->list"
-  (for* ([dt (in-list '(float32 float64 int32 int64))]
-         [s (in-list shapes)])
-    (match-define (list rows cols order) s)
-    (define label (format "~a ~a" dt s))
-    (define flags
-      (if (eq? order 'col-major)
-          (probe-flags 'col-major)
-          0))
-    (define arrays (deposit->list (filled dt rows cols #:flags flags)))
-    (check-equal? (length arrays) 2 label)
-    (check-pattern arrays dt rows cols label)
-    (for ([a (in-list arrays)])
-      (check-equal? (dtype a) dt label)
-      (check-equal? (shape a)
-                    (if cols
-                        (list rows cols)
-                        (list rows))
-                    label)
-      (if cols
-          (check-equal? (layout a) order label)
-          (check-pred device-vector? a label)))))
+  (check-round-trips filled))
 
 (test-probe "law 2: deposit->list answers the same arrays, from two threads at once too"
   (define d (filled 'float32 3 4))
@@ -166,14 +70,6 @@
            (thread (lambda () (deposit->list shared)) #:keep 'results))))
   (check-true (andmap eq? first second))
   (check-pattern first 'int64 5 #f))
-
-(define (released-once label run expected)
-  (drain-finalizers!)
-  (define stale (probe-owner-stale))
-  (define before (counters))
-  (run)
-  (check-equal? (settles-to before expected) expected label)
-  (check-equal? (probe-owner-stale) stale label))
 
 (define (held dt #:resources [r (current-device-resources)])
   (define d (filled dt 3 4 #:resources r))
@@ -322,72 +218,6 @@
 (test-case "law 7: duplicate ids are a syntax error"
   (check-exn #rx"duplicate binding name"
              (lambda () (convert-syntax-error (with-deposits ([a (deposit)] [a (deposit)]) a)))))
-
-(define (await-calls)
-  (for ([_ (in-range 500)]
-        #:break (zero? (jobs-in-flight)))
-    (sleep 0.01))
-  (check-equal? (jobs-in-flight) 0))
-
-(test-probe "law 8: a killed caller's deposit is filled, or released once"
-  (define r (current-device-resources))
-  (define retained (deposit))
-  (check-true (probe-hold! (resources-handle 'test r)))
-  (define caller
-    (thread (lambda () (fill! retained 'int64 3 4 #:flags (probe-flags 'wait) #:resources r))))
-  (sleep 0.05)
-  (kill-thread caller)
-  (check-raft-error 'logic
-                    "with-deposits: the deposit is already bound"
-                    (lambda () (with-deposits ([out retained]) out)))
-  (probe-release!)
-  (await-calls)
-  (check-pattern (deposit->list retained) 'int64 3 4)
-  (released-once "unretained"
-                 (lambda ()
-                   (define before (counters))
-                   (check-true (probe-hold! (resources-handle 'test r)))
-                   (define lost
-                     (thread (lambda () (fill! (deposit) 'float32 3 4 #:flags (probe-flags 'wait)))))
-                   (sleep 0.05)
-                   (kill-thread lost)
-                   (for ([_ (in-range 3)])
-                     (collect-garbage 'major))
-                   (drain-finalizers!)
-                   (check-equal? (counts-holders (since before)) 0 "held across the killed call")
-                   (probe-release!)
-                   (await-calls))
-                 (counts 1 1 1 0 0)))
-
-(test-probe "law 9: a major collection or a break during a blocking deposit call"
-  (define r (current-device-resources))
-  (define d (deposit))
-  (check-true (probe-hold! (resources-handle 'test r)))
-  (define caller
-    (thread (lambda () (fill! d 'float64 3 4 #:flags (probe-flags 'wait) #:resources r))))
-  (sleep 0.05)
-  (for ([_ (in-range 3)])
-    (collect-garbage 'major))
-  (probe-release!)
-  (thread-wait caller)
-  (check-pattern (deposit->list d) 'float64 3 4)
-  (define broken (deposit))
-  (check-true (probe-hold! (resources-handle 'test r)))
-  (define outcome (box #f))
-  (define breaker
-    (thread (lambda ()
-              (with-handlers ([exn:break? (lambda (_) (set-box! outcome 'broken))])
-                (fill! broken 'float32 3 4 #:flags (probe-flags 'wait) #:resources r)
-                (set-box! outcome 'returned)))))
-  (sleep 0.05)
-  (break-thread breaker)
-  (probe-release!)
-  (thread-wait breaker)
-  (check-equal? (unbox outcome) 'broken)
-  (check-raft-error 'logic
-                    "with-deposits: the deposit is closed"
-                    (lambda () (with-deposits ([out broken]) out)))
-  (check-pattern (deposit->list broken) 'float32 3 4))
 
 (test-probe "law 10: adopted arrays work wherever a raft array does"
   (match-define (list m _) (deposit->list (filled 'float32 3 4)))
