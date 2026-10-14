@@ -240,15 +240,11 @@ TEST(Deposit, AnUnfilledHolderReleasesNothing) {
   const counters before;
   session s = open_session();
   EXPECT_EQ(rr_holder_close(s.holder), RR_OK);
-  int32_t count = -1;
-  ASSERT_EQ(rr_holder_count(s.holder, &count), RR_OK) << rr_last_error();
-  EXPECT_EQ(count, 0);
+  expect_count(s.holder, 0);
   rr_holder_free(s.holder);
   rr_holder_free(nullptr);
   rr_resources_free(s.resources);
-  EXPECT_TRUE(releases_settled());
-  EXPECT_EQ(rr_holder_drop_count(), before.holders + 1);
-  EXPECT_EQ(rr_owner_release_count(), before.owners);
+  expect_released(before, {1, 0, 0});
 }
 
 TEST(Deposit, AFilledHolderNeverAdoptedReleasesItsOwnerWhenFreed) {
@@ -261,10 +257,9 @@ TEST(Deposit, AFilledHolderNeverAdoptedReleasesItsOwnerWhenFreed) {
   EXPECT_TRUE(releases_settled());
   EXPECT_EQ(t.drops, 0);
   rr_holder_free(s.holder);
-  EXPECT_TRUE(releases_settled());
+  expect_released(before, {1, 1, 0});
   EXPECT_EQ(t.drops, 1);
   EXPECT_EQ(t.stale, 0);
-  EXPECT_EQ(rr_owner_release_count(), before.owners + 1);
 }
 
 template <typename Owned>
@@ -272,10 +267,12 @@ void release_as(void* owned) {
   delete static_cast<Owned*>(owned);
 }
 
+constexpr auto owner_drop_limit = std::chrono::seconds(5);
+
 struct blocking_owner {
   explicit blocking_owner(std::shared_ptr<gate> g) : dropping(std::move(g)) {}
   ~blocking_owner() {
-    dropping->enter_and_wait_for(std::chrono::seconds(5));
+    dropping->enter_and_wait_for(owner_drop_limit);
   }
   blocking_owner(const blocking_owner&) = delete;
   blocking_owner& operator=(const blocking_owner&) = delete;

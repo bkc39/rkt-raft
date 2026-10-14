@@ -192,9 +192,12 @@
 
 (test-probe "a deposit job whose gate stays closed fails once the probe's hold times out"
   (define d (deposit))
+  (define start (current-inexact-monotonic-milliseconds))
   (with-release ([g (closed-gate) release-gate])
     (with-hold-timeout 100
       (check-raft-error 'generic
                         "demo: gate timed out"
                         (lambda () ((gated probe-deposit-after-gate-job d 'float32) g)))))
+  (define waited (- (current-inexact-monotonic-milliseconds) start))
+  (check-true (< waited 2000) (format "the job waited ~a ms for its gate" waited))
   (check-deposit-closed d))

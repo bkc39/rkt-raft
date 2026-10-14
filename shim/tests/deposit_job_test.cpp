@@ -186,10 +186,9 @@ TEST(DepositJob, ASubmitRefusedForAMissingHolderLeavesTheOthersOpen) {
   EXPECT_EQ(rr_holder_close(d.holder), RR_OK);
   rr::test::deposit::expect_count(d.holder, 2);
   rr_holder_free(d.holder);
-  EXPECT_TRUE(rr::test::releases_settled());
-  EXPECT_EQ(t.drops, 1);
   rr_resources_free(d.resources);
   rr::test::deposit::expect_released(before, {1, 1, 0});
+  EXPECT_EQ(t.drops, 1);
 }
 
 struct exiting_owner {

@@ -10,6 +10,7 @@
 
 #include "deposit_fixture.hpp"
 #include "detail/deposit_api.h"
+#include "detail/handles.hpp"
 #include "gpu.hpp"
 #include "raftrkt/c_api.h"
 #include "raftrkt/deposit.hpp"
@@ -71,10 +72,9 @@ TEST(Deposit, AHolderClosedBeforeThePublishLeavesTheOwnerToTheCaller) {
   expect_count(s.holder, 0);
   rr_holder_free(s.holder);
   rr_resources_free(s.resources);
-  EXPECT_TRUE(releases_settled());
+  expect_released(before, {1, 0, 0});
   EXPECT_EQ(t.drops, 1);
   EXPECT_EQ(t.stale, 0);
-  expect_released(before, {1, 0, 0});
 }
 
 constexpr int closing_rounds = 64;
