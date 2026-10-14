@@ -387,6 +387,22 @@
                        (probe-late-static-job 'demo (host-resources) (gate-entered-fd g) (gate-fd g) -1))))
            (await-entry g)
            (exit 19)))
+        (late-static-skip-after-collections
+         .
+         (module program racket/base
+           (require raft
+                    raft/private/resources
+                    raft/tests/private/gate
+                    raft/tests/private/probe)
+           (probe-mark-atexit!)
+           (for ([_ (in-range 10)])
+             (collect-garbage 'major))
+           (define g (closed-gate))
+           (parameterize ([current-exit-wait 0.5])
+             (thread (lambda ()
+                       (probe-late-static-job 'demo (host-resources) (gate-entered-fd g) (gate-fd g) -1))))
+           (await-entry g)
+           (exit 19)))
         (late-static-skip-parallel
          .
          (module program racket/base

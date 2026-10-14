@@ -27,6 +27,7 @@ enum exit_code : uint8_t {
   torn_down = 5,
   skipped = 6,
   exited_in_job = 11,
+  exited_in_release = 12,
 };
 
 void atexit_marker() {
@@ -84,6 +85,26 @@ void exits_in_job(void* /*args*/, size_t /*args_len*/,
   }
 }
 
+[[noreturn]] void release_calls_exit() {
+  alarm(child_limit_seconds);
+  mark_exit();
+  rr_resources_free(
+      rr::test::resources_dropping_with([] { std::exit(exited_in_release); }));
+  for (;;) {
+    pause();
+  }
+}
+
+template <typename Child>
+double seconds_beyond_a_bare_exit(exit_code code, Child child) {
+  const auto baseline_start = std::chrono::steady_clock::now();
+  EXPECT_EXIT(std::_Exit(code), ::testing::ExitedWithCode(code), "");
+  const double baseline = rr::test::seconds_since(baseline_start);
+  const auto start = std::chrono::steady_clock::now();
+  EXPECT_EXIT(child(), ::testing::ExitedWithCode(code), "^$");
+  return rr::test::seconds_since(start) - baseline;
+}
+
 [[noreturn]] void exit_while_a_release_is_stuck() {
   alarm(child_limit_seconds);
   mark_exit();
@@ -132,14 +153,15 @@ TEST_F(ExitWorkerDeathTest,
 }
 
 TEST_F(ExitWorkerDeathTest, AJobCallingExitDoesNotWaitOutItsOwnBound) {
-  const auto baseline_start = std::chrono::steady_clock::now();
-  EXPECT_EXIT(std::_Exit(exited_in_job),
-              ::testing::ExitedWithCode(exited_in_job), "");
-  const double baseline = rr::test::seconds_since(baseline_start);
-  const auto start = std::chrono::steady_clock::now();
-  EXPECT_EXIT(job_calls_exit(finite_bound),
-              ::testing::ExitedWithCode(exited_in_job), "^$");
-  EXPECT_LT(rr::test::seconds_since(start) - baseline, half_second);
+  EXPECT_LT(seconds_beyond_a_bare_exit(exited_in_job,
+                                       [] { job_calls_exit(finite_bound); }),
+            half_second);
+}
+
+TEST_F(ExitWorkerDeathTest,
+       AReleaseCallingExitSkipsTeardownWithoutWaitingOnItself) {
+  EXPECT_LT(seconds_beyond_a_bare_exit(exited_in_release, release_calls_exit),
+            half_second);
 }
 
 TEST_F(ExitWorkerDeathTest, AnExitDuringAStuckReleaseSkipsTeardown) {

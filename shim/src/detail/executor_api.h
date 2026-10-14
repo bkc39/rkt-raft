@@ -35,7 +35,6 @@ RR_API int64_t rr_jobs_live(void);
 RR_API int64_t rr_executor_threads(void);
 RR_API void rr_exit_drain(int64_t* in_flight, int64_t* still_running);
 RR_API int64_t rr_exit_waiters(void);
-RR_API int64_t rr_releases_pending(void);
 RR_API uint64_t rr_os_thread_id(void);
 
 #ifdef __cplusplus
