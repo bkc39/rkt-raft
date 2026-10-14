@@ -118,7 +118,9 @@
 (define-probe probe-tokens-clear! (_fun -> _void) #:c-id rr_probe_tokens_clear)
 (define-probe probe-open-after! (_fun _int32 _int32 -> _void) #:c-id rr_probe_open_after)
 (define-probe probe-mark-atexit! (_fun -> _void) #:c-id rr_probe_mark_atexit)
-(define-probe probe-set-hold-timeout! (_fun _int32 -> _void) #:c-id rr_probe_set_hold_timeout)
+(define-probe probe-set-hold-timeout! ;; noqa
+              (_fun _int32 -> _void)
+              #:c-id rr_probe_set_hold_timeout)
 (define-probe probe-stuck-resources (_fun _int32 -> _rr-resources) #:c-id rr_probe_stuck_resources)
 
 (define-syntax-parse-rule (with-hold-timeout ms:expr body:expr ...+)
