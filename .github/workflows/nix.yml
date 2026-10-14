@@ -23,6 +23,7 @@ jobs:
           .#checks.x86_64-linux.racket-review
           .#checks.x86_64-linux.no-syntax-rule
           .#checks.x86_64-linux.no-raw-malloc
+          .#checks.x86_64-linux.bounded-death-tests
           .#checks.x86_64-linux.line-count
           .#checks.x86_64-linux.racket-version
 

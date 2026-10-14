@@ -636,8 +636,8 @@ not in a comment.
 
 `.racket-dev.rktd` declares them for the racket-dev plugin's runner
 (`racket <plugin>/hooks/gate.rkt . all`); the pre-push hook runs `format`,
-`no-syntax-rule`, `no-raw-malloc`, `review`, `compile`, `test` and
-`bindings`. Before every push: `nix flake check` green, the GPU suite green
+`no-syntax-rule`, `no-raw-malloc`, `bounded-death-tests`, `review`,
+`compile`, `test` and `bindings`. Before every push: `nix flake check` green, the GPU suite green
 with its counts, the docs rendered with no warnings, and Resyntax clean with
 both rule sets (see Tooling). After pushing, poll `gh pr checks <n>` (it exits
 non-zero while checks are pending) until green.
@@ -649,6 +649,9 @@ slowest test; the nix checks run the gtests through ctest). `raco test
 --timeout 45` bounds each Racket file, and `test-timeouts` in `raft/info.rkt`
 and the canary's `info.rkt` give the slow exit, memory and twin files their
 own, with room for a loaded GPU host.
+Every `EXPECT_EXIT`/`EXPECT_DEATH` body is a named function whose first
+statement is `alarm(...)`, or `std::_Exit` itself;
+`scripts/bounded-death-tests.sh` fails on any other.
 `scripts/gpu-suite.sh` runs under a 1800 s `timeout`, and every CI job has a
 `timeout-minutes`. A test that legitimately grows past its bound raises the
 bound in the same commit.
@@ -665,7 +668,7 @@ recorded prints `resyntax: unchanged since a green run` and exits 0;
 `RESYNTAX_NO_CACHE=1` forces the analysis. An explicit base, as CI passes,
 always runs in full and records nothing.
 
-`nix flake check` runs thirteen checks: `shim` (build plus both gtest
+`nix flake check` runs fourteen checks: `shim` (build plus both gtest
 binaries), `shim-sanitizers` (both gtest binaries under ASAN and UBSAN),
 `c-headers` (the umbrella header compiled as C11 with `-Werror`),
 `clang-tidy`, `kmeans-canary` (the canary's build against `packages.raft-dev`
@@ -674,7 +677,7 @@ and `packages.rapids`, plus its gtests), `clang-tidy-canary`, `line-count`
 (treefmt), `racket` (the package build, `raco setup --check-pkg-deps
 --unused-pkg-deps`, `raco test raft`, the manual compiled but not rendered,
 the binding census), `racket-review`, `racket-version` (at least 9.3),
-`no-syntax-rule` and `no-raw-malloc`.
+`no-syntax-rule`, `no-raw-malloc` and `bounded-death-tests`.
 
 ## Tooling
 

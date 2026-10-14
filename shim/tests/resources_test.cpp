@@ -1,5 +1,6 @@
 #include <cuda_runtime_api.h>
 #include <gtest/gtest.h>
+#include <unistd.h>
 
 #include <atomic>
 #include <chrono>
@@ -99,8 +100,11 @@ int only_the_first_use_installs() {
   return kind == rr::memory_resource_cuda ? 0 : 2;
 }
 
-[[noreturn]] void exit_with(int code) {
-  std::_Exit(code);
+constexpr unsigned child_limit_seconds = 5;
+
+[[noreturn]] void exit_with(int (*check)()) {
+  alarm(child_limit_seconds);
+  std::_Exit(check());
 }
 
 class MemoryResourceDeathTest : public ::testing::Test {
@@ -113,12 +117,12 @@ class MemoryResourceDeathTest : public ::testing::Test {
 
 TEST_F(MemoryResourceDeathTest,
        TheFirstResourcesInstallThePoolWherePoolsAreSupported) {
-  EXPECT_EXIT(exit_with(first_use_installs_the_default()),
+  EXPECT_EXIT(exit_with(first_use_installs_the_default),
               ::testing::ExitedWithCode(0), "");
 }
 
 TEST_F(MemoryResourceDeathTest, AResourceSetBeforehandIsKept) {
-  EXPECT_EXIT(exit_with(a_resource_set_beforehand_is_kept()),
+  EXPECT_EXIT(exit_with(a_resource_set_beforehand_is_kept),
               ::testing::ExitedWithCode(0), "");
 }
 
@@ -134,7 +138,7 @@ class PoolDeathTest : public MemoryResourceDeathTest {
 };
 
 TEST_F(PoolDeathTest, OnlyTheFirstUseOfADeviceInstalls) {
-  EXPECT_EXIT(exit_with(only_the_first_use_installs()),
+  EXPECT_EXIT(exit_with(only_the_first_use_installs),
               ::testing::ExitedWithCode(0), "");
 }
 
