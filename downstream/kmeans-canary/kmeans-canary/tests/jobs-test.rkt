@@ -1,21 +1,43 @@
 #lang racket/base
 
 (require (only-in racket/list make-list)
-         (only-in racket/match match)
+         (only-in racket/match match-define match-lambda)
          (only-in rackunit check-equal? check-pred check-true)
-         (only-in raft contiguous exn:fail:raft-kind exn:fail:raft? list*->device-matrix shape)
-         (only-in raft/private/foreign/memory buffer-drop-count resources-drop-count)
-         (only-in raft/private/os-call calls-in-flight)
+         (only-in raft
+                  contiguous
+                  current-device-resources
+                  device-resources
+                  exn:fail:raft-kind
+                  exn:fail:raft?
+                  list*->device-matrix
+                  shape)
+         (only-in raft/private/foreign/memory buffer-drop-count)
+         (only-in raft/private/job jobs-in-flight)
          (only-in raft/tests/private/collect drain-finalizers!)
          (only-in raft/tests/private/gpu test-gpu)
          (only-in raft/tests/private/ticker call-with-ticker)
          (only-in "../main.rkt" blobs kmeans-fit kmeans-predict))
 
-(define (long-fit X)
-  (kmeans-fit X #:n-clusters 64 #:init 'random #:n-init 1 #:max-iter 100 #:tol 1e-12 #:seed 1))
+(define (long-fit X #:resources [resources (current-device-resources)])
+  (kmeans-fit X
+              #:n-clusters 64
+              #:init 'random
+              #:n-init 1
+              #:max-iter 100
+              #:tol 1e-12
+              #:seed 1
+              #:resources resources))
 
 (define (milliseconds-since start)
   (- (current-inexact-milliseconds) start))
+
+(define (await-job)
+  (for/or ([_ (in-range 1000)])
+    (cond
+      [(positive? (jobs-in-flight)) #t]
+      [else
+       (sleep 0.01)
+       #f])))
 
 (define (timed-long-fit X)
   (define start (current-inexact-milliseconds))
@@ -39,7 +61,7 @@
               (with-handlers ([exn:break? (lambda (_)
                                             (set-box! broken-at (milliseconds-since start)))])
                 (long-fit X)))))
-  (sleep 0.05)
+  (check-true (await-job))
   (break-thread caller)
   (thread-wait caller)
   (check-pred real? (unbox broken-at))
@@ -72,26 +94,58 @@
           (list "kmeans-predict: X: expected 3 columns, got 2" (lambda () (kmeans-predict wide X)))))
   (define callers
     (for/list ([case (in-list cases)])
-      (match case
-        [(list message thunk) (cons message (raised-errors 25 thunk))])))
+      (match-define (list message thunk) case)
+      (cons message (raised-errors 25 thunk))))
   (for ([started (in-list callers)])
-    (match started
-      [(cons message caller)
-       (check-equal? (thread-wait caller) (make-list 25 (list 'logic message)))])))
+    (match-define (cons message caller) started)
+    (check-equal? (thread-wait caller) (make-list 25 (list 'logic message)))))
 
 (test-gpu "a thread killed mid kmeans-fit leaves its arrays to the fit, and later fits work"
   (define-values (X truth) (blobs 2500000 32 #:centers 64 #:cluster-std 4.0 #:seed 1))
   (drain-finalizers!)
-  (define (drops)
-    (list (buffer-drop-count) (resources-drop-count)))
-  (define before (drops))
+  (define before (buffer-drop-count))
   (define caller (thread (lambda () (long-fit X))))
-  (sleep 0.05)
+  (check-true (await-job))
   (kill-thread caller)
   (drain-finalizers!)
-  (check-equal? (drops) before "the fit's arrays and resources live while it runs")
-  (check-true (positive? (calls-in-flight)) "checked before the fit returned")
+  (check-equal? (buffer-drop-count) before "the fit's arrays live while it runs")
+  (check-true (positive? (jobs-in-flight)) "checked before the fit returned")
   (define-values (centroids inertia _n-iter) (long-fit X))
   (define-values (labels score) (kmeans-predict centroids X))
   (check-equal? (list (shape centroids) (shape labels) (shape truth)) '((64 32) (2500000) (2500000)))
   (check-true (and (> inertia 0) (> score 0))))
+
+(define (inertia-on X resources)
+  (define-values (_centroids inertia _n-iter) (long-fit X #:resources resources))
+  inertia)
+
+(define (fits-at-once X resources-list)
+  (define start (current-inexact-milliseconds))
+  (define callers
+    (for/list ([resources (in-list resources-list)])
+      (thread (lambda () (list (inertia-on X resources) (milliseconds-since start)))
+              #:keep 'results)))
+  (map thread-wait callers))
+
+(define (close-to? expected actual)
+  (<= (abs (- actual expected)) (* 1e-4 (abs expected))))
+
+(test-gpu "two threads on one resources object fit one after the other"
+  (define-values (X _) (blobs 2500000 32 #:centers 64 #:cluster-std 4.0 #:seed 1))
+  (define r (device-resources))
+  (inertia-on X r)
+  (define start (current-inexact-milliseconds))
+  (define lone-inertia (inertia-on X r))
+  (define lone (milliseconds-since start))
+  (define shared (fits-at-once X (list r r)))
+  (define last-end
+    (apply max
+           (map (match-lambda
+                  [(list _ ended) ended])
+                shared)))
+  (check-true (>= last-end (* 1.6 lone))
+              (format "the second fit ended at ~a ms; a lone fit takes ~a ms" last-end lone))
+  (for ([result (in-list (append shared
+                                 (fits-at-once X (list (device-resources) (device-resources)))))])
+    (match-define (list inertia _) result)
+    (check-true (close-to? lone-inertia inertia))))

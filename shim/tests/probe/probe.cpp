@@ -25,6 +25,7 @@
 #include "raftrkt/deposit.hpp"
 #include "raftrkt/error.hpp"
 #include "raftrkt/view.hpp"
+#include "probe.hpp"
 
 namespace {
 
@@ -67,11 +68,6 @@ constexpr uint32_t host_flag = 128U;
 constexpr uint32_t rank3_flag = 256U;
 constexpr int64_t region_step = 1000;
 constexpr int32_t nine = 9;
-
-raftrkt::error_slot& probe_slot() noexcept {
-  thread_local raftrkt::error_slot slot;
-  return slot;
-}
 
 std::atomic<uint64_t>& owner_drops() noexcept {
   static std::atomic<uint64_t> count{0};
@@ -320,17 +316,9 @@ RR_API void rr_probe_refuse_adoption(rr_holder* holder, int32_t index) {
 RR_API int rr_probe_deposit(void* handle, rr_deposit* out, int32_t dtype,
                             int32_t count, int64_t rows, int64_t cols,
                             uint32_t flags) {
-  return raftrkt::translate_exceptions(probe_slot(), [&] {
+  return raftrkt::translate_exceptions(probe::slot(), [&] {
     probe_deposit(handle, out, request{dtype, count, rows, cols, flags});
   });
-}
-
-RR_API const char* rr_probe_last_error(void) {
-  return probe_slot().message.data();
-}
-
-RR_API int rr_probe_last_error_kind(void) {
-  return static_cast<int>(probe_slot().kind);
 }
 
 RR_API uint64_t rr_probe_owner_drops(void) {

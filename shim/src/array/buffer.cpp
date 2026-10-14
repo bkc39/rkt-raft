@@ -37,10 +37,11 @@ int rr_buffer_alloc(rr_resources* resources, size_t bytes, rr_buffer** out) {
     auto& result = *rr::require(out, "out");
     result = nullptr;
     auto& r = *rr::require(resources, "resources");
+    const auto& handle = rr::handle_of(r);
     const rr::device_guard guard{r.device};
-    auto stream = raft::resource::get_cuda_stream(*r.handle);
+    auto stream = raft::resource::get_cuda_stream(*handle);
     result = new rr_buffer{
-        r.handle, r.device, {}, rmm::device_buffer{bytes, stream}};
+        handle, r.device, {}, rmm::device_buffer{bytes, stream}};
   });
 }
 

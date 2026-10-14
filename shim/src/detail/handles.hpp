@@ -13,12 +13,15 @@
 #include <rmm/device_buffer.hpp>
 
 #include "detail/device.hpp"
+#include "detail/error.hpp"
+#include "detail/executor.hpp"
 #include "raftrkt/core.h"
 #include "raftrkt/deposit.h"
 
 struct rr_resources {
   int32_t device;
   std::shared_ptr<raft::handle_t> handle;
+  rr::executor_slot executor;
 };
 
 // owner is declared before keep and data: a deposit's owner and an allocation
@@ -31,6 +34,7 @@ struct rr_buffer {
   rmm::device_buffer data;
   void* adopted = nullptr;
   std::size_t adopted_bytes = 0;
+  std::atomic<int32_t> refs{1};
 };
 
 // handle is declared before keep, so the deposit's owner is released before
@@ -80,5 +84,17 @@ std::atomic<uint64_t>& buffer_drops() noexcept;
 std::atomic<uint64_t>& holder_drops() noexcept;
 std::atomic<uint64_t>& owner_releases() noexcept;
 std::atomic<uint64_t>& release_failures() noexcept;
+void count_release_failure() noexcept;
+
+void pin(rr_buffer& buffer) noexcept;
+void unpin(rr_buffer* buffer) noexcept;
+
+inline const std::shared_ptr<raft::handle_t>& handle_of(
+    const rr_resources& resources) {
+  if (!resources.handle) {
+    throw logic_error("the resources have no device");
+  }
+  return resources.handle;
+}
 
 }  // namespace rr

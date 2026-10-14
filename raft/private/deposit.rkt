@@ -10,7 +10,6 @@
                   rr-holder-count
                   rr-holder-create
                   rr-holder-record)
-         (only-in "resource.rkt" drop-owner!)
          (only-in "resources.rkt" resources-device resources-handle))
 
 (provide deposit->list
@@ -33,8 +32,7 @@
 (define (deposit-record who d)
   (call/raft who (lambda () (rr-holder-record (deposit-handle d)))))
 
-(define ((deposit-release d) record)
-  (drop-owner! record)
+(define ((deposit-release d) _record)
   (call/raft 'with-deposits (lambda () (rr-holder-close (deposit-handle d))))
   (keep-reachable d))
 

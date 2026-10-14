@@ -34,7 +34,7 @@
                   owner-release-count
                   release-failure-count
                   resources-drop-count)
-         (only-in "../private/os-call.rkt" calls-in-flight)
+         (only-in "../private/job.rkt" jobs-in-flight)
          (only-in "../private/resources.rkt" resources-handle)
          (only-in "../unsafe.rkt" deposit deposit->list deposit? with-array-views with-deposits)
          (only-in "private/collect.rkt" collect-until drain-finalizers!)
@@ -325,9 +325,9 @@
 
 (define (await-calls)
   (for ([_ (in-range 500)]
-        #:break (zero? (calls-in-flight)))
+        #:break (zero? (jobs-in-flight)))
     (sleep 0.01))
-  (check-equal? (calls-in-flight) 0))
+  (check-equal? (jobs-in-flight) 0))
 
 (test-probe "law 8: a killed caller's deposit is filled, or released once"
   (define r (current-device-resources))

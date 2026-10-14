@@ -15,7 +15,8 @@
                   raft-version))
 
 (define public-names
-  '(current-device-resources device-count
+  '(current-device-resources current-exit-wait
+                             device-count
                              device-resources
                              device-resources?
                              exn:fail:raft
@@ -95,13 +96,14 @@
         symbol<?))
 
 (define unsafe-names
-  '(deposit deposit->list
-            deposit?
-            raft-abi-pointer
-            resources->handle-pointer
-            status-checker
-            with-array-views
-            with-deposits))
+  '(define-job deposit
+               deposit->list
+               deposit?
+               raft-abi-pointer
+               resources->handle-pointer
+               status-checker
+               with-array-views
+               with-deposits))
 
 (test-case "raft/core, raft/array, raft/compat, raft/unsafe and raft export exactly the documented names"
   (check-equal? (phase-0-exports 'raft/core) public-names)

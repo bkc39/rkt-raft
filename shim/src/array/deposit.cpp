@@ -98,9 +98,9 @@ adoption adopted_buffer(rr_holder& holder, std::size_t i) {
   const std::size_t bytes = raftrkt::detail::region_bytes("", region);
   const device_guard guard{holder.device};
   keep_owner(holder);
-  adoption result{std::make_unique<rr_buffer>(
-                      rr_buffer{holder.handle, holder.device, holder.keep,
-                                rmm::device_buffer{}, region.data, bytes}),
+  adoption result{std::unique_ptr<rr_buffer>(
+                      new rr_buffer{holder.handle, holder.device, holder.keep,
+                                    rmm::device_buffer{}, region.data, bytes}),
                   region};
   result.view.data = bytes == 0 ? nullptr : region.data;
   result.view.memory = RR_MEMORY_DEVICE;

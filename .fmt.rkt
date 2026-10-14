@@ -96,6 +96,7 @@
     [("define-cstruct") (format-uniform-body/helper 1 #:body-formatter format-binding-pairs/indirect)]
     [("define-pretty" "generator") (format-uniform-body/helper 1)]
     [("test-canary" "test-gpu"
+                    "test-host-probe"
                     "test-pools"
                     "test-probe"
                     "test-twin"

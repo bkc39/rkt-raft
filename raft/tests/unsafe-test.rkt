@@ -1,7 +1,6 @@
 #lang racket/base
 
-(require (for-syntax racket/base)
-         (only-in ffi/unsafe
+(require (only-in ffi/unsafe
                   _fun
                   _int
                   _int32
@@ -11,15 +10,13 @@
                   cpointer?
                   get-ffi-obj
                   ptr-equal?
-                  ptr-ref
-                  void/reference-sink)
-         (only-in ffi/unsafe/atomic end-atomic start-atomic)
+                  ptr-ref)
+         (only-in ffi/unsafe/atomic in-atomic-mode?)
          (only-in racket/generator in-generator yield)
          (only-in rackunit
                   check-equal?
                   check-exn
                   check-false
-                  check-not-equal?
                   check-not-false
                   check-pred
                   check-true
@@ -32,7 +29,6 @@
                   device-vector
                   exn:fail:raft
                   exn:fail:raft-kind
-                  exn:fail:raft?
                   list*->device-matrix
                   raft-abi
                   raft-abi-handle-size
@@ -46,15 +42,14 @@
                   view-shape
                   view-strides)
          (only-in "../private/foreign/memory.rkt" buffer-drop-count resources-drop-count)
-         (only-in "../private/resource.rkt" drop-owner! hold-owner! with-release)
+         (only-in "../private/resource.rkt" with-release)
          (only-in "../private/resources.rkt" resources-handle)
          (only-in "../unsafe.rkt"
                   raft-abi-pointer
                   resources->handle-pointer
                   status-checker
                   with-array-views)
-         (only-in "private/collect.rkt" collect-until drain-finalizers!)
-         (only-in "private/gate.rkt" await-entry closed-gate open-gate! release-gate wait-at-gate)
+         (only-in "private/collect.rkt" drain-finalizers!)
          (only-in "private/gpu.rkt" test-gpu)
          (only-in "private/probe.rkt" probe-hold! probe-release! test-probe)
          (only-in "private/raft-error.rkt" check-raft-error))
@@ -225,54 +220,15 @@
   (check-equal? reads 0))
 
 (define os-thread-id (get-ffi-obj "pthread_self" #f (_fun -> _uintptr)))
-(define sleep-microseconds (get-ffi-obj "usleep" #f (_fun #:blocking? #t _uint32 -> _int)))
+(define sleep-microseconds (get-ffi-obj "usleep" #f (_fun _uint32 -> _int)))
 
-(test-case "status-checker calls the thunk and reads the error on one other OS thread"
-  (define call-thread (box #f))
-  (define read-thread (box #f))
-  (define check
-    (status-checker (lambda ()
-                      (set-box! read-thread (os-thread-id))
-                      #"failed")
-                    (lambda () 1)))
-  (check-raft-error 'out-of-memory
-                    "demo: failed"
-                    (lambda ()
-                      (check 'demo
-                             (lambda ()
-                               (set-box! call-thread (os-thread-id))
-                               1))))
-  (check-equal? (unbox read-thread) (unbox call-thread))
-  (check-not-equal? (unbox call-thread) (os-thread-id)))
-
-(test-case "concurrent failures each read the error of their own call"
-  (define tokens (box (hash)))
-  (define (record! token)
-    (define id (os-thread-id))
-    (let retry ([old (unbox tokens)])
-      (unless (box-cas! tokens old (hash-set old id token))
-        (retry (unbox tokens)))))
-  (define check (status-checker (lambda () (hash-ref (unbox tokens) (os-thread-id))) (lambda () 3)))
-  (define (failure-message token)
-    (with-handlers ([exn:fail:raft? exn-message])
-      (check 'call
-             (lambda ()
-               (record! token)
-               (sleep-microseconds 20000)
-               1))))
-  (define (call-token caller attempt)
-    (format "~a.~a" caller attempt))
-  (define callers
-    (for/list ([caller (in-range 4)])
-      (thread (lambda ()
-                (for/list ([attempt (in-range 10)])
-                  (failure-message (call-token caller attempt))))
-              #:keep 'results)))
-  (for ([caller (in-list callers)]
-        [index (in-naturals)])
-    (check-equal? (thread-wait caller)
-                  (for/list ([attempt (in-range 10)])
-                    (format "call: ~a" (call-token index attempt))))))
+(test-case "status-checker calls the thunk in atomic mode on the caller's OS thread"
+  (define seen (box #f))
+  ((checker #"unused" 0) 'demo
+                         (lambda ()
+                           (set-box! seen (list (os-thread-id) (in-atomic-mode?)))
+                           0))
+  (check-equal? (unbox seen) (list (os-thread-id) #t)))
 
 (test-case "status-checker raises the thunk's own exception on the caller's thread"
   (define check (checker #"unused" 0))
@@ -281,132 +237,6 @@
   (check-exn #rx"^demo: contract violation"
              (lambda () (check 'demo (lambda () (raise-argument-error 'demo "fixnum?" 'x)))))
   (check-exn #rx"arity mismatch" (lambda () (check 'demo (lambda () (values))))))
-
-(define (gated-call g)
-  (values 0 (wait-at-gate g)))
-
-(test-case "other Racket threads run during a blocking call"
-  (with-release ([g (closed-gate) release-gate])
-    (thread (lambda ()
-              (await-entry g)
-              (open-gate! g)))
-    (check-equal? ((checker #"unused" 0) 'demo (lambda () (gated-call g))) 'opened)))
-
-(test-case "a break during the call is raised once the call returns"
-  (with-release ([g (closed-gate) release-gate])
-    (define opened (box #f))
-    (define outcome (box #f))
-    (define caller
-      (thread (lambda ()
-                (with-handlers ([exn:break? (lambda (_)
-                                              (set-box! outcome (list 'broken (unbox opened))))])
-                  ((checker #"unused" 0) 'demo (lambda () (gated-call g)))
-                  (set-box! outcome 'returned)))))
-    (await-entry g)
-    (break-thread caller)
-    (check-false (sync/timeout 0.2 caller) "the break waits for the call")
-    (set-box! opened #t)
-    (open-gate! g)
-    (thread-wait caller)
-    (check-equal? (unbox outcome) '(broken #t))))
-
-(test-case "with breaks disabled a break stays pending past the call"
-  (with-release ([g (closed-gate) release-gate])
-    (define outcome (box #f))
-    (define caller
-      (thread (lambda ()
-                (with-handlers ([exn:break? (lambda (_)
-                                              (set-box! outcome (cons 'broken (unbox outcome))))])
-                  (parameterize-break #f
-                                      ((checker #"unused" 0) 'demo (lambda () (gated-call g)))
-                                      (set-box! outcome '(returned)))
-                  (sync never-evt)))))
-    (await-entry g)
-    (break-thread caller)
-    (check-false (sync/timeout 0.2 caller) "the break waits for the call")
-    (open-gate! g)
-    (check-not-false (sync/timeout 5 caller))
-    (check-equal? (unbox outcome) '(broken returned))))
-
-(test-case "a break pending in atomic mode waits for atomic mode to end"
-  (define answer (box #f))
-  (define caller
-    (thread (lambda ()
-              (with-handlers ([exn:break? (lambda (_) 'broken)])
-                (parameterize-break
-                 #f
-                 (break-thread (current-thread))
-                 (start-atomic)
-                 (break-enabled #t)
-                 (set-box! answer ((checker #"unused" 0) 'demo (lambda () (values 0 'kept))))
-                 (end-atomic))))
-            #:keep 'results))
-  (check-equal? (list (thread-wait caller) (unbox answer)) '(broken kept)))
-
-(define (caller-holding-an-owner wills g)
-  (define owner (make-bytes 64))
-  (will-register wills owner (lambda (_) 'collected))
-  (thread (lambda ()
-            (with-release ([view
-                            (hold-owner! (box 'view) owner)
-                            (lambda (view)
-                              (drop-owner! view)
-                              (void/reference-sink owner))])
-              ((checker #"unused" 0) 'demo
-                                     (lambda ()
-                                       (void/reference-sink view)
-                                       (gated-call g)))))))
-
-(test-case "a killed caller's held owners live until its call returns"
-  (with-release ([g (closed-gate) release-gate])
-    (define wills (make-will-executor))
-    (define caller (caller-holding-an-owner wills g))
-    (await-entry g)
-    (kill-thread caller)
-    (drain-finalizers!)
-    (check-false (will-try-execute wills) "the owner lives while the call runs")
-    (open-gate! g)
-    (check-equal? (collect-until (lambda () (will-try-execute wills)))
-                  'collected
-                  "and is collected once the call returns")))
-
-(define (drops-while-a-killed-call-runs released start-call)
-  (with-release ([g (closed-gate) release-gate])
-    (drain-finalizers!)
-    (define before (list (buffer-drop-count) (resources-drop-count)))
-    (define (drops)
-      (map - (list (buffer-drop-count) (resources-drop-count)) before))
-    (define caller (thread (lambda () (start-call g))))
-    (await-entry g)
-    (kill-thread caller)
-    (drain-finalizers!)
-    (define during (drops))
-    (open-gate! g)
-    (collect-until (lambda () (equal? (drops) released)))
-    (list during (drops))))
-
-(test-gpu "a killed caller's arrays and resources live until its call returns"
-  (check-equal? (drops-while-a-killed-call-runs
-                 '(1 1)
-                 (lambda (g)
-                   (define r (device-resources))
-                   (with-array-views #:resources [handle r] ([x (device-matrix 64 64 #:resources r)])
-                     ((checker #"unused" 0) 'demo
-                                            (lambda ()
-                                              (void/reference-sink handle x)
-                                              (gated-call g))))))
-                '((0 0) (1 1))))
-
-(test-gpu "a killed caller's resources->handle-pointer keeps its resources until the call returns"
-  (check-equal?
-   (drops-while-a-killed-call-runs '(0 1)
-                                   (lambda (g)
-                                     (define handle (resources->handle-pointer (device-resources)))
-                                     ((checker #"unused" 0) 'demo
-                                                            (lambda ()
-                                                              (void/reference-sink handle)
-                                                              (gated-call g)))))
-   '((0 0) (0 1))))
 
 (test-gpu "the handle pointer and views of the default resources work together"
   (define r (current-device-resources))

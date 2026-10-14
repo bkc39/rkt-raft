@@ -10,7 +10,8 @@
 This module is for native bindings that run their own C++ on raft's resources
 and arrays, such as a cuML binding. It provides the @tt{raft::handle_t} to
 run on, a descriptor for each array, a checker that turns a native status
-into @racket[exn:fail:raft], and the ABI tag. @racketmodname[raft] does not
+into @racket[exn:fail:raft], a form that runs a long native call on a worker
+thread, and the ABI tag. @racketmodname[raft] does not
 re-export it.
 
 It is unsafe as @racketmodname[ffi/unsafe] is: nothing checks that a
@@ -32,21 +33,21 @@ The examples call the canary's library: set @tt{RAFT_KMEANS_CANARY} to
 (define-kc kc-last-error-kind (_fun -> _int))
 (define-kc kc-check-abi (_fun _pointer -> _int))
 (define-kc kc-make-blobs
-  (_fun #:blocking? #t
-        _pointer _pointer _pointer _int32 _double _int32 _double _double _uint64 -> _int))
+  (_fun _pointer _pointer _pointer _int32 _double _int32 _double _double _uint64 -> _int))
 (define-kc kc-fit
-  (_fun #:blocking? #t
-        _pointer _pointer _pointer _pointer _int32 _int32 _double _int32 _double _uint64
-        (inertia : (_ptr o _double atomic-interior))
-        (n-iter : (_ptr o _int32 atomic-interior))
+  (_fun _pointer _pointer _pointer _pointer _int32 _int32 _double _int32 _double _uint64
+        (inertia : (_ptr o _double)) (n-iter : (_ptr o _int32))
         -> (status : _int) -> (values status inertia n-iter)))
 (define-kc kc-predict
-  (_fun #:blocking? #t
-        _pointer _pointer _pointer _pointer _int32 _pointer
-        (inertia : (_ptr o _double atomic-interior))
+  (_fun _pointer _pointer _pointer _pointer _int32 _pointer (inertia : (_ptr o _double))
         -> (status : _int) -> (values status inertia)))
 (define-kc kc-cluster-members
-  (_fun #:blocking? #t _pointer _pointer _pointer _int32 _pointer -> _int))
+  (_fun _pointer _pointer _pointer _int32 _pointer -> _int))
+(define-job kc-make-blobs-job canary "kc_make_blobs_job"
+  (handle view view _int32 _double _int32 _double _double _uint64))
+(define-job kc-fit-job canary "kc_fit_job"
+  (handle view view view _int32 _int32 _double _int32 _double _uint64 (out _double) (out _int32)))
+(define-job kc-predict-job canary "kc_predict_job" (handle view view view _int32 view (out _double)))
 ]
 
 @section[#:tag "ref-unsafe-status"]{Checking native calls}
@@ -59,34 +60,20 @@ The examples call the canary's library: set @tt{RAFT_KMEANS_CANARY} to
          (-> symbol? (-> any) any)]{
 
 Returns a procedure @racket[(check who thunk)] for one native library's
-calls. @racket[thunk] makes the foreign call and nothing else: it runs in
-atomic mode on a fresh OS thread (@racket[call-in-os-thread]), and its first
-result is the C status. On @racket[0] (@tt{RR_OK}) @racket[check] returns the
-thunk's other results. Otherwise it raises @racket[(exn message marks kind)]:
-the message is @racket[who], a colon and @racket[(last-error)], decoded as
-UTF-8 with @racket[#\uFFFD] for what does not decode; the kind is
-@racket['generic], @racket['out-of-memory], @racket['cuda] or
-@racket['logic] for @racket[(last-error-kind)] 0 to 3, and @racket['generic]
-for any other code. @racket[last-error] and @racket[last-error-kind] are
-called only after a failure, on the same OS thread as @racket[thunk], since
-the C side keeps its last error per OS thread. Both that exception and any
-exception @racket[thunk] raises are raised on the calling thread.
+calls. @racket[check] calls @racket[thunk], whose first result is the C
+status. On @racket[0] (@tt{RR_OK}) it returns the thunk's other results.
+Otherwise it raises @racket[(exn message marks kind)]: the message is
+@racket[who], a colon and @racket[(last-error)], decoded as UTF-8 with
+@racket[#\uFFFD] for what does not decode; the kind is @racket['generic],
+@racket['out-of-memory], @racket['cuda] or @racket['logic] for
+@racket[(last-error-kind)] 0 to 3, and @racket['generic] for any other code.
+@racket[last-error] and @racket[last-error-kind] are called only after a
+failure.
 
-The calling thread waits with breaks disabled while the place's other threads
-run. A break that arrives during the call is raised when the call returns,
-since a native call cannot be cancelled, and the call's arguments stay
-reachable until then, even if the calling thread is killed. A call still
-running when the process exits is not waited for, so join threads that make
-calls before exiting. With breaks enabled, that break discards
-@racket[thunk]'s results, so a binding whose call returns an owned native
-object disables breaks around the call and the registration of its release,
-or uses an @racket[allocator].
-
-A call that can run long is declared @racket[#:blocking? #t]; otherwise the
-place's next garbage collection waits for it. A collection can then run
-during the call, so a blocking call takes no memory the collector can move:
-its @racket[_ptr] outputs are allocated @racket['atomic-interior], as in the
-bindings above.
+The call and both reads run in one @racket[call-as-atomic], because the C
+side keeps its last error per OS thread, which the place's Racket threads
+share. The native call therefore holds up the place's other threads until it
+returns: a call that can run long is a @tech{job} instead (@racket[define-job]).
 
 @examples[#:eval ev
 (define check (status-checker kc-last-error kc-last-error-kind))
@@ -130,6 +117,113 @@ With @racket[#:exn], a package raises its own subtype of
 (with-handlers ([exn:fail:canary? (lambda (e) (list 'canary (exn-message e)))])
   (with-array-views ([x X] [c (device-matrix 3 5)])
     (check/canary 'kmeans-fit (lambda () (kc-fit handle x #f c 0 300 1e-4 1 0.0 42)))))
+]}
+
+@section[#:tag "ref-unsafe-jobs"]{Long calls}
+
+A native call that can run long, such as a fit, runs as a @deftech{job}: on a
+worker thread its resources object owns, while the calling thread waits and
+the place's other threads run. Jobs on one resources object run one at a
+time, in the order they were made, as work on one stream does; jobs on
+different resources objects run at the same time. Each thread's
+@racket[current-device-resources] are its own, and so are their workers.
+
+A job has two parts. On the C++ side, the entry point is written as usual
+(@secref["ref-unsafe-c"]), plus a one-line job entry that
+@tt{raftrkt::run_job} fills in:
+
+@listing["C++"]|{
+extern "C" KC_API void kc_fit_job(void* args, size_t args_len, rr_job_outcome* outcome) {
+  raftrkt::run_job<&kc_fit>(args, args_len, outcome, kc::last_error_slot());
+}
+}|
+
+On the Racket side, @racket[define-job] declares the entry point's parameters in order.
+
+@defform[(define-job id library-expr c-id-expr (param ...) maybe-exn)
+         #:grammar ([param handle view (code:line (out out-type)) in-type]
+                    [in-type _int8 _uint8 _int16 _uint16 _int32 _uint32 _int64 _uint64
+                             _float _double _double*]
+                    [out-type _int8 _uint8 _int16 _uint16 _int32 _uint32 _int64 _uint64
+                              _float _double]
+                    [maybe-exn code:blank (code:line #:exn exn-expr)])
+         #:contracts ([library-expr ffi-lib?]
+                      [c-id-expr (or/c string? bytes? symbol?)]
+                      [exn-expr (-> string? continuation-mark-set? symbol? exn?)])]{
+
+Defines @racket[id] as a procedure @racket[(id who resources arg ...)] that
+runs the job entry @racket[c-id-expr] of @racket[library-expr] on the worker
+of @racket[resources] and returns the entry point's outputs, in order, as
+values. Each @racket[param] is one parameter of the C entry point:
+@racket[handle] its @tt{void*} handle, taken from @racket[resources];
+@racket[view] a @tt{const rr_view*}; @racket[(out type)] a pointer to an
+output; an @racket[in-type] a number. An @racket[arg] is given for each
+@racket[view] (a device array, or @racket[#f] for @tt{NULL}) and each
+@racket[in-type] (converted as by the type), in order. The three expressions
+are evaluated once, when @racket[id] is defined; a missing entry raises then.
+Two @racket[handle]s are a syntax error.
+
+A failure of the entry point raises @racket[(exn message marks kind)] as
+@racket[status-checker] does, with @racket[who] and the job's own message and
+kind; @racket[exn] is @racket[exn:fail:raft] unless @racket[#:exn] says
+otherwise. Released resources or arrays raise @racket[exn:fail:raft] of kind
+@racket['logic] before the job is made, as does a call in atomic mode,
+where the calling thread cannot wait. A number its type refuses raises
+@racket[exn:fail:contract] naming @racket[who].
+
+The job holds what it uses, the handle and each array's memory, until it
+returns, even if the calling thread is killed or the arrays and resources
+become unreachable. Each view is bound once the work queued on its array's
+stream is done. The calling thread waits with breaks disabled: a break that
+arrives meanwhile is raised when the job returns, and its outputs are
+dropped. When the process exits, a running job is waited for as
+@racket[current-exit-wait] says.
+
+The declaration must match the C entry point. @tt{run_job} refuses an
+argument block whose size differs from what the entry point's parameters
+take (@racket['logic]), but it cannot tell apart types of the same size.
+
+@examples[#:eval ev
+(define-values (inertia n-iter)
+  (kc-fit-job 'kmeans-fit (current-device-resources) X #f fitted 0 300 1e-4 1 0.0 42))
+(list (> inertia 0) (>= n-iter 1))
+]
+
+A failure raises with the job's own message:
+
+@examples[#:eval ev #:label #f
+(eval:error
+ (kc-fit-job 'kmeans-fit (current-device-resources) ints #f centers 0 300 1e-4 1 0.0 42))
+]
+
+Other threads run while a job does:
+
+@examples[#:eval ev #:label #f
+(define big (device-matrix 1000000 32))
+(kc-make-blobs-job 'blobs (current-device-resources) big (device-vector 1000000 #:dtype 'int32)
+                   64 1.0 1 -10.0 10.0 1)
+(define (ticks-during thunk)
+  (define ticks (box 0))
+  (define ticker
+    (thread (lambda ()
+              (let loop ()
+                (sleep 0.005)
+                (set-box! ticks (add1 (unbox ticks)))
+                (loop)))))
+  (thunk)
+  (kill-thread ticker)
+  (unbox ticks))
+(<= 10 (ticks-during
+        (lambda ()
+          (kc-fit-job 'kmeans-fit (current-device-resources) big #f (device-matrix 64 32)
+                      1 100 1e-12 1 0.0 1))))
+]
+
+A declaration of the wrong size is refused:
+
+@examples[#:eval ev #:label #f
+(define-job kc-fit-job/short canary "kc_fit_job" (handle view view view _int32))
+(eval:error (kc-fit-job/short 'kmeans-fit (current-device-resources) X #f fitted 0))
 ]}
 
 @section[#:tag "ref-unsafe-abi"]{The ABI tag}
@@ -180,10 +274,11 @@ their stream, library handles and workspace: what cuML's C++ takes as
 @tt{const raft::handle_t&}. Released resources raise @racket[exn:fail:raft]
 of kind @racket['logic].
 
-The pointer holds @racket[resources]: while it is reachable, including as
-the argument of a call whose thread was killed, their finalizer does not free
-the handle. Inside a binding, @racket[with-array-views]'s
-@racket[#:resources] binds the same pointer for the extent of its body.
+The pointer is borrowed and does not hold @racket[resources]: once they are
+unreachable, their finalizer frees the handle. A binding therefore takes the
+handle with @racket[with-array-views]'s @racket[#:resources]; this procedure
+suits code that holds the resources some other way, as
+@racket[(current-device-resources)] does for its thread.
 
 @examples[#:eval ev
 (resources->handle-pointer (current-device-resources))
@@ -237,7 +332,8 @@ borrows: from the start of the body until it exits, the views are valid and
 the arrays and the resources are held reachable; at exit the views are
 cleared and the form's hold ends, and the arrays return to ordinary
 reclamation. To release the resources themselves at a known point, scope
-them with @racket[with-device-resources] around the form.
+them with @racket[with-device-resources] around the form. A @tech{job} binds
+its own views; this form serves short calls through @racket[status-checker].
 
 Every exit (a return, a raise, an escape, a generator's @racket[yield])
 clears each view: its @tt{data} becomes @tt{NULL} and its device and memory
@@ -526,6 +622,23 @@ raftrkt::deposit(out, "out", handle, std::move(owner),
                   raftrkt::region(owner->rows.data(), m, d, raftrkt::layout::row_major)});
 }|
 
+@bold{@tt{raftrkt/job.h}.} An @tt{rr_job_outcome} is 4104 bytes:
+@tt{int32_t status} at 0, @tt{int32_t kind} at 4 and
+@tt{char message[RR_JOB_MESSAGE_BYTES]} (4096) at 8. A job entry is an
+@tt{rr_job_fn}, @tt{void (*)(void* args, size_t args_len, rr_job_outcome*
+outcome)}: it runs on a raft worker thread, after the previous job on the
+same resources returned, and must not throw or call Racket.
+
+@bold{@tt{raftrkt/job.hpp}.} Header-only.
+@tt{raftrkt::run_job<&f>(args, args_len, outcome, slot)} unpacks the block
+@racket[define-job] builds, calls @tt{f}, writes its outputs back, and
+records its status and, on failure, the kind and message from @tt{slot}, the
+library's error slot, read on the worker right after @tt{f} returns. @tt{f}
+returns @tt{int} and takes only @tt{void*} (the handle), @tt{const rr_view*},
+numbers, and pointers to non-const numbers (its outputs); anything else does
+not compile (@tt{raftrkt::job_parameter}). @tt{raftrkt::job_args_size<&f>}
+is the block's size.
+
 @bold{What is frozen.} @tt{rr_view}, @tt{RR_MAX_RANK} and the dtype and memory
 codes; @tt{rr_buffer_view}; @tt{rr_resources_handle}; @tt{rr_abi_tag},
 @tt{rr_abi} and @tt{RR_ABI_VERSION}; the status codes, error kinds and
@@ -533,10 +646,12 @@ codes; @tt{rr_buffer_view}; @tt{rr_resources_handle}; @tt{rr_abi_tag},
 this module; and the rules a downstream entry point keeps: run inside
 @tt{translate_exceptions}, select the handle's device, refuse arrays on
 another device, read arrays only through @tt{view.hpp}, and synchronise the
-handle's stream on every exit. Additions at version 1 (#22):
-@tt{rr_deposit}, @tt{RR_MAX_REGIONS}, the @tt{RR_DEPOSIT_*} states,
-@tt{rr_release_fn}, @tt{deposit.hpp}, and @racket[deposit], @racket[deposit?],
-@racket[with-deposits] and @racket[deposit->list]; a downstream detects them
-by requiring @racketmodname[raft] version 0.2, or with
-@tt{__has_include(<raftrkt/deposit.hpp>)}. A change to any of them is a new
-ABI version, with the canary changed in the same pull request.
+handle's stream on every exit. A change to any of them is a new ABI version,
+with the canary changed in the same pull request. Additions at version 1
+(#22, #32): @tt{rr_deposit}, @tt{RR_MAX_REGIONS}, the @tt{RR_DEPOSIT_*}
+states, @tt{rr_release_fn}, @tt{deposit.hpp}, @racket[deposit],
+@racket[deposit?], @racket[with-deposits], @racket[deposit->list],
+@tt{rr_job_outcome}, @tt{RR_JOB_MESSAGE_BYTES}, @tt{rr_job_fn},
+@tt{job.hpp}, @racket[define-job], and the rule that a call that can run long
+is a job; a downstream detects them by requiring @racketmodname[raft] version
+0.2, or with @tt{__has_include}.

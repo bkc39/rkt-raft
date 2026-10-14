@@ -8,12 +8,14 @@
          (only-in "exn.rkt" raise-raft)
          (only-in "foreign/core.rkt" rr-resources-create)
          (only-in "foreign/internal.rkt" rr-memory-resource-kind rr-resources-ready)
+         (only-in "foreign/job-api.rkt" rr-resources-create-host)
          (only-in "foreign/memory.rkt" released? rr-resources-free)
          (only-in "resource.rkt" with-release))
 
 (provide current-device-resources
          device-resources
          device-resources?
+         host-resources
          in-backoff
          memory-resource-kind
          resources-device
@@ -36,6 +38,9 @@
 
 (define (device-resources #:device [device 0]) ;; noqa
   (open-resources 'device-resources device))
+
+(define (host-resources)
+  (handle->device-resources (call/raft 'host-resources rr-resources-create-host) -1))
 
 (define (resources-device r)
   (device-resources-device r))

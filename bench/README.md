@@ -50,20 +50,20 @@ A dash means the same time as the flonum array, through which every
 ## Downstream calls
 
 ```bash
-racket bench/status-checker.rkt   # ns per call of the canary's kc_pool_bytes
+racket bench/status-checker.rkt   # ns per call of the canary's kc_noop
 ```
 
 The median of five runs of 20,000 calls, after a warm-up. RTX 3090 Ti,
-Racket 9.3 CS, 2026-10-12.
+Racket 9.3 CS, 2026-10-13.
 
-| kc_pool_bytes through | ns/call |
+| kc_noop through | ns/call |
 |---|---:|
-| the bare _fun | 266 |
-| call-as-atomic (status-checker before #21) | 1072 |
-| status-checker (an OS thread per call) | 35108 |
+| the bare _fun | 39 |
+| status-checker (call-as-atomic) | 767 |
+| a job (kc_noop_job, unsafe-poller) | 19895 |
 
-- An OS thread per call costs about 34 µs over `call-as-atomic`: nothing
-  to a one-second `kmeans-fit`, a lot to many short calls.
-- During a one-second `kmeans-fit` a 10 ms ticker ran 96 to 99 times (none
-  through `call-as-atomic`); a break sent at 50 ms was raised at 975 to
-  1,005 ms, when the fit returned.
+- A job costs about 20 µs over the bare call: nothing to a one-second
+  `kmeans-fit`, a lot to many short calls, which stay on `status-checker`.
+- During a one-second `kmeans-fit` job a 10 ms ticker ran 96 to 97 times;
+  a break sent at 50 ms was raised at 971 to 974 ms, when the fit
+  returned.

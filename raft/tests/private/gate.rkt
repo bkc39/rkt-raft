@@ -1,34 +1,17 @@
 #lang racket/base
 
-(require (only-in ffi/unsafe
-                  _bytes
-                  _fun
-                  _int
-                  _list
-                  _ptr
-                  _short
-                  _size
-                  _ssize
-                  _ulong
-                  define-cstruct
-                  get-ffi-obj)
-         (only-in ffi/unsafe/os-async-channel make-os-async-channel os-async-channel-put)
-         (only-in racket/match match))
+(require (only-in ffi/unsafe _bytes _fun _int _list _size _ssize get-ffi-obj)
+         (only-in ffi/unsafe/port unsafe-file-descriptor->port)
+         (only-in racket/match match*)
+         (only-in racket/port read-bytes-evt))
 
 (provide await-entry
          closed-gate
+         gate-entered-fd
+         gate-fd
+         gate-opener-fd
          open-gate!
-         release-gate
-         wait-at-gate)
-
-(define timeout-seconds 10)
-
-(define pollin 1)
-
-(define-cstruct _pollfd
-  ([fd _int]
-   [events _short]
-   [revents _short]))
+         release-gate)
 
 (define pipe-fds
   (get-ffi-obj "pipe"
@@ -39,33 +22,23 @@
 
 (define write-fd (get-ffi-obj "write" #f (_fun _int _bytes _size -> _ssize)))
 
-(define poll-fd
-  (get-ffi-obj "poll"
-               #f
-               (_fun #:blocking? #t (_ptr i _pollfd atomic-interior) (_ulong = 1) _int -> _int)))
-
-(struct gate (entered read-end write-end))
+(struct gate (entries entered-fd fd opener-fd))
 
 (define (closed-gate)
-  (match (pipe-fds)
-    [(list read-end write-end) (gate (make-os-async-channel) read-end write-end)]))
+  (match* ((pipe-fds) (pipe-fds))
+    [((list entries-end entered-end) (list read-end write-end))
+     (gate (unsafe-file-descriptor->port entries-end 'gate-entries '(read))
+           entered-end
+           read-end
+           write-end)]))
 
 (define (release-gate g)
-  (close-fd (gate-write-end g))
-  (close-fd (gate-read-end g)))
+  (close-input-port (gate-entries g))
+  (for-each close-fd (list (gate-entered-fd g) (gate-fd g) (gate-opener-fd g))))
 
 (define (open-gate! g)
-  (write-fd (gate-write-end g) #"!" 1)
+  (write-fd (gate-opener-fd g) #"!" 1)
   (void))
 
-(define (await-entry g)
-  (or (sync/timeout timeout-seconds (gate-entered g))
-      (error 'await-entry "no call reached the gate in ~a s" timeout-seconds)))
-
-(define (wait-at-gate g)
-  (os-async-channel-put (gate-entered g) 'entered)
-  (let retry ()
-    (match (poll-fd (make-pollfd (gate-read-end g) pollin 0) (* 1000 timeout-seconds))
-      [1 'opened]
-      [0 'timed-out]
-      [_ (retry)])))
+(define (await-entry g [seconds 10])
+  (and (sync/timeout seconds (read-bytes-evt 1 (gate-entries g))) #t))

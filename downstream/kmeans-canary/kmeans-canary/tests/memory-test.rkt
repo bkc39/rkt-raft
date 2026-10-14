@@ -10,6 +10,7 @@
                   buffer-drop-count
                   owner-release-count
                   release-failure-count)
+         (only-in raft/private/job executor-threads jobs-live)
          (only-in raft/tests/private/collect collect-until drain-finalizers!)
          (only-in raft/tests/private/probe test-pools)
          (only-in "../main.rkt" blobs cluster-members kmeans-fit kmeans-predict)
@@ -59,6 +60,8 @@
     (fit-once X seed))
   (define failures (release-failure-count))
   (define baseline (pool-sample))
+  (define live (jobs-live))
+  (define threads (executor-threads))
   (define drops (buffer-drop-count))
   (define samples
     (for/list ([i (in-range fits)]
@@ -88,6 +91,8 @@
    (- (release-failure-count) failures))
   (check-equal? freed (* buffers-per-fit fits))
   (check-equal? (- (release-failure-count) failures) 0)
+  (check-true (collect-until (lambda () (= (jobs-live) live))))
+  (check-true (<= (executor-threads) (add1 threads)))
   (for ([u (in-list used)])
     (check-equal? u (car baseline) "pool use returns to the baseline after a collection"))
   (check-equal? (apply max reserved) (cadr baseline) "the pool reserves no more than after warm-up")
