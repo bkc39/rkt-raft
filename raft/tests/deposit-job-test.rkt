@@ -98,6 +98,17 @@
                     "with-deposits: the deposit is already bound"
                     (lambda () (with-deposits ([o submitted]) o))))
 
+(test-probe "law 46: a break during a submit closes the deposits bound for it"
+  (define broken (deposit))
+  (check-exn exn:break?
+             (lambda ()
+               (call-with-deposits-bound 'demo
+                                         (list broken)
+                                         (lambda (_records _holders)
+                                           (break-thread (current-thread))
+                                           (sleep 0)))))
+  (check-deposit-closed broken))
+
 (define ((gated job d dt #:resources [r (current-device-resources)]) g)
   (job 'demo r (gate-entered-fd g) (gate-fd g) d (dtype->code dt) 2 3 4 0))
 

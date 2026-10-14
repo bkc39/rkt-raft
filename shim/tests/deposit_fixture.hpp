@@ -14,6 +14,7 @@
 
 #include "detail/array_api.h"
 #include "detail/deposit_api.h"
+#include "jobs.hpp"
 #include "raftrkt/c_api.h"
 #include "raftrkt/deposit.hpp"
 
@@ -118,6 +119,7 @@ inline std::string failure(int status) {
 }
 
 struct counters {
+  bool settled = releases_settled();
   uint64_t holders = rr_holder_drop_count();
   uint64_t owners = rr_owner_release_count();
   uint64_t buffers = rr_buffer_drop_count();
@@ -131,6 +133,7 @@ struct released {
 };
 
 inline void expect_released(const counters& before, const released& delta) {
+  EXPECT_TRUE(releases_settled());
   EXPECT_EQ(rr_holder_drop_count(), before.holders + delta.holders);
   EXPECT_EQ(rr_owner_release_count(), before.owners + delta.owners);
   EXPECT_EQ(rr_buffer_drop_count(), before.buffers + delta.buffers);
@@ -155,8 +158,10 @@ inline void free_holder_then_buffers(rr_holder* holder,
                                      const tally& t) {
   rr_holder_free(holder);
   rr_buffer_free(buffers[0]);
+  EXPECT_TRUE(releases_settled());
   EXPECT_EQ(t.drops, 0);
   rr_buffer_free(buffers[1]);
+  EXPECT_TRUE(releases_settled());
   EXPECT_EQ(t.drops, 1);
 }
 

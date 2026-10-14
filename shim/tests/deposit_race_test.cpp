@@ -66,10 +66,12 @@ TEST(Deposit, AHolderClosedBeforeThePublishLeavesTheOwnerToTheCaller) {
   tally t;
   session s = open_session();
   EXPECT_EQ(closed_before_publish(s, t), "out: closed");
+  EXPECT_TRUE(releases_settled());
   EXPECT_EQ(t.drops, 1);
   expect_count(s.holder, 0);
   rr_holder_free(s.holder);
   rr_resources_free(s.resources);
+  EXPECT_TRUE(releases_settled());
   EXPECT_EQ(t.drops, 1);
   EXPECT_EQ(t.stale, 0);
   expect_released(before, {1, 0, 0});
@@ -113,6 +115,7 @@ TEST(Deposit, StressFillAgainstCloseFillsOrLeavesTheOwnerToTheCaller) {
   for (int round = 0; round < closing_rounds; ++round) {
     filled += filled_while_closing(t, round % head_starts) ? 1 : 0;
   }
+  EXPECT_TRUE(releases_settled());
   EXPECT_EQ(t.drops, closing_rounds);
   EXPECT_EQ(t.stale, 0);
   expect_released(before, {closing_rounds, static_cast<uint64_t>(filled), 0});

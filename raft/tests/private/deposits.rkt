@@ -19,7 +19,7 @@
                   release-failure-count)
          (only-in "../../private/resource.rkt" with-release)
          (only-in "../../unsafe.rkt" deposit deposit->list with-array-views with-deposits)
-         (only-in "collect.rkt" collect-until drain-finalizers!)
+         (only-in "collect.rkt" collect-until drain-finalizers! releases-settled?)
          (only-in "gate.rkt" await-entry closed-gate release-gate)
          (only-in "probe.rkt"
                   call/probe
@@ -106,6 +106,7 @@
 (struct counts (owners probe-drops holders buffers failures) #:transparent)
 
 (define (counters)
+  (check-true (releases-settled?) "a release is still queued")
   (counts (owner-release-count)
           (probe-owner-drops)
           (holder-drop-count)

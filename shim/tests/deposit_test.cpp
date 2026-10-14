@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cstdint>
 #include <cstring>
 #include <initializer_list>
@@ -13,6 +14,7 @@
 #include <raft/core/handle.hpp>
 #include <raft/core/resource/cuda_stream.hpp>
 #include <rmm/device_uvector.hpp>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -139,6 +141,7 @@ TEST(Deposit, AFilledHolderNoJobHoldsAdoptsBeforeItCloses) {
   expect_count(s.holder, 2);
   expect_adoption_refusals(s.holder);
   expect_indices(second);
+  EXPECT_TRUE(releases_settled());
   EXPECT_EQ(t.drops, 0);
   free_holder_then_buffers(s.holder, {first, second}, t);
   rr_resources_free(s.resources);
@@ -226,6 +229,7 @@ TEST(Deposit, AdoptedBuffersReadWriteViewAndCopyLikeAnyOther) {
   rr_buffer_free(indices);
   rr_holder_free(s.holder);
   rr_resources_free(s.resources);
+  EXPECT_TRUE(releases_settled());
   EXPECT_EQ(t.drops, 1);
   EXPECT_EQ(t.stale, 0);
 }
@@ -241,6 +245,7 @@ TEST(Deposit, AnUnfilledHolderReleasesNothing) {
   rr_holder_free(s.holder);
   rr_holder_free(nullptr);
   rr_resources_free(s.resources);
+  EXPECT_TRUE(releases_settled());
   EXPECT_EQ(rr_holder_drop_count(), before.holders + 1);
   EXPECT_EQ(rr_owner_release_count(), before.owners);
 }
@@ -252,8 +257,10 @@ TEST(Deposit, AFilledHolderNeverAdoptedReleasesItsOwnerWhenFreed) {
   session s = open_session();
   fill(s, t);
   rr_resources_free(s.resources);
+  EXPECT_TRUE(releases_settled());
   EXPECT_EQ(t.drops, 0);
   rr_holder_free(s.holder);
+  EXPECT_TRUE(releases_settled());
   EXPECT_EQ(t.drops, 1);
   EXPECT_EQ(t.stale, 0);
   EXPECT_EQ(rr_owner_release_count(), before.owners + 1);
@@ -262,6 +269,56 @@ TEST(Deposit, AFilledHolderNeverAdoptedReleasesItsOwnerWhenFreed) {
 template <typename Owned>
 void release_as(void* owned) {
   delete static_cast<Owned*>(owned);
+}
+
+struct blocking_owner {
+  explicit blocking_owner(gate& g) : dropping(&g) {}
+  ~blocking_owner() {
+    dropping->enter_and_wait_for(std::chrono::seconds(5));
+  }
+  blocking_owner(const blocking_owner&) = delete;
+  blocking_owner& operator=(const blocking_owner&) = delete;
+  blocking_owner(blocking_owner&&) = delete;
+  blocking_owner& operator=(blocking_owner&&) = delete;
+
+  gate* dropping;
+};
+
+TEST(Deposit, AHolderFreeReturnsWhileItsOwnerIsReleasedElsewhere) {
+  RR_REQUIRE_GPU();
+  session s = open_session();
+  gate dropping;
+  raftrkt::deposit(s.record, "out", *s.handle,
+                   std::make_unique<blocking_owner>(dropping), {});
+  const auto start = std::chrono::steady_clock::now();
+  rr_holder_free(s.holder);
+  const double freeing = seconds_since(start);
+  ASSERT_TRUE(dropping.await_entry(std::chrono::seconds(5)));
+  EXPECT_LT(freeing, 1.0);
+  dropping.open_now();
+  EXPECT_TRUE(releases_settled());
+  rr_resources_free(s.resources);
+}
+
+template <typename Owned>
+void release_then_throw(void* owned) {
+  delete static_cast<Owned*>(owned);
+  throw std::runtime_error("release refused");
+}
+
+TEST(Deposit, AnOwnerReleaseThatThrowsCountsOneReleaseFailure) {
+  RR_REQUIRE_GPU();
+  const counters before;
+  tally t;
+  session s = open_session();
+  fill(s, t);
+  s.record->release = release_then_throw<owner>;
+  rr_holder_free(s.holder);
+  EXPECT_TRUE(releases_settled());
+  EXPECT_EQ(t.drops, 1);
+  EXPECT_EQ(rr_owner_release_count(), before.owners);
+  EXPECT_EQ(rr_release_failure_count(), before.failures + 1);
+  rr_resources_free(s.resources);
 }
 
 struct host_block {
@@ -328,9 +385,11 @@ TEST(Deposit, ARecordFilledByHandIsCheckedAgainAtAdoption) {
   RR_REQUIRE_GPU();
   tally t;
   expect_host_regions_refused(t);
+  EXPECT_TRUE(releases_settled());
   EXPECT_EQ(t.drops, 1);
   tally device_tally;
   expect_misaligned_region_refused(device_tally);
+  EXPECT_TRUE(releases_settled());
   EXPECT_EQ(device_tally.drops, 1);
   EXPECT_EQ(device_tally.stale, 0);
 }
@@ -358,6 +417,7 @@ void expect_released_once_in_order(const std::array<int, 3>& order) {
   const std::array<rr_buffer*, 2> buffers{adopted(s.holder, 0, view),
                                           adopted(s.holder, 1, view)};
   free_in_order(s, buffers, order);
+  EXPECT_TRUE(releases_settled());
   EXPECT_EQ(t.drops, 1) << "order " << order[0] << order[1] << order[2];
   EXPECT_EQ(t.stale, 0) << "order " << order[0] << order[1] << order[2];
   expect_released(before, {1, 1, 2});

@@ -272,8 +272,9 @@ plans/scoping-plan.md         the approved plan (revision 5), as Markdown
   `shared_ptr<raft::handle_t>` can destroy a cuBLAS handle, and a free
   without memory pools is `cudaFree`; both synchronize the device. A Racket
   release runs in atomic mode (a deallocator or a finalizer), so
-  `rr_resources_free` and a buffer's last unpin only queue the object for
-  one process-wide reaper thread and return. A job worker and the reaper
+  `rr_resources_free` and the last unpin of a buffer or a deposit holder
+  (whose owner frees device memory and may hold the last handle reference)
+  only queue the object for one process-wide reaper thread and return. A job worker and the reaper
   itself release in place (`rr::on_native_worker`). Each queued release is
   counted in the exit registry until it completes; once the exit verdict is
   given, releases run on the caller again, as before the reaper.

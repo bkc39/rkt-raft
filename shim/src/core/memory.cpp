@@ -156,7 +156,7 @@ void pin(rr_holder& holder) noexcept {
 void unpin(rr_holder* holder) noexcept {
   if (holder != nullptr &&
       holder->refs.fetch_sub(1, std::memory_order_acq_rel) == 1) {
-    release_on_device(holder, holder_drops());
+    release<rr_holder, holder_drops>(holder);
   }
 }
 

@@ -6,6 +6,8 @@
 #include <chrono>
 #include <cstdint>
 #include <cstdlib>
+#include <limits>
+#include <memory>
 #include <string>
 
 #include "deposit_fixture.hpp"
@@ -23,6 +25,7 @@ using rr::test::deposit::tally;
 
 constexpr double pin_bound = 10.0;
 constexpr unsigned child_limit_seconds = 10;
+constexpr int exited_in_release = 13;
 
 enum class step : uint8_t { free_holder, release_job, finish };
 
@@ -69,6 +72,7 @@ void check_step(step s, progress& p, const session& d, const counters& before,
                 bool filled) {
   p.freed = p.freed || s == step::free_holder;
   p.finished = p.finished || s == step::finish;
+  EXPECT_TRUE(rr::test::releases_settled());
   EXPECT_EQ(rr_holder_drop_count(),
             before.holders + ((p.freed && p.finished) ? 1 : 0));
   if (p.finished && !p.freed) {
@@ -90,6 +94,7 @@ void submit_pinned(const session& d, rr::test::job_args& args, rr_job** job) {
 }
 
 void expect_released(const counters& before, const tally& t, bool filled) {
+  EXPECT_TRUE(rr::test::releases_settled());
   EXPECT_EQ(t.drops, filled ? 1 : 0);
   EXPECT_EQ(t.stale, 0);
   EXPECT_EQ(rr_owner_release_count(), before.owners + (filled ? 1 : 0));
@@ -180,9 +185,49 @@ TEST(DepositJob, ASubmitRefusedForAMissingHolderLeavesTheOthersOpen) {
   EXPECT_EQ(rr_holder_close(d.holder), RR_OK);
   rr::test::deposit::expect_count(d.holder, 2);
   rr_holder_free(d.holder);
+  EXPECT_TRUE(rr::test::releases_settled());
   EXPECT_EQ(t.drops, 1);
   rr_resources_free(d.resources);
   rr::test::deposit::expect_released(before, {1, 1, 0});
+}
+
+struct exiting_owner {
+  explicit exiting_owner(const raft::handle_t& h)
+      : matrix(rr::test::deposit::matrix_size,
+               raft::resource::get_cuda_stream(h)) {}
+  ~exiting_owner() {
+    std::exit(exited_in_release);
+  }
+  exiting_owner(const exiting_owner&) = delete;
+  exiting_owner& operator=(const exiting_owner&) = delete;
+  exiting_owner(exiting_owner&&) = delete;
+  exiting_owner& operator=(exiting_owner&&) = delete;
+
+  rmm::device_uvector<float> matrix;
+};
+
+[[noreturn]] void owner_exits_as_its_job_lets_go() {
+  alarm(child_limit_seconds);
+  session d = rr::test::deposit::open_session();
+  auto o = std::make_unique<exiting_owner>(*d.handle);
+  const std::initializer_list<rr_view> regions{raftrkt::region(o->matrix)};
+  raftrkt::deposit(d.record, "out", *d.handle, std::move(o), regions);
+  rr::test::gate g;
+  rr::test::job_args args{};
+  args.held = &g;
+  std::array<rr_holder*, 1> holders{d.holder};
+  rr_job* job = nullptr;
+  if (rr_job_submit(d.resources, rr::test::run_test_job, &args, sizeof args,
+                    nullptr, 0, holders.data(), 1,
+                    std::numeric_limits<double>::infinity(), &job) != RR_OK ||
+      !g.await_entry(std::chrono::seconds(child_limit_seconds))) {
+    fail("the job never started");
+  }
+  rr_holder_free(d.holder);
+  g.open_now();
+  for (;;) {
+    pause();
+  }
 }
 
 class DepositJobDeathTest : public ::testing::Test {
@@ -196,6 +241,11 @@ class DepositJobDeathTest : public ::testing::Test {
 TEST_F(DepositJobDeathTest, ARefusedJobClosesItsDeposits) {
   EXPECT_EXIT(refused_job_closes_its_deposits(), ::testing::ExitedWithCode(0),
               "^$");
+}
+
+TEST_F(DepositJobDeathTest, AnOwnerCallingExitAsItsJobLetsGoSkipsTeardown) {
+  EXPECT_EXIT(owner_exits_as_its_job_lets_go(),
+              ::testing::ExitedWithCode(exited_in_release), "^$");
 }
 
 TEST(DepositJob, AJobPinsAndClosesItsHoldersUntilItIsDone) {
