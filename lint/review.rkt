@@ -56,7 +56,14 @@
      (unquoted #'e (add1 depth))]
     [(a . d) (append (unquoted #'a depth) (unquoted #'d depth))]
     [#(e ...) (append-map (lambda (e) (unquoted e depth)) (syntax->list #'(e ...)))]
-    [_ '()]))
+    [_ (append-map (lambda (e) (unquoted e depth)) (quasiquoted-parts (syntax-e stx)))]))
+
+(define (quasiquoted-parts datum)
+  (cond
+    [(box? datum) (list (unbox datum))]
+    [(hash? datum) (hash-map datum (lambda (_key value) value) #t)]
+    [(prefab-struct-key datum) (cdr (vector->list (struct->vector datum)))]
+    [else '()]))
 
 (define (review-scoped-body leading body)
   (for-each recur leading)

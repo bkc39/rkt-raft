@@ -674,7 +674,9 @@ the binding census), `racket-review`, `racket-version` (at least 9.3),
   clash with another's. It also treats `define-syntax-parse-rule` as review
   treats `define-syntax-rule`, recording the name and skipping the template;
   without it review reads the header as a function's and reports every
-  `x:expr` as an unused argument. `;; noqa` is allowed only where review cannot see a
+  `x:expr` as an unused argument. It skips quoted data and reads quasiquoted
+  data (lists, vectors, boxes, hash values, prefab fields) only at its
+  unquotes. `;; noqa` is allowed only where review cannot see a
   binding's definition or use: names that `define-cpointer-type` and
   `define-cstruct` generate, a struct re-exported with `struct-out`, a value
   used only inside a macro template, and a name that `struct` leaves free
