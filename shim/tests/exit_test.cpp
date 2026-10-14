@@ -32,10 +32,10 @@ constexpr double tenth = 0.1;
 constexpr double fifth = 0.2;
 constexpr double three_tenths = 0.3;
 constexpr double half_second = 0.5;
+constexpr double well_short_of_the_bound = 3.0;
 constexpr double long_bound = 10.0;
 constexpr double huge_bound = 1e300;
 constexpr int32_t short_sleep_ms = 100;
-constexpr int32_t long_sleep_ms = 200;
 constexpr auto lock_settles = std::chrono::milliseconds(20);
 constexpr size_t buffer_bytes = 64;
 
@@ -83,7 +83,8 @@ drained drain() {
 }
 
 void require_drained(const drained& d, int64_t in_flight, int64_t still_running,
-                     double from, double to) {
+                     double from = 0,
+                     double to = std::numeric_limits<double>::infinity()) {
   if (d.in_flight != in_flight || d.still_running != still_running ||
       d.seconds < from || d.seconds > to) {
     fail("drain gave (" + std::to_string(d.in_flight) + ", " +
@@ -114,6 +115,25 @@ rr_job* sleeper(rr_resources* r, int32_t ms, double bound,
   rr_job* job = rr::test::submit(r, args, bound);
   kept().push_back(job);
   return job;
+}
+
+rr::test::gate& gated(rr_resources* r, double bound) {
+  auto* held = new rr::test::gate;
+  kept().push_back(held);
+  job_args args{};
+  args.held = held;
+  kept().push_back(rr::test::submit(r, args, bound));
+  return *held;
+}
+
+std::thread open_once_waiting(rr::test::gate& held, int64_t waiters) {
+  return std::thread{[&held, waiters] {
+    if (!rr::test::eventually(
+            [waiters] { return rr_exit_waiters() == waiters; })) {
+      fail("the drains never waited");
+    }
+    held.open_now();
+  }};
 }
 
 rr_job* stuck(rr_resources* r, double bound) {
@@ -163,28 +183,32 @@ enum exit_code : uint8_t {
 
 [[noreturn]] void every_waiter_wakes() {
   alarm(child_limit_seconds);
-  sleeper(host(), short_sleep_ms, std::numeric_limits<double>::infinity());
+  rr::test::gate& held = gated(host(), std::numeric_limits<double>::infinity());
+  std::thread opener = open_once_waiting(held, 2);
   drained other;
   std::thread second{[&] { other = drain(); }};
   const drained first = drain();
   second.join();
-  require_drained(first, 1, 0, tenth, fifth);
-  require_drained(other, 1, 0, tenth, fifth);
+  opener.join();
+  require_drained(first, 1, 0);
+  require_drained(other, 1, 0);
   std::exit(0);
 }
 
 [[noreturn]] void deadline_recomputed() {
   alarm(child_limit_seconds);
   stuck(host(), tenth);
-  sleeper(host(), long_sleep_ms, half_second);
-  require_drained(drain(), 2, 1, fifth, three_tenths);
+  std::thread opener = open_once_waiting(gated(host(), long_bound), 1);
+  require_drained(drain(), 2, 1, tenth, well_short_of_the_bound);
+  opener.join();
   std::exit(0);
 }
 
 [[noreturn]] void waits_for(double bound) {
   alarm(child_limit_seconds);
-  sleeper(host(), short_sleep_ms, bound);
-  require_drained(drain(), 1, 0, tenth, fifth);
+  std::thread opener = open_once_waiting(gated(host(), bound), 1);
+  require_drained(drain(), 1, 0);
+  opener.join();
   std::exit(0);
 }
 
@@ -339,9 +363,10 @@ auto with_no_more(Resource resource, Fn call) {
 [[noreturn]] void queued_job_counts() {
   alarm(backstop_limit_seconds);
   rr_resources* r = host();
-  sleeper(r, short_sleep_ms, long_bound);
+  std::thread opener = open_once_waiting(gated(r, long_bound), 1);
   sleeper(r, 0, long_bound);
-  require_drained(drain(), 2, 0, tenth, fifth);
+  require_drained(drain(), 2, 0);
+  opener.join();
   std::exit(0);
 }
 

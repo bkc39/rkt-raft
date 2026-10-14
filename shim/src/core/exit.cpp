@@ -31,6 +31,7 @@ struct registry {
   verdict decided = verdict::open;
   bool backstop_armed = false;
   bool skip_armed = false;
+  int64_t waiters = 0;
 };
 
 // Allocated on first use and never destroyed: workers and the backstop use
@@ -68,13 +69,7 @@ drained skip(registry& r, int64_t in_flight) noexcept {
   return {in_flight, count(r)};
 }
 
-drained drain() noexcept {
-  registry& r = jobs();
-  std::unique_lock<std::mutex> held{r.lock};
-  r.closing = true;
-  if (r.decided != verdict::open) {
-    return {count(r), count(r)};
-  }
+drained wait_out(registry& r, std::unique_lock<std::mutex>& held) noexcept {
   const auto start = std::chrono::steady_clock::now();
   const int64_t in_flight = count(r);
   for (;;) {
@@ -96,6 +91,19 @@ drained drain() noexcept {
     }
     r.changed.wait_until(held, deadline);
   }
+}
+
+drained drain() noexcept {
+  registry& r = jobs();
+  std::unique_lock<std::mutex> held{r.lock};
+  r.closing = true;
+  if (r.decided != verdict::open) {
+    return {count(r), count(r)};
+  }
+  ++r.waiters;
+  const drained d = wait_out(r, held);
+  --r.waiters;
+  return d;
 }
 
 void backstop(int status, void* /*unused*/) noexcept {
@@ -154,6 +162,12 @@ int64_t rr_jobs_in_flight(void) {
   rr::registry& r = rr::jobs();
   const std::lock_guard<std::mutex> held{r.lock};
   return rr::count(r);
+}
+
+int64_t rr_exit_waiters(void) {
+  rr::registry& r = rr::jobs();
+  const std::lock_guard<std::mutex> held{r.lock};
+  return r.waiters;
 }
 
 // NOLINTBEGIN(bugprone-easily-swappable-parameters) -- the C ABI
