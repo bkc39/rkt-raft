@@ -120,17 +120,26 @@ bool eventually(Pred done) {
   return false;
 }
 
-inline int64_t settled_executor_threads() {
-  int64_t seen = rr_executor_threads();
+template <typename Read>
+int64_t settled(Read read) {
+  int64_t seen = read();
   for (int i = 0; i < 1000; ++i) {
     std::this_thread::sleep_for(std::chrono::milliseconds(20));
-    const int64_t now = rr_executor_threads();
+    const int64_t now = read();
     if (now == seen) {
       return now;
     }
     seen = now;
   }
   return seen;
+}
+
+inline int64_t settled_executor_threads() {
+  return settled(rr_executor_threads);
+}
+
+inline int64_t settled_jobs_live() {
+  return settled(rr_jobs_live);
 }
 
 inline std::ptrdiff_t open_fds() {

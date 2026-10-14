@@ -1208,7 +1208,9 @@ since cuSPARSE's error string for it is only "out of memory"). The frozen rule i
   native, erases its bound, and only then stores `RR_JOB_DONE` and signals
   the eventfd, so a caller woken by its job never counts it in flight
   (`Executor.AJobLeavesTheRegistryBeforeItIsDone` stalls the eventfd write
-  to pin the order). A submit asks for admission before it prepares the
+  to pin the order). The worker drops its own reference only after the
+  signal, so a gtest reads its `rr_jobs_live` baseline settled
+  (`settled_jobs_live`). A submit asks for admission before it prepares the
   job, so a refused submit copies, opens and pins nothing; a preparation
   that throws erases the bound again.
 - **Two further departures from the spec's letter** (#32 review). The

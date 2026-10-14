@@ -169,7 +169,7 @@ void drain(int fd) {
 
 TEST(Executor, AJobLeavesTheRegistryBeforeItIsDone) {
   rr_resources* r = rr::test::host_resources();
-  const int64_t live = rr_jobs_live();
+  const int64_t live = rr::test::settled_jobs_live();
   const int64_t in_flight = rr_jobs_in_flight();
   rr::test::gate g;
   job_args args{};
@@ -216,6 +216,8 @@ TEST(Executor, JobsOnOneResourcesRunInOrderOneAtATime) {
 }
 
 TEST(Executor, JobsOnTwoResourcesRunAtOnce) {
+  arrived = 0;
+  meetings = 0;
   std::array<rr_resources*, 2> rs{rr::test::host_resources(),
                                   rr::test::host_resources()};
   std::array<rr_job*, 2> jobs{};
@@ -233,7 +235,7 @@ TEST(Executor, JobsOnTwoResourcesRunAtOnce) {
 }
 
 TEST(Executor, EachReleaseOrderFreesTheJobOnce) {
-  const int64_t live = rr_jobs_live();
+  const int64_t live = rr::test::settled_jobs_live();
   const std::ptrdiff_t fds = rr::test::open_fds();
   rr_resources* r = rr::test::host_resources();
   rr::test::gate g;
