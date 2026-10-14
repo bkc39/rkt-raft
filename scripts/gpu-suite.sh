@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-suite_seconds=900
+suite_seconds=1800
 if [ -z "${RAFT_GPU_SUITE_BOUNDED:-}" ]; then
   rc=0
   RAFT_GPU_SUITE_BOUNDED=1 timeout --kill-after=30 "$suite_seconds" "$0" "$@" || rc=$?

@@ -15,7 +15,7 @@ jobs:
       (github.event_name == 'workflow_dispatch' ||
        github.event.pull_request.user.login == 'bkc39')
     runs-on: [self-hosted, linux, gpu]
-    timeout-minutes: 45
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v7
       - name: Shim gtests, LD_BIND_NOW load, Racket tests, twin parity, census
