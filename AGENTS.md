@@ -567,7 +567,7 @@ racket scripts/check-bindings.rkt  # rr_ exports against the bindings
 scripts/render-docs.sh <dir>       # the manual, red on any warning or broken link
 nix fmt                            # format and lint everything; `-- --ci` fails on a change
 scripts/review.sh                  # raco review over every .rkt
-scripts/resyntax.sh origin/master  # Resyntax, red on any suggestion
+scripts/resyntax.sh                # Resyntax against the PR's base, red on any suggestion
 nix run --max-jobs 1 --cores 4 .#copy-native-libs   # restage the shim after a C++ change
 cmake -S shim -B shim/build -G Ninja -DBUILD_TESTING=ON   # the shim's inner loop
 nix build --max-jobs 1 --cores 4 .#kmeans-canary  # the canary (lib/, and tests/bin in .tests)
@@ -641,6 +641,18 @@ not in a comment.
 with its counts, the docs rendered with no warnings, and Resyntax clean with
 both rule sets (see Tooling). After pushing, poll `gh pr checks <n>` (it exits
 non-zero while checks are pending) until green.
+
+The `resyntax` gate runs `scripts/resyntax.sh` with no argument, which
+analyzes only what the branch changes: after a `git fetch`, its base is
+`git merge-base HEAD origin/<base>`, `<base>` being the PR's base branch from
+`gh pr view`, or `master` when there is no PR or `gh` fails. On a stacked
+branch, `origin/master` would re-analyze every leg below it. A green run
+records a key in `/var/tmp/rkt-raft-resyntax-cache/`: the sha-256 of the
+base, `git diff <base> -- '*.rkt' '*.scrbl'` (the working tree included),
+the installed Resyntax checksum and the script itself. A run whose key is
+recorded prints `resyntax: unchanged since a green run` and exits 0;
+`RESYNTAX_NO_CACHE=1` forces the analysis. An explicit base, as CI passes,
+always runs in full and records nothing.
 
 `nix flake check` runs thirteen checks: `shim` (build plus both gtest
 binaries), `shim-sanitizers` (both gtest binaries under ASAN and UBSAN),
