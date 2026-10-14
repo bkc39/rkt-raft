@@ -185,9 +185,15 @@ TEST(DepositJob, ASubmitRefusedForAMissingHolderLeavesTheOthersOpen) {
   rr::test::deposit::expect_released(before, {1, 1, 0});
 }
 
-TEST(DepositJobDeathTest, ARefusedJobClosesItsDeposits) {
-  RR_REQUIRE_GPU();
-  GTEST_FLAG_SET(death_test_style, "threadsafe");
+class DepositJobDeathTest : public ::testing::Test {
+ protected:
+  void SetUp() override {
+    GTEST_FLAG_SET(death_test_style, "threadsafe");
+    RR_REQUIRE_GPU();
+  }
+};
+
+TEST_F(DepositJobDeathTest, ARefusedJobClosesItsDeposits) {
   EXPECT_EXIT(refused_job_closes_its_deposits(), ::testing::ExitedWithCode(0),
               "^$");
 }
