@@ -233,7 +233,7 @@ enum exit_code : uint8_t {
 [[noreturn]] void submit_after_drain() {
   alarm(child_limit_seconds);
   rr_resources* r = rr::test::host_resources();
-  require_drained(drain(), 0, 0, 0, promptly);
+  require_drained(drain(), 0, 0, 0, quickly);
   const int64_t live = rr_jobs_live();
   rr_job* job = sleeper(r, 0, 1.0);
   if (job == nullptr || rr_job_state(job) != RR_JOB_REFUSED ||
@@ -291,7 +291,7 @@ auto with_no_more(Resource resource, Fn call) {
 [[noreturn]] void refused_submit_opens_nothing() {
   alarm(child_limit_seconds);
   rr_resources* r = host();
-  require_drained(drain(), 0, 0, 0, promptly);
+  require_drained(drain(), 0, 0, 0, quickly);
   rr_job* job = with_no_more(RLIMIT_NOFILE, [&] { return sleeper(r, 0, 1.0); });
   if (job == nullptr || rr_job_state(job) != RR_JOB_REFUSED) {
     fail("the refused submit needed a descriptor");
@@ -307,7 +307,7 @@ auto with_no_more(Resource resource, Fn call) {
       rr_buffer_alloc(r, buffer_bytes, &buffer) != RR_OK) {
     fail(rr_last_error());
   }
-  require_drained(drain(), 0, 0, 0, promptly);
+  require_drained(drain(), 0, 0, 0, quickly);
   const uint64_t drops = rr_buffer_drop_count();
   one_buffer pins{buffer};
   rr_job* job = rr::test::submit(r, job_args{}, 1.0, rr::test::run_test_job,

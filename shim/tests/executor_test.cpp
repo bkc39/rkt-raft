@@ -170,17 +170,19 @@ void drain(int fd) {
 TEST(Executor, AJobLeavesTheRegistryBeforeItIsDone) {
   rr_resources* r = rr::test::host_resources();
   const int64_t live = rr_jobs_live();
+  const int64_t in_flight = rr_jobs_in_flight();
   rr::test::gate g;
   job_args args{};
   args.held = &g;
   rr_job* job = rr::test::submit(r, args);
-  ASSERT_TRUE(g.await_entry(std::chrono::seconds(10)));
+  ASSERT_NE(job, nullptr);
+  EXPECT_TRUE(g.await_entry(std::chrono::seconds(10)));
   const std::array<int, 2> ends = full_pipe();
-  ASSERT_EQ(dup2(ends[1], rr_job_fd(job)), rr_job_fd(job));
+  EXPECT_EQ(dup2(ends[1], rr_job_fd(job)), rr_job_fd(job));
   g.open_now();
-  ASSERT_TRUE(
+  EXPECT_TRUE(
       rr::test::eventually([job] { return rr_job_state(job) == RR_JOB_DONE; }));
-  EXPECT_EQ(rr_jobs_in_flight(), 0);
+  EXPECT_EQ(rr_jobs_in_flight(), in_flight);
   drain(ends[0]);
   rr_job_release(job);
   EXPECT_TRUE(rr::test::eventually([live] { return rr_jobs_live() == live; }));
