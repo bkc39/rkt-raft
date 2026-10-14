@@ -24,12 +24,12 @@
                   ptr-set!)
          (only-in ffi/unsafe/atomic call-as-atomic in-atomic-mode?)
          (only-in ffi/unsafe/schedule unsafe-poll-ctx-fd-wakeup unsafe-poller)
-         (only-in racket/list count)
+         (only-in racket/list count partition)
          (only-in racket/match match match-define)
          ;; whole-module: it also provides syntax/parse at phase 1
          syntax/parse/define
          (only-in "array.rkt" array-buffer-handle settled-view)
-         (only-in "deposit.rkt" deposit-handle deposit-record deposit-release)
+         (only-in "deposit.rkt" call-with-deposits-bound)
          (only-in "error.rkt" call/raft)
          (only-in "exit.rkt" current-exit-wait)
          (only-in "exn.rkt" exn:fail:raft raise-native raise-raft)
@@ -89,65 +89,60 @@
                              (exn-continuation-marks e))))])
     (ptr-set! block type 'abs offset v)))
 
-(define (pack-handle who block offset native args pins deposits) ;; noqa
+(define (pack-handle who block offset native _arg) ;; noqa
   (ptr-set! block _pointer 'abs offset (call/raft who (lambda () (rr-resources-handle native))))
-  (values args pins deposits))
+  #f)
 
-(define (pack-nothing _who _block _offset _native args pins deposits) ;; noqa
-  (values args pins deposits))
+(define (pack-nothing _who _block _offset _native _arg) ;; noqa
+  #f)
 
-(define (pack-view who block offset _native args pins deposits) ;; noqa
-  (match-define (cons a rest) args)
+(define (pack-view who block offset _native a) ;; noqa
   (cond
     [a
      (ptr-set! block _rr-view 'abs offset (settled-view who a))
-     (values rest (cons (array-buffer-handle a) pins) deposits)]
+     (array-buffer-handle a)]
     [else
      (ptr-set! block _rr-view 'abs offset (blank-view))
-     (values rest pins deposits)]))
+     #f]))
 
-(define (pack-deposit _who _block offset _native args pins deposits) ;; noqa
-  (match-define (cons d rest) args)
-  (values rest pins (cons (cons offset d) deposits)))
+(define (pack-deposit _who _block offset _native d) ;; noqa
+  (cons offset d))
 
-(define ((pack-number type) who block offset _native args pins deposits) ;; noqa
-  (match-define (cons v rest) args)
+(define ((pack-number type) who block offset _native v) ;; noqa
   (set-number! who block type offset v)
-  (values rest pins deposits))
+  #f)
 
 (define (pack! who block native slots offsets args)
-  (for/fold ([args args]
-             [pins '()]
-             [deposits '()]
-             #:result (values pins (reverse deposits)))
-            ([s (in-list slots)]
-             [offset (in-list offsets)])
-    ((slot-pack s) who block offset native args pins deposits)))
+  (partition pair?
+             (for/fold ([args args]
+                        [added '()]
+                        #:result (filter values (reverse added)))
+                       ([s (in-list slots)]
+                        [offset (in-list offsets)])
+               (match-define (cons arg rest)
+                 (if (slot-takes? s)
+                     args
+                     (cons #f args)))
+               (values rest (cons ((slot-pack s) who block offset native arg) added)))))
 
-(define (call-closing-on-raise bound thunk)
-  (with-handlers ([(lambda (_) #t) (lambda (e)
-                                     (for-each (lambda (d) ((deposit-release d) #f)) bound)
-                                     (raise e))])
-    (thunk)))
+(define (bind-deposits! who block deposits proc)
+  (call-with-deposits-bound who
+                            (map cdr deposits)
+                            (lambda (records holders)
+                              (for ([record (in-list records)]
+                                    [offset (in-list (map car deposits))])
+                                (ptr-set! block _pointer 'abs offset record))
+                              (proc holders))))
 
 (define (submit who native entry block pins deposits seconds)
   (call-as-atomic
    (lambda ()
-     (let bind ([pending deposits]
-                [bound '()])
-       (match pending
-         ['()
-          (call-closing-on-raise
-           bound
-           (lambda ()
-             (call/raft
-              who
-              (lambda ()
-                (rr-job-submit native entry block pins (map deposit-handle bound) seconds)))))]
-         [(cons (cons offset d) rest)
-          (define record (call-closing-on-raise bound (lambda () (deposit-record who d))))
-          (ptr-set! block _pointer 'abs offset record)
-          (bind rest (cons d bound))])))))
+     (bind-deposits!
+      who
+      block
+      deposits
+      (lambda (holders)
+        (call/raft who (lambda () (rr-job-submit native entry block pins holders seconds))))))))
 
 (define (waited-status job)
   (sync (job-evt job))
@@ -175,7 +170,7 @@
   (define seconds (real->double-flonum (current-exit-wait)))
   (define native (resources-handle who resources))
   (define block (make-bytes size 0))
-  (define-values (pins deposits) (pack! who block native slots offsets args))
+  (define-values (deposits pins) (pack! who block native slots offsets args))
   (define finish
     (parameterize-break
      #f

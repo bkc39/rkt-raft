@@ -1,6 +1,7 @@
 #lang racket/base
 
 (require (only-in ffi/unsafe/atomic call-as-atomic)
+         (only-in racket/match match)
          (only-in "array.rkt" release-array! view->array)
          (only-in "error.rkt" call/raft)
          (only-in "foreign/array.rkt" blank-view keep-reachable)
@@ -10,9 +11,11 @@
                   rr-holder-count
                   rr-holder-create
                   rr-holder-record)
+         (only-in "resource.rkt" with-release)
          (only-in "resources.rkt" resources-device resources-handle))
 
-(provide deposit->list
+(provide call-with-deposits-bound
+         deposit->list
          deposit-handle
          deposit-record
          deposit-release
@@ -36,6 +39,21 @@
 (define ((deposit-release d) _record)
   (call/raft 'with-deposits (lambda () (rr-holder-close (deposit-handle d))))
   (keep-reachable d))
+
+(define (call-with-deposits-bound who deposits proc)
+  (define handed-over? #f)
+  (define ((close-unless-handed-over d) record)
+    (unless handed-over?
+      ((deposit-release d) record)))
+  (let bind ([pending deposits]
+             [records '()])
+    (match pending
+      ['()
+       (begin0 (proc (reverse records) (map deposit-handle deposits))
+         (set! handed-over? #t))]
+      [(cons d rest)
+       (with-release #:who who ([record (deposit-record who d) (close-unless-handed-over d)])
+         (bind rest (cons record records)))])))
 
 (define (adopt holder index)
   (define view (blank-view))
