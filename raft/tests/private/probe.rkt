@@ -123,7 +123,8 @@
 
 (define-syntax-parse-rule (with-hold-timeout ms:expr body:expr ...+)
   (dynamic-wind (lambda () (probe-set-hold-timeout! ms))
-                (lambda () body ...)
+                (lambda ()
+                  body ...)
                 (lambda () (probe-set-hold-timeout! 10000))))
 
 (define (probe-stuck-release! hold-ms)

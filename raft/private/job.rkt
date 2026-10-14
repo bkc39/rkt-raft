@@ -146,14 +146,10 @@
       block
       deposits
       (lambda (holders)
-        (call/raft who
-                   (lambda ()
-                     (rr-job-submit (live-handle who resources pins)
-                                    entry
-                                    block
-                                    pins
-                                    holders
-                                    seconds))))))))
+        (call/raft
+         who
+         (lambda ()
+           (rr-job-submit (live-handle who resources pins) entry block pins holders seconds))))))))
 
 (define (waited-status job)
   (sync (job-evt job))
