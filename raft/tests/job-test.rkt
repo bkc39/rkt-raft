@@ -82,16 +82,22 @@
 (define (open-fds)
   (length (directory-list "/proc/self/fd")))
 
-(define (settled-threads)
+(define (settled read)
   (drain-finalizers!)
-  (let settle ([seen (executor-threads)]
+  (let settle ([seen (read)]
                [stable 0])
     (sleep 0.02)
-    (define now (executor-threads))
+    (define now (read))
     (cond
       [(not (= now seen)) (settle now 0)]
       [(< stable 4) (settle now (add1 stable))]
       [else now])))
+
+(define (settled-threads)
+  (settled executor-threads))
+
+(define (settled-jobs-live)
+  (settled jobs-live))
 
 (define-syntax-parse-rule (check-job-syntax pattern:expr (declaration ...))
   (check-exn pattern
@@ -145,8 +151,7 @@
   (check-equal? (procedure-arity probe-echo-job) 12)
   (check-equal? (procedure-arity probe-thread-id-job) 2)
   (check-equal? (procedure-arity probe-gate-job) 7)
-  (drain-finalizers!)
-  (define live (jobs-live))
+  (define live (settled-jobs-live))
   (check-exn exn:fail:contract:arity? (lambda () (probe-echo-job 'demo (host-resources) 1)))
   (check-equal? (jobs-live) live))
 
@@ -184,8 +189,7 @@
 (test-host-probe "a value its slot cannot hold raises a contract error naming the job"
   (define r (host-resources))
   (define in-flight (jobs-in-flight))
-  (drain-finalizers!)
-  (define live (jobs-live))
+  (define live (settled-jobs-live))
   (for ([refusal (in-list '((2 x "_int32") (4 256 "_uint8") (9 2 "_double") (3 2.0 "_int64")))])
     (match-define (list at value type) refusal)
     (define args (list-set echo-zeros at value))
@@ -492,8 +496,7 @@
     (check-equal? (unbox events) '(broken returned))))
 
 (test-host-probe "a killed caller's job lives until it returns"
-  (drain-finalizers!)
-  (define live (jobs-live))
+  (define live (settled-jobs-live))
   (with-release ([g (closed-gate) release-gate])
     (define caller (thread (lambda () (gate-job 'demo (host-resources) g))))
     (check-true (await-entry g))
@@ -519,15 +522,13 @@
     (check-equal? (probe-tokens) '(9))))
 
 (test-host-probe "a thousand jobs leave no job, descriptor or thread behind"
-  (drain-finalizers!)
-  (define live (jobs-live))
+  (define live (settled-jobs-live))
   (define fds (open-fds))
   (define threads (settled-threads))
   (define r (host-resources))
   (for ([_ (in-range 1000)])
     (apply probe-echo-job 'demo r echo-zeros))
-  (drain-finalizers!)
-  (check-equal? (jobs-live) live)
+  (check-equal? (settled-jobs-live) live)
   (check-equal? (open-fds) fds)
   (check-equal? (executor-threads) (add1 threads))
   (void/reference-sink r))
