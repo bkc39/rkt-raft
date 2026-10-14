@@ -374,6 +374,11 @@ struct pool_run {
   pool_bytes after;
 };
 
+pool_bytes settled_pool() {
+  EXPECT_TRUE(releases_settled());
+  return pool();
+}
+
 pool_run fit_in_pool() {
   const resources res;
   device_array x(res.r, RR_DTYPE_FLOAT32, {samples, features});
@@ -385,11 +390,11 @@ pool_run fit_in_pool() {
     return run;
   }
   run.outcome = outcome(kc_pool_reset_high(0));
-  run.before = pool();
+  run.before = settled_pool();
   if (run.outcome == "accepted") {
     run.outcome = fit(res, x.view, centroids).outcome;
   }
-  run.after = pool();
+  run.after = settled_pool();
   return run;
 }
 
