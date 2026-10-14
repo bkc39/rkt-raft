@@ -81,6 +81,7 @@ raftrkt_add_tidy_target(tidy raftrkt)
 if(BUILD_TESTING)
   find_package(GTest REQUIRED)
   include(GoogleTest)
+  set(raftrkt_gtest_timeout_seconds 5)
 
   add_library(raftrkt_c_api_compile_test OBJECT tests/c_api_compile_test.c)
   target_include_directories(raftrkt_c_api_compile_test
@@ -104,7 +105,8 @@ if(BUILD_TESTING)
   target_link_libraries(raftrkt_tests PRIVATE raftrkt raft::raft GTest::gtest_main)
   raftrkt_enable_warnings(raftrkt_tests)
   raftrkt_apply_nix_cflags(raftrkt_tests)
-  gtest_discover_tests(raftrkt_tests DISCOVERY_MODE PRE_TEST)
+  gtest_discover_tests(raftrkt_tests DISCOVERY_MODE PRE_TEST
+    PROPERTIES TIMEOUT ${raftrkt_gtest_timeout_seconds})
 
   add_executable(raftrkt_error_tests
     src/detail/dtype.cpp
@@ -119,7 +121,8 @@ if(BUILD_TESTING)
   target_link_libraries(raftrkt_error_tests PRIVATE raft::raft CUDA::cusparse GTest::gtest_main)
   raftrkt_enable_warnings(raftrkt_error_tests)
   raftrkt_apply_nix_cflags(raftrkt_error_tests)
-  gtest_discover_tests(raftrkt_error_tests DISCOVERY_MODE PRE_TEST)
+  gtest_discover_tests(raftrkt_error_tests DISCOVERY_MODE PRE_TEST
+    PROPERTIES TIMEOUT ${raftrkt_gtest_timeout_seconds})
 
   add_library(raftrkt_probe SHARED tests/probe/jobs.cpp tests/probe/probe.cpp)
   set_target_properties(raftrkt_probe PROPERTIES

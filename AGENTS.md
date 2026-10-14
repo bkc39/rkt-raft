@@ -642,6 +642,16 @@ with its counts, the docs rendered with no warnings, and Resyntax clean with
 both rule sets (see Tooling). After pushing, poll `gh pr checks <n>` (it exits
 non-zero while checks are pending) until green.
 
+Every test run is bounded, so a hang fails instead of stalling a gate or
+a runner. ctest fails a shim gtest past 5 s and a canary gtest past 2 s
+(`gtest_discover_tests ... PROPERTIES TIMEOUT`, about three times the
+slowest test; the nix checks run the gtests through ctest). `raco test
+--timeout 45` bounds each Racket file, and `test-timeouts` in `raft/info.rkt`
+and the canary's `info.rkt` give the slow exit and twin files their own.
+`scripts/gpu-suite.sh` runs under a 900 s `timeout`, and every CI job has a
+`timeout-minutes`. A test that legitimately grows past its bound raises the
+bound in the same commit.
+
 The `resyntax` gate runs `scripts/resyntax.sh` with no argument, which
 analyzes only what the branch changes: after a `git fetch`, its base is
 `git merge-base HEAD origin/<base>`, `<base>` being the PR's base branch from

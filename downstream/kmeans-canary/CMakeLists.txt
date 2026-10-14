@@ -70,6 +70,10 @@ if(BUILD_TESTING)
   target_link_libraries(kmeans_canary_tests
     PRIVATE kmeans_canary raftrkt::headers "${RAFTRKT_LIBRARY}" GTest::gtest_main)
   kc_strict(kmeans_canary_tests)
+  include(GoogleTest)
+  set(kc_gtest_timeout_seconds 2)
+  gtest_discover_tests(kmeans_canary_tests DISCOVERY_MODE PRE_TEST
+    PROPERTIES TIMEOUT ${kc_gtest_timeout_seconds})
   list(APPEND kc_tidy_sources tests/canary_test.cpp)
 endif()
 

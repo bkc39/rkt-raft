@@ -19,7 +19,7 @@
   (no-raw-malloc  ("scripts/no-raw-malloc.sh" #:shell ""))
   (review         "scripts/review.sh")
   (compile        "raco make -v raft/main.rkt scripts/check-bindings.rkt")
-  (test           "raco test raft")
+  (test           "raco test --timeout 45 raft")
   (bindings       "racket scripts/check-bindings.rkt")
   ;; Needs the GPU host: shim gtests (also under compute-sanitizer memcheck),
   ;; an LD_BIND_NOW load, the Racket tests with twin parity, the census.

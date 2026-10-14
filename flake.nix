@@ -98,8 +98,7 @@
         doCheck = true;
         checkPhase = ''
           runHook preCheck
-          ./raftrkt_tests
-          ./raftrkt_error_tests
+          ctest --output-on-failure
           runHook postCheck
         '';
         passthru = { inherit rapids; };
@@ -144,7 +143,7 @@
         doCheck = true;
         checkPhase = ''
           runHook preCheck
-          ./kmeans_canary_tests
+          ctest --output-on-failure
           runHook postCheck
         '';
       };
@@ -224,7 +223,7 @@
         checkPhase = ''
           runHook preCheck
           export RAFT_SHIM_PROBE="${shim.tests}/lib/libraftrkt_probe.so"
-          raco test raft
+          raco test --timeout 45 raft
           raco make -v raft/scribblings/raft.scrbl
           racket scripts/check-bindings.rkt
           runHook postCheck
@@ -375,8 +374,7 @@
           runHook preCheck
           export ASAN_OPTIONS=${sanitizerOptions.asan}
           export UBSAN_OPTIONS=${sanitizerOptions.ubsan}
-          ./raftrkt_error_tests
-          ./raftrkt_tests
+          ctest --output-on-failure
           runHook postCheck
         '';
       });
