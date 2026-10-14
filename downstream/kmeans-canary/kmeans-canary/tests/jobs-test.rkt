@@ -1,7 +1,7 @@
 #lang racket/base
 
 (require (only-in racket/list make-list)
-         (only-in racket/match match)
+         (only-in racket/match match match-define match-lambda)
          (only-in rackunit check-equal? check-pred check-true)
          (only-in raft
                   contiguous
@@ -31,6 +31,14 @@
 (define (milliseconds-since start)
   (- (current-inexact-milliseconds) start))
 
+(define (await-job)
+  (for/or ([_ (in-range 1000)])
+    (cond
+      [(positive? (jobs-in-flight)) #t]
+      [else
+       (sleep 0.01)
+       #f])))
+
 (define (timed-long-fit X)
   (define start (current-inexact-milliseconds))
   (long-fit X)
@@ -53,7 +61,7 @@
               (with-handlers ([exn:break? (lambda (_)
                                             (set-box! broken-at (milliseconds-since start)))])
                 (long-fit X)))))
-  (sleep 0.05)
+  (check-true (await-job))
   (break-thread caller)
   (thread-wait caller)
   (check-pred real? (unbox broken-at))
@@ -98,7 +106,7 @@
   (drain-finalizers!)
   (define before (buffer-drop-count))
   (define caller (thread (lambda () (long-fit X))))
-  (sleep 0.05)
+  (check-true (await-job))
   (kill-thread caller)
   (drain-finalizers!)
   (check-equal? (buffer-drop-count) before "the fit's arrays live while it runs")
@@ -131,10 +139,14 @@
   (define lone-inertia (inertia-on X r))
   (define lone (milliseconds-since start))
   (define shared (fits-at-once X (list r r)))
-  (define last-end (apply max (map cadr shared)))
+  (define last-end
+    (apply max
+           (map (match-lambda
+                  [(list _ ended) ended])
+                shared)))
   (check-true (>= last-end (* 1.6 lone))
               (format "the second fit ended at ~a ms; a lone fit takes ~a ms" last-end lone))
-  (for ([result (in-list shared)])
-    (check-true (close-to? lone-inertia (car result))))
-  (for ([result (in-list (fits-at-once X (list (device-resources) (device-resources))))])
-    (check-true (close-to? lone-inertia (car result)))))
+  (for ([result (in-list (append shared
+                                 (fits-at-once X (list (device-resources) (device-resources)))))])
+    (match-define (list inertia _) result)
+    (check-true (close-to? lone-inertia inertia))))

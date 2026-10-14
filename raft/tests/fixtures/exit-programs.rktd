@@ -142,7 +142,7 @@
                      (let loop ()
                        (probe-sleep-job 'demo r 50)
                        (loop))))
-           (sleep 0.3)
+           (sleep 0.325)
            (exit 10)))
         (looping-place
          .

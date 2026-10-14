@@ -15,6 +15,7 @@
                   void/reference-sink)
          (only-in ffi/unsafe/atomic call-as-atomic)
          (only-in racket/list list-set)
+         (only-in racket/match match-define)
          (only-in racket/math nan?)
          (only-in rackunit
                   check-equal?
@@ -83,12 +84,14 @@
 
 (define (settled-threads)
   (drain-finalizers!)
-  (let settle ([seen (executor-threads)])
+  (let settle ([seen (executor-threads)]
+               [stable 0])
     (sleep 0.02)
     (define now (executor-threads))
-    (if (= now seen)
-        now
-        (settle now))))
+    (cond
+      [(not (= now seen)) (settle now 0)]
+      [(< stable 4) (settle now (add1 stable))]
+      [else now])))
 
 (define-syntax-parse-rule (check-job-syntax pattern:expr (declaration ...))
   (check-exn pattern
@@ -184,14 +187,15 @@
   (drain-finalizers!)
   (define live (jobs-live))
   (for ([refusal (in-list '((2 x "_int32") (4 256 "_uint8") (9 2 "_double") (3 2.0 "_int64")))])
-    (define args (list-set echo-zeros (car refusal) (cadr refusal)))
-    (check-exn
-     (lambda (e)
-       (and (exn:fail:contract? e)
-            (regexp-match? #rx"^demo: given value does not fit primitive C type" (exn-message e))
-            (regexp-match? (regexp-quote (format "C type: ~a" (caddr refusal))) (exn-message e))
-            (not (regexp-match? #rx"ptr-set!" (exn-message e)))))
-     (lambda () (apply probe-echo-job 'demo r args))))
+    (match-define (list at value type) refusal)
+    (define args (list-set echo-zeros at value))
+    (check-exn (lambda (e)
+                 (and (exn:fail:contract? e)
+                      (regexp-match? #rx"^demo: given value does not fit primitive C type"
+                                     (exn-message e))
+                      (regexp-match? (regexp-quote (format "C type: ~a" type)) (exn-message e))
+                      (not (regexp-match? #rx"ptr-set!" (exn-message e)))))
+               (lambda () (apply probe-echo-job 'demo r args))))
   (check-equal? (jobs-in-flight) in-flight)
   (check-equal? (jobs-live) live))
 
@@ -396,6 +400,7 @@
     (check-true (await-entry ga))
     (open-gate! gb)
     (define b (thread (lambda () (gate-job 'demo r gb)) #:keep 'results))
+    (check-true (await-in-flight 2))
     (check-false (await-entry gb 0.2))
     (open-gate! ga)
     (check-equal? (thread-wait a) 1)
@@ -575,10 +580,11 @@
                                       (device-vector 5 #:resources r)))))
     (check-true (await-entry g))
     (drain-finalizers!)
-    (define before (counts))
+    (match-define (and before (list buffers-before _ _)) (counts))
     (kill-thread caller)
     (drain-finalizers!)
-    (check-equal? (car (counts)) (car before))
+    (match-define (list buffers-after _ _) (counts))
+    (check-equal? buffers-after buffers-before)
     (open-gate! g)
     (check-true (collect-until (lambda () (equal? (map - (counts) before) '(2 1 0)))))))
 
@@ -614,9 +620,9 @@
     (check-true (await-entry g2))
     (open-gate! g1)
     (open-gate! g2)
-    (define results (map thread-wait callers))
-    (check-false (eq? (car (car results)) (car (cadr results))))
-    (check-not-equal? (caddr (car results)) (caddr (cadr results)))
+    (match-define (list (list r1 _ tid1) (list r2 _ tid2)) (map thread-wait callers))
+    (check-false (eq? r1 r2))
+    (check-not-equal? tid1 tid2)
     (for ([_ (in-range 20)])
       (thread-wait (thread (lambda () (probe-thread-id-job 'demo (current-device-resources))))))
     (drain-finalizers!)

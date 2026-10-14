@@ -140,11 +140,12 @@
 (define (gate-job who r g #:timeout-ms [timeout-ms 10000] #:say? [say? #f] #:fail-kind [fail-kind -1])
   (probe-gate-job who r (gate-entered-fd g) (gate-fd g) timeout-ms (if say? 1 0) fail-kind))
 
-(define-syntax-parse-rule (test-host-probe name:expr body:expr ...+)
-  (test-unless-skipped probe-skip name body ...))
+(define-syntax-parse-rule (define-probe-test id:id skip:expr)
+  (define-syntax-parse-rule (id name:expr body:expr (... ...+))
+    (test-unless-skipped skip name
+      body
+      (... ...))))
 
-(define-syntax-parse-rule (test-probe name:expr body:expr ...+)
-  (test-unless-skipped (or gpu-skip probe-skip) name body ...))
-
-(define-syntax-parse-rule (test-pools name:expr body:expr ...+)
-  (test-unless-skipped (or gpu-skip probe-skip (pools-skip)) name body ...))
+(define-probe-test test-host-probe probe-skip)
+(define-probe-test test-probe (or gpu-skip probe-skip))
+(define-probe-test test-pools (or gpu-skip probe-skip (pools-skip)))
