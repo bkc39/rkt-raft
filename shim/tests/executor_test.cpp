@@ -36,6 +36,7 @@ constexpr auto meeting_limit = std::chrono::seconds(5);
 constexpr int32_t ordered_jobs = 100;
 constexpr int32_t queued_sleep_ms = 20;
 constexpr double pin_bound = 10.0;
+constexpr size_t pipe_block = 4096;
 
 void record_order(int32_t index) {
   const int32_t now = running.fetch_add(1) + 1;
@@ -149,7 +150,7 @@ namespace {
 std::array<int, 2> full_pipe() {
   std::array<int, 2> ends{-1, -1};
   EXPECT_EQ(pipe2(ends.data(), O_CLOEXEC | O_NONBLOCK), 0);
-  const std::array<char, 4096> block{};
+  const std::array<char, pipe_block> block{};
   while (write(ends[1], block.data(), block.size()) > 0) {
   }
   while (write(ends[1], block.data(), 1) > 0) {
@@ -159,7 +160,7 @@ std::array<int, 2> full_pipe() {
 }
 
 void drain(int fd) {
-  std::array<char, 4096> block{};
+  std::array<char, pipe_block> block{};
   while (read(fd, block.data(), block.size()) > 0) {
   }
 }
