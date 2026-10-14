@@ -597,6 +597,7 @@
         racket-version = racketVersion;
         no-syntax-rule = grepGate "no-syntax-rule" "no-syntax-rule.sh";
         no-raw-malloc = grepGate "no-raw-malloc" "no-raw-malloc.sh";
+        bounded-death-tests = grepGate "bounded-death-tests" "bounded-death-tests.sh";
       };
 
       devShells.${system} = {

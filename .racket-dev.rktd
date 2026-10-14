@@ -17,6 +17,7 @@
   (format         "nix fmt --max-jobs 1 --cores 4 -- --ci")
   (no-syntax-rule ("scripts/no-syntax-rule.sh" #:shell ""))
   (no-raw-malloc  ("scripts/no-raw-malloc.sh" #:shell ""))
+  (bounded-death-tests ("scripts/bounded-death-tests.sh" #:shell ""))
   (review         "scripts/review.sh")
   (compile        "raco make -v raft/main.rkt scripts/check-bindings.rkt")
   (test           "raco test --timeout 45 raft")
@@ -30,4 +31,4 @@
   (sanitizers     "nix build --max-jobs 1 --cores 4 --no-link .#checks.x86_64-linux.shim-sanitizers")
   ;; The CI-equivalent: every flake check (AGENTS.md lists them).
   (check          "nix flake check --max-jobs 1 --cores 4"))
- (push-gates (format no-syntax-rule no-raw-malloc review compile test bindings)))
+ (push-gates (format no-syntax-rule no-raw-malloc bounded-death-tests review compile test bindings)))
