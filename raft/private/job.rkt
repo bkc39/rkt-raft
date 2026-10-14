@@ -146,6 +146,11 @@
     [(ormap released? pins) (raise-raft who 'logic "a device array passed to the job was released")]
     [else handle]))
 
+(define (submit who resources entry block pins seconds)
+  (call/raft who
+             (lambda ()
+               (rr-job-submit (live-handle who resources pins) entry block pins '() seconds))))
+
 (define (run-job who resources entry slots offsets size outputs exn args)
   (when (in-atomic-mode?)
     (raise-raft who 'logic "cannot wait for a job in atomic mode"))
@@ -156,18 +161,7 @@
   (define finish
     (parameterize-break
      #f
-     (with-release #:who
-                   who
-                   ([job
-                     (call/raft who
-                                (lambda ()
-                                  (rr-job-submit (live-handle who resources pins)
-                                                 entry
-                                                 block
-                                                 pins
-                                                 '()
-                                                 seconds)))
-                     rr-job-release])
+     (with-release #:who who ([job (submit who resources entry block pins seconds) rr-job-release])
        (job-finish who job block outputs exn))))
   (keep-reachable (list resources args))
   (parameterize-break (break-enabled) (void))

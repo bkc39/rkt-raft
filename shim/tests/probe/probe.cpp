@@ -3,15 +3,15 @@
 #include <chrono>
 #include <condition_variable>
 #include <cstdint>
-#include <memory>
 #include <cuda/memory_resource>
+#include <memory>
 #include <mutex>
-#include <thread>
 #include <raft/core/resource/cuda_stream.hpp>
 #include <rmm/cuda_device.hpp>
 #include <rmm/mr/cuda_async_memory_resource.hpp>
 #include <rmm/mr/per_device_resource.hpp>
 #include <rmm/resource_ref.hpp>
+#include <thread>
 
 #include "detail/handles.hpp"
 #include "raftrkt/core.h"
