@@ -294,6 +294,9 @@ int rr_job_submit(rr_resources* resources, rr_job_fn fn, const void* args,
     rr::require_parts(buffers, n_buffers, holders, n_holders);
     const double bound = rr::exit_bound(exit_wait_seconds);
     if (!rr::admit_job(bound)) {
+      for (size_t i = 0; i < n_holders; ++i) {
+        rr::close_holder(*holders[i]);
+      }
       rr::job_ptr refused{new rr_job};
       refused->state.store(RR_JOB_REFUSED, std::memory_order_release);
       result = refused.release();

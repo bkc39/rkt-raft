@@ -32,6 +32,7 @@
          probe-current-is-async?
          probe-deposit
          probe-deposit-after-gate-job
+         probe-deposit-before-gate-job
          probe-deposit-job
          probe-echo-job
          probe-fail-job
@@ -164,6 +165,9 @@
                   (handle deposit _int32 _int32 _int64 _int64 _uint32))
 (define-probe-job probe-deposit-after-gate-job
                   "rr_probe_deposit_after_gate_job"
+                  (_int32 _int32 handle deposit _int32 _int32 _int64 _int64 _uint32))
+(define-probe-job probe-deposit-before-gate-job
+                  "rr_probe_deposit_before_gate_job"
                   (_int32 _int32 handle deposit _int32 _int32 _int64 _int64 _uint32))
 
 (define (gate-job who r g #:timeout-ms [timeout-ms 10000] #:say? [say? #f] #:fail-kind [fail-kind -1])

@@ -55,6 +55,12 @@ bool wait_for_gate(int32_t gate_fd, int32_t timeout_ms) {
   }
 }
 
+void require_gate(int32_t gate_fd) {
+  if (!wait_for_gate(gate_fd, hold_timeout_ms)) {
+    throw std::runtime_error("gate timed out");
+  }
+}
+
 int fail_with(int32_t kind, const std::string& message) noexcept {
   raftrkt::record_error(probe::slot(), message.c_str(),
                         static_cast<raftrkt::error_kind>(kind));
@@ -251,11 +257,27 @@ RR_API int rr_probe_deposit_after_gate(int32_t entered_fd, int32_t gate_fd,
   // NOLINTEND(bugprone-easily-swappable-parameters)
   const int status = raftrkt::translate_exceptions(probe::slot(), [&] {
     enter(entered_fd);
-    wait_for_gate(gate_fd, hold_timeout_ms);
+    require_gate(gate_fd);
   });
   return status != RR_OK
              ? status
              : rr_probe_deposit(handle, out, dtype, count, rows, cols, flags);
+}
+
+// NOLINTBEGIN(bugprone-easily-swappable-parameters) -- the probe C ABI
+RR_API int rr_probe_deposit_before_gate(int32_t entered_fd, int32_t gate_fd,
+                                        void* handle, rr_deposit* out,
+                                        int32_t dtype, int32_t count,
+                                        int64_t rows, int64_t cols,
+                                        uint32_t flags) {
+  // NOLINTEND(bugprone-easily-swappable-parameters)
+  const int status =
+      rr_probe_deposit(handle, out, dtype, count, rows, cols, flags);
+  return status != RR_OK ? status
+                         : raftrkt::translate_exceptions(probe::slot(), [&] {
+                             enter(entered_fd);
+                             require_gate(gate_fd);
+                           });
 }
 
 #define RR_PROBE_JOB(name)                                       \
@@ -275,4 +297,5 @@ RR_PROBE_JOB(thread_id)
 RR_PROBE_JOB(hold_views)
 RR_PROBE_JOB(deposit)
 RR_PROBE_JOB(deposit_after_gate)
+RR_PROBE_JOB(deposit_before_gate)
 }

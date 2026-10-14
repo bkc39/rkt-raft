@@ -184,7 +184,7 @@ TEST(Deposit, AdoptedBuffersReadWriteViewAndCopyLikeAnyOther) {
   RR_REQUIRE_GPU();
   tally t;
   session s = open_session();
-  fill(s, t);
+  fill_and_close(s, t);
   rr_view matrix_view{};
   rr_buffer* matrix = adopted(s.holder, 0, matrix_view);
   rr_view index_view{};
@@ -261,6 +261,7 @@ void expect_host_regions_refused(tally& t) {
   s.record->count = 1;
   s.record->regions[0] = raftrkt::region(block->values.data(), index_count);
   s.record->state = RR_DEPOSIT_FILLED;
+  EXPECT_EQ(rr_holder_close(s.holder), RR_OK);
   int32_t count = -1;
   EXPECT_EQ(failure(rr_holder_count(s.holder, &count)),
             "region 0: not device memory on device 0");
@@ -289,6 +290,7 @@ void expect_misaligned_region_refused(tally& t) {
   s.record->release = release_as<owner>;
   s.record->count = 1;
   s.record->state = RR_DEPOSIT_FILLED;
+  EXPECT_EQ(rr_holder_close(s.holder), RR_OK);
   rr_view view{};
   rr_buffer* out = nullptr;
   EXPECT_EQ(failure(rr_holder_adopt(s.holder, 0, &view, &out)),
@@ -326,7 +328,7 @@ void expect_released_once_in_order(const std::array<int, 3>& order) {
   const counters before;
   tally t;
   session s = open_session();
-  fill(s, t);
+  fill_and_close(s, t);
   rr_view view{};
   const std::array<rr_buffer*, 2> buffers{adopted(s.holder, 0, view),
                                           adopted(s.holder, 1, view)};

@@ -123,7 +123,7 @@ TEST(Deposit, AFailedAdoptionForgetsEveryAdoptionSoARetryStartsAgain) {
   const counters before;
   tally t;
   session s = open_session();
-  fill(s, t);
+  fill_and_close(s, t);
   rr_view view{};
   rr_buffer* abandoned = adopted(s.holder, 0, view);
   s.record->regions[1].rank = 3;

@@ -51,7 +51,9 @@ struct rr_holder {
   int32_t device;
   std::shared_ptr<void> keep;
   rr_deposit record{};
-  bool filled_at_close = false;
+  // Stored before the compare-and-swap that closes the record, and read only
+  // after a load that sees it closed.
+  std::atomic<bool> filled_at_close{false};
   std::atomic<bool> issued{false};
   std::array<bool, RR_MAX_REGIONS> adopted{};
   // Set only by the test probe: adopting this region fails, once.
@@ -84,7 +86,6 @@ std::atomic<uint64_t>& resources_drops() noexcept;
 std::atomic<uint64_t>& buffer_drops() noexcept;
 std::atomic<uint64_t>& holder_drops() noexcept;
 std::atomic<uint64_t>& owner_releases() noexcept;
-std::atomic<uint64_t>& release_failures() noexcept;
 void count_release_failure() noexcept;
 
 void pin(rr_buffer& buffer) noexcept;

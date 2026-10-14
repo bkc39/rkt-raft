@@ -28,12 +28,12 @@ std::atomic<uint64_t>& owner_releases() noexcept {
   return count;
 }
 
+namespace {
+
 std::atomic<uint64_t>& release_failures() noexcept {
   static std::atomic<uint64_t> count{0};
   return count;
 }
-
-namespace {
 
 // A release that cannot select its device leaks and is counted: unwinding
 // into a finalizer would abort the process.
@@ -50,7 +50,7 @@ void release_on_device(T* object, std::atomic<uint64_t>& drops) noexcept {
     delete object;
     drops.fetch_add(1, std::memory_order_relaxed);
   } catch (...) {
-    release_failures().fetch_add(1, std::memory_order_relaxed);
+    count_release_failure();
   }
 }
 

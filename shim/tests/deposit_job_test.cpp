@@ -5,6 +5,8 @@
 #include <atomic>
 #include <chrono>
 #include <cstdint>
+#include <cstdlib>
+#include <string>
 
 #include "deposit_fixture.hpp"
 #include "detail/executor_api.h"
@@ -15,10 +17,12 @@
 namespace {
 
 using rr::test::deposit::counters;
+using rr::test::deposit::failure;
 using rr::test::deposit::session;
 using rr::test::deposit::tally;
 
 constexpr double pin_bound = 10.0;
+constexpr unsigned child_limit_seconds = 10;
 
 enum class step : uint8_t { free_holder, release_job, finish };
 
@@ -55,6 +59,12 @@ struct progress {
   bool finished = false;
 };
 
+void expect_still_open(rr_holder* holder) {
+  int32_t count = -1;
+  EXPECT_EQ(failure(rr_holder_count(holder, &count)),
+            "the deposit is still open");
+}
+
 void check_step(step s, progress& p, const session& d, const counters& before,
                 bool filled) {
   p.freed = p.freed || s == step::free_holder;
@@ -63,6 +73,9 @@ void check_step(step s, progress& p, const session& d, const counters& before,
             before.holders + ((p.freed && p.finished) ? 1 : 0));
   if (p.finished && !p.freed) {
     expect_closed(d.holder, d.record, filled);
+  }
+  if (!p.finished && !p.freed) {
+    expect_still_open(d.holder);
   }
 }
 
@@ -98,6 +111,7 @@ void pin_holder_in_order(const std::array<step, 3>& steps, bool filled) {
   if (job == nullptr) {
     return;
   }
+  expect_still_open(d.holder);
   progress p;
   for (const step s : steps) {
     take_step(s, d.holder, job, g);
@@ -107,7 +121,76 @@ void pin_holder_in_order(const std::array<step, 3>& steps, bool filled) {
   expect_released(before, t, filled);
 }
 
+[[noreturn]] void fail(const std::string& why) {
+  rr::test::say(why + "\n");
+  std::_Exit(1);
+}
+
+[[noreturn]] void refused_job_closes_its_deposits() {
+  alarm(child_limit_seconds);
+  const counters before;
+  tally t;
+  session d = rr::test::deposit::open_session();
+  rr::test::deposit::fill(d, t);
+  int64_t in_flight = -1;
+  int64_t still_running = -1;
+  rr_exit_drain(&in_flight, &still_running);
+  std::array<rr_holder*, 1> holders{d.holder};
+  rr::test::job_args args{};
+  rr_job* job = nullptr;
+  if (rr_job_submit(d.resources, rr::test::run_test_job, &args, sizeof args,
+                    nullptr, 0, holders.data(), 1, pin_bound, &job) != RR_OK ||
+      rr_job_state(job) != RR_JOB_REFUSED) {
+    fail("the submit was not refused");
+  }
+  if (state_of(d.record) != RR_DEPOSIT_CLOSED) {
+    fail("the refused job left its deposit open");
+  }
+  int32_t count = -1;
+  if (rr_holder_count(d.holder, &count) != RR_OK || count != 2) {
+    fail("the closed deposit holds no regions");
+  }
+  rr_job_release(job);
+  rr_holder_free(d.holder);
+  if (t.drops != 1 || rr_owner_release_count() != before.owners + 1 ||
+      rr_holder_drop_count() != before.holders + 1) {
+    fail("the owner was not released once");
+  }
+  rr_resources_free(d.resources);
+  std::exit(0);
+}
+
 }  // namespace
+
+TEST(DepositJob, ASubmitRefusedForAMissingHolderLeavesTheOthersOpen) {
+  RR_REQUIRE_GPU();
+  const counters before;
+  tally t;
+  session d = rr::test::deposit::open_session();
+  rr::test::deposit::fill(d, t);
+  std::array<rr_holder*, 2> holders{d.holder, nullptr};
+  rr::test::job_args args{};
+  rr_job* job = nullptr;
+  EXPECT_EQ(failure(rr_job_submit(d.resources, rr::test::run_test_job, &args,
+                                  sizeof args, nullptr, 0, holders.data(), 2,
+                                  pin_bound, &job)),
+            "holders[1] is NULL");
+  EXPECT_EQ(job, nullptr);
+  EXPECT_EQ(state_of(d.record), RR_DEPOSIT_FILLED);
+  EXPECT_EQ(rr_holder_close(d.holder), RR_OK);
+  rr::test::deposit::expect_count(d.holder, 2);
+  rr_holder_free(d.holder);
+  EXPECT_EQ(t.drops, 1);
+  rr_resources_free(d.resources);
+  rr::test::deposit::expect_released(before, {1, 1, 0});
+}
+
+TEST(DepositJobDeathTest, ARefusedJobClosesItsDeposits) {
+  RR_REQUIRE_GPU();
+  GTEST_FLAG_SET(death_test_style, "threadsafe");
+  EXPECT_EXIT(refused_job_closes_its_deposits(), ::testing::ExitedWithCode(0),
+              "^$");
+}
 
 TEST(DepositJob, AJobPinsAndClosesItsHoldersUntilItIsDone) {
   RR_REQUIRE_GPU();

@@ -26,7 +26,7 @@ struct owner_release {
       release(owner);
       owner_releases().fetch_add(1, std::memory_order_relaxed);
     } catch (...) {
-      release_failures().fetch_add(1, std::memory_order_relaxed);
+      count_release_failure();
     }
   }
 };
@@ -41,7 +41,8 @@ int32_t state_of(const rr_holder& holder) noexcept {
 }
 
 bool filled(const rr_holder& holder) noexcept {
-  return holder.filled_at_close || state_of(holder) == RR_DEPOSIT_FILLED;
+  return holder.filled_at_close.load(std::memory_order_relaxed) ||
+         state_of(holder) == RR_DEPOSIT_FILLED;
 }
 
 void keep_owner(rr_holder& holder) {
@@ -54,11 +55,10 @@ void keep_owner(rr_holder& holder) {
 }
 
 int32_t checked_count(const rr_holder& holder) {
-  const int32_t state = state_of(holder);
-  if (state == RR_DEPOSIT_OPEN || state == RR_DEPOSIT_FILLING) {
+  if (state_of(holder) != RR_DEPOSIT_CLOSED) {
     throw logic_error("the deposit is still open");
   }
-  if (!filled(holder)) {
+  if (!holder.filled_at_close.load(std::memory_order_relaxed)) {
     return 0;
   }
   const rr_deposit& record = holder.record;
@@ -118,8 +118,9 @@ void close_holder(rr_holder& holder) noexcept {
     if (seen == RR_DEPOSIT_CLOSED) {
       return;
     }
-    holder.filled_at_close =
-        holder.filled_at_close || seen == RR_DEPOSIT_FILLED;
+    if (seen == RR_DEPOSIT_FILLED) {
+      holder.filled_at_close.store(true, std::memory_order_relaxed);
+    }
   }
 }
 
@@ -136,7 +137,7 @@ rr_holder::~rr_holder() {
   try {
     rr::keep_owner(*this);
   } catch (...) {
-    rr::release_failures().fetch_add(1, std::memory_order_relaxed);
+    rr::count_release_failure();
   }
 }
 

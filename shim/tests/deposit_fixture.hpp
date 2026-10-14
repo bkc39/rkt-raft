@@ -107,6 +107,11 @@ inline void fill(const session& s, tally& t) {
   deposited(s, prepared(s, t));
 }
 
+inline void fill_and_close(const session& s, tally& t) {
+  fill(s, t);
+  EXPECT_EQ(rr_holder_close(s.holder), RR_OK) << rr_last_error();
+}
+
 inline std::string failure(int status) {
   return status == RR_OK ? std::string("no refusal")
                          : std::string(rr_last_error());
