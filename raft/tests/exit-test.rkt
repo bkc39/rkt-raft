@@ -11,6 +11,7 @@
                   in-flight-line
                   run-exit-program
                   still-running-line)
+         (only-in "private/gpu.rkt" test-gpu)
          (only-in "private/probe.rkt" test-host-probe)
          (only-in "private/raft-error.rkt" check-raft-error))
 
@@ -115,6 +116,17 @@
   (check-equal? out "5 1 1\n")
   (check-lines lines (list (in-flight-line 0 0 1) atexit-line)))
 
+(test-host-probe "a place's parallel thread loading raft registers no exit drain"
+  (define-values (rc out lines) (run 'place-parallel-exits))
+  (check-equal? rc 0)
+  (check-equal? out "5 1 1\n")
+  (check-lines lines (list (in-flight-line 0 0 1) atexit-line)))
+
+(test-gpu "a place allocating and freeing through exit's teardown keeps the exit code"
+  (for ([_ (in-range 50)])
+    (define-values (rc _out _lines) (run 'place-churns-at-exit))
+    (check-equal? rc 7)))
+
 (test-host-probe "a bound covers only its own job"
   (check-exit 'own-bound 14 (list (in-flight-line 2 950 1500) (still-running-line 1))))
 
@@ -132,6 +144,11 @@
 
 (test-host-probe "a late static survives the skip"
   (check-exit 'late-static-skip 19 (list (in-flight-line 1 500 1000) (still-running-line 1))))
+
+(test-host-probe "loaded first from a parallel thread, the main place still drains at exit"
+  (check-exit 'late-static-skip-parallel
+              19
+              (list (in-flight-line 1 500 1000) (still-running-line 1))))
 
 (test-host-probe "a late static outlives a clean exit"
   (check-exit 'late-static-clean 20 (list (in-flight-line 1 250 1000) atexit-line)))

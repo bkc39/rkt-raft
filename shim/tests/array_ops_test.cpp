@@ -8,6 +8,7 @@
 
 #include "detail/array_api.h"
 #include "gpu.hpp"
+#include "jobs.hpp"
 #include "raftrkt/c_api.h"
 
 namespace {
@@ -275,6 +276,7 @@ TEST_F(Arrays, TheResultSharesItsSourcesStreamAndOutlivesIt) {
             RR_OK);
   rr_view out{};
   rr_buffer* o = relaid(b, v, "col-major", &out);
+  ASSERT_TRUE(rr::test::releases_settled());
   const uint64_t drops = rr_buffer_drop_count();
   rr_buffer_free(b);
   rr_resources_free(resources_);
@@ -285,6 +287,7 @@ TEST_F(Arrays, TheResultSharesItsSourcesStreamAndOutlivesIt) {
   ASSERT_EQ(rr_buffer_ready(o, &ready), RR_OK);
   EXPECT_EQ(ready, 1);
   rr_buffer_free(o);
+  EXPECT_TRUE(rr::test::releases_settled());
   EXPECT_EQ(rr_buffer_drop_count(), drops + 2);
 }
 

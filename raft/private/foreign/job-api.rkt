@@ -39,6 +39,7 @@
          rr-jobs-live
          rr-os-thread-id
          rr-os-thread-id/original
+         rr-releases-pending
          rr-resources-create-host)
 
 (define-raft rr-job-release
@@ -90,6 +91,8 @@
         -> (values in-flight still)))
 
 (define-raft rr-exit-waiters (_fun -> _int64))
+
+(define-raft rr-releases-pending (_fun -> _int64))
 
 (define-raft rr-os-thread-id (_fun -> _uint64))
 

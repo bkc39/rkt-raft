@@ -197,7 +197,10 @@ plans/scoping-plan.md         the approved plan (revision 5), as Markdown
      `rr_buffer_drop_count`) count every release, and
      `rr_release_failure_count` every release that leaked because its device
      was unreachable; reclamation tests assert on them, because Racket cannot
-     otherwise observe a native free.
+     otherwise observe a native free. A release completes on the reaper
+     thread, so a test reads a counter only once `rr_releases_pending` is 0
+     (`settled-count` and `releases-settled?` in `tests/private/collect.rkt`,
+     `rr::test::releases_settled` in the gtests).
    - A changed C signature gets a new symbol name, so a stale library fails
      at load, not at the call. L0's `rr_resources_create(device, out)` and
      `rr_buffer_alloc(resources, bytes, out)` are narrower than the plan's §8
@@ -259,6 +262,15 @@ plans/scoping-plan.md         the approved plan (revision 5), as Markdown
   `rmm::cuda_set_device_raii` ignores the failure), so calls and finalizers
   work from any OS thread. Releases (`rr_resources_free`, `rr_buffer_free`) accept NULL, never
   throw, and leak rather than unwind if the device is unreachable.
+- **The reaper** (`src/core/memory.cpp`). Dropping the last
+  `shared_ptr<raft::handle_t>` can destroy a cuBLAS handle, and a free
+  without memory pools is `cudaFree`; both synchronize the device. A Racket
+  release runs in atomic mode (a deallocator or a finalizer), so
+  `rr_resources_free` and a buffer's last unpin only queue the object for
+  one process-wide reaper thread and return. A job worker and the reaper
+  itself release in place (`rr::on_native_worker`). Each queued release is
+  counted in the exit registry until it completes; once the exit verdict is
+  given, releases run on the caller again, as before the reaper.
 - `rr_resources` holds its device and a `std::shared_ptr<raft::handle_t>`
   that aliases an owner holding an `rmm::cuda_stream` and the handle. Each
   resources object owns its stream; the per-thread default stream would bind
@@ -277,7 +289,8 @@ plans/scoping-plan.md         the approved plan (revision 5), as Markdown
   job accessors, the counters, `rr_exit_drain`, `rr_os_thread_id`), bound
   in `private/foreign/job-api.rkt`. `rr_exit_waiters` counts the threads
   waiting inside a drain, so the exit gtests can open a job only once
-  every drain is waiting.
+  every drain is waiting. `rr_releases_pending` counts the releases queued
+  for or running on the reaper.
 - **The executor** (`src/core/executor.cpp`, #32). Each `rr_resources`
   owns an `rr::executor_slot`: one worker thread, started on first use,
   that runs that object's jobs in FIFO order, one at a time; workers of
@@ -287,11 +300,16 @@ plans/scoping-plan.md         the approved plan (revision 5), as Markdown
   eventfd when done. `rr_resources_free` closes the slot: queued jobs still
   run, then the worker exits.
 - **Exit** (`src/core/exit.cpp`). A registry of the bounds of jobs in
-  flight. `rr_exit_drain` waits for it to empty, up to the largest bound;
+  flight and a count of the reaper's releases. `rr_exit_drain` waits for
+  both to empty, up to the largest bound (at least one second while a
+  release is pending), and reports the jobs in flight and everything still
+  running;
   past it, it registers `on_exit(skip_teardown)`, which flushes stdout if
   unlocked and calls `_exit`, so no static destructor runs under a job. A
   backstop registered with `on_exit` at the first submit does the same
-  when no drain ran (raft instantiated only in a place).
+  when no drain ran (raft instantiated only in a place). An `exit()` on a
+  worker or on the reaper (a job's entry, a release) skips teardown at
+  once: the backstop would otherwise wait on its own caller.
 - **Host resources.** `rr_resources_create_host` (tests only) makes
   resources with device −1, no handle and their own executor, so CI runs
   the executor without a GPU. Every entry point that needs a handle goes
@@ -468,7 +486,11 @@ plans/scoping-plan.md         the approved plan (revision 5), as Markdown
   breaks deferred until the job returns; it also provides `jobs-in-flight`,
   `jobs-live` and `executor-threads` for the tests. `private/exit.rkt`:
   `current-exit-wait` and the main place's at-exit hook, which calls
-  `rr_exit_drain` and logs on the `'raft` topic.
+  `rr_exit_drain` and logs on the `'raft` topic. The hook is registered
+  when the place's OS thread is the original one, read under
+  `call-as-atomic`: a parallel thread runs non-atomic code on its own OS
+  thread but atomic code on its place's, so loading raft from a parallel
+  thread of the main place still registers it, and a place's never does.
   `private/foreign/job-api.rkt` binds `executor_api.h`.
 - `private/resources.rkt`: the `device-resources` struct (with
   `#:omit-define-syntaxes`, so the constructor procedure can carry the
@@ -585,6 +607,17 @@ The lab host has 62 GB of RAM shared with other sessions, and a global OOM on
   and retry rather than start.
 
 ### Gates
+
+**Every adversarial-review finding gets a regression test** (owner rule,
+#27 round 4; it holds for every leg, the downstream cuML algorithms
+included). Each finding, of every severity, gets a minimal test that fails
+without its fix, shown failing on the tree with the fix reverted and
+passing with it. A deadlock or hang test is bounded, so a regression fails
+instead of hanging: a gtest child's `alarm()`, `sync/timeout`, or a
+subprocess with a timeout. A GPU-only repro runs in the `gpu` gate, with a
+host-resources variant for CI wherever one can be built. A test is named
+for the property it checks; the finding's id goes in the commit message,
+not in a comment.
 
 `.racket-dev.rktd` declares them for the racket-dev plugin's runner
 (`racket <plugin>/hooks/gate.rkt . all`); the pre-push hook runs `format`,
@@ -1226,8 +1259,13 @@ since cuSPARSE's error string for it is only "out of memory"). The frozen rule i
   value `#f` never calls its callback, so the hook's value is `'raft` (S2);
   `unsafe-fd->evt` would need a `'remove` on every path out (S3); default
   resources live in a thread cell, so each thread gets its own worker (S4);
-  places keep running during `exit()`, which is harmless because no worker
-  runs Racket (S5).
+  places keep running during `exit()` (S5). No worker runs Racket, but a
+  place can be inside a short call (`rr_buffer_alloc`,
+  `rr_resources_create`, a finalizer's release) while `exit()` runs the
+  RMM and cudart static destructors; the registry counts only jobs and
+  reaper releases. The window is real and unfixed: `exit-test.rkt` runs a
+  place allocating and freeing in a loop through `(exit 7)` fifty times
+  and has never seen it, so short calls are not counted (#27 round 4).
 - **The refinements over the spike** (R1–R9): the exit wait runs in the
   main place's at-exit hook, with a C backstop (R1); a submit during exit
   answers a refused job, not NULL (R2); outputs are copied back with
@@ -1265,3 +1303,19 @@ since cuSPARSE's error string for it is only "out of memory"). The frozen rule i
   start against bounds the drain computes, so no thread's start moves
   them.
 - **#26 and #28 are closed by #32.**
+- **Releases go to one reaper thread** (#27 round 4, R-H1). A
+  process-wide native reaper takes every release made outside a worker,
+  rather than the resources' own worker: it covers resources that never
+  ran a job and buffers that outlive their resources, and it is one thread
+  however many resources exist. A release enqueued after the exit verdict
+  runs on its caller. The drain waits for releases in progress up to the
+  largest job bound or one second (`release_grace`), whichever is longer,
+  and past it skips teardown.
+- **Resources charge the collector** (#27 round 4, R-L2). Each resources
+  object holds phantom bytes, 1 MiB plus 64 KiB on a device and 64 KiB for
+  host resources, dropped on an explicit release. Measured on the lab GPU:
+  about 120 KiB of device memory for the stream and 50 KiB of RSS for the
+  worker thread, and 8.8 MiB of device memory once cuBLAS is created. The
+  1 MiB charge brought the live workers of 2,000 sequential short-lived
+  threads from a peak of 391 to 11–14; `worker-growth-test.rkt` asserts
+  fewer than 100 over the baseline for 500 threads.

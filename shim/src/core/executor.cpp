@@ -123,6 +123,14 @@ void fail(rr_job_outcome& outcome, const std::exception& e) noexcept {
   raftrkt::detail::copy_job_message(outcome, e.what());
 }
 
+void terminate_message(rr_job_outcome& outcome) noexcept {
+  constexpr std::size_t last = RR_JOB_MESSAGE_BYTES - 1;
+  if (outcome.message[last] != '\0') {
+    outcome.message[last] = '\0';
+    raftrkt::detail::drop_cut_character(outcome.message, last);
+  }
+}
+
 void run(rr_job& job) noexcept {
   try {
     std::optional<device_guard> guard;
@@ -132,7 +140,12 @@ void run(rr_job& job) noexcept {
     job.fn(job.args(), job.args_len, &job.outcome);
   } catch (const std::exception& e) {
     fail(job.outcome, e);
+  } catch (...) {
+    job.outcome.status = RR_ERROR;
+    job.outcome.kind = static_cast<int32_t>(error_kind::generic);
+    raftrkt::detail::copy_job_message(job.outcome, "unknown exception");
   }
+  terminate_message(job.outcome);
   // Everything native is released before the job leaves the registry, so a
   // clean exit verdict means no worker touches RAPIDS.
   job.release_native();
@@ -155,6 +168,7 @@ rr_job* next_job(executor& e) {
 }
 
 void work(const std::shared_ptr<executor>& e) noexcept {
+  on_native_worker() = true;
   for (rr_job* job = next_job(*e); job != nullptr; job = next_job(*e)) {
     run(*job);
   }

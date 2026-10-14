@@ -1,9 +1,16 @@
 #include "raftrkt/memory.h"
 
 #include <atomic>
+#include <condition_variable>
+#include <cstddef>
 #include <cstdint>
+#include <deque>
+#include <mutex>
+#include <new>
 #include <optional>
+#include <thread>
 
+#include "detail/executor.hpp"
 #include "detail/handles.hpp"
 
 namespace rr {
@@ -44,6 +51,77 @@ void release_on_device(T* object, std::atomic<uint64_t>& drops) noexcept {
   }
 }
 
+template <typename T, std::atomic<uint64_t>& (*Drops)() noexcept>
+void release_erased(void* object) noexcept {
+  release_on_device(static_cast<T*>(object), Drops());
+}
+
+struct release_item {
+  void (*release)(void*) noexcept = nullptr;
+  void* object = nullptr;
+};
+
+struct reaper {
+  std::mutex lock;
+  std::condition_variable wake;
+  std::deque<release_item> queue;
+  bool started = false;
+};
+
+// Allocated on first use and never destroyed, like the exit registry: the
+// reaper thread outlives exit()'s static destructors.
+reaper& releases() noexcept {
+  alignas(reaper) static std::byte storage[sizeof(reaper)];
+  static reaper* const shared = ::new (static_cast<void*>(storage)) reaper;
+  return *shared;
+}
+
+[[noreturn]] void reap(reaper& q) noexcept {
+  on_native_worker() = true;
+  for (;;) {
+    release_item item;
+    {
+      std::unique_lock<std::mutex> held{q.lock};
+      q.wake.wait(held, [&] { return !q.queue.empty(); });
+      item = q.queue.front();
+      q.queue.pop_front();
+    }
+    item.release(item.object);
+    retire_release();
+  }
+}
+
+bool hand_off(release_item item) noexcept {
+  if (!admit_release()) {
+    return false;
+  }
+  reaper& q = releases();
+  try {
+    const std::lock_guard<std::mutex> held{q.lock};
+    if (!q.started) {
+      std::thread{[&q] { reap(q); }}.detach();
+      q.started = true;
+    }
+    q.queue.push_back(item);
+  } catch (...) {
+    retire_release();
+    return false;
+  }
+  q.wake.notify_one();
+  return true;
+}
+
+template <typename T, std::atomic<uint64_t>& (*Drops)() noexcept>
+void release(T* object) noexcept {
+  if (object == nullptr) {
+    return;
+  }
+  if (on_native_worker() ||
+      !hand_off({release_erased<T, Drops>, static_cast<void*>(object)})) {
+    release_on_device(object, Drops());
+  }
+}
+
 }  // namespace
 
 void count_release_failure() noexcept {
@@ -57,7 +135,7 @@ void pin(rr_buffer& buffer) noexcept {
 void unpin(rr_buffer* buffer) noexcept {
   if (buffer != nullptr &&
       buffer->refs.fetch_sub(1, std::memory_order_acq_rel) == 1) {
-    release_on_device(buffer, buffer_drops());
+    release<rr_buffer, buffer_drops>(buffer);
   }
 }
 
@@ -66,7 +144,7 @@ void unpin(rr_buffer* buffer) noexcept {
 extern "C" {
 
 void rr_resources_free(rr_resources* resources) {
-  rr::release_on_device(resources, rr::resources_drops());
+  rr::release<rr_resources, rr::resources_drops>(resources);
 }
 
 void rr_buffer_free(rr_buffer* buffer) {

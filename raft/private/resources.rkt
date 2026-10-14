@@ -23,7 +23,7 @@
          resources-sync!
          with-device-resources)
 
-(struct device-resources (handle device)
+(struct device-resources (handle device phantom)
   #:omit-define-syntaxes
   #:constructor-name handle->device-resources
   #:property prop:custom-write
@@ -33,14 +33,21 @@
              (device-resources-device r)
              (if (released? (device-resources-handle r)) " released" ""))))
 
+(define worker-bytes (* 64 1024))
+(define device-bytes (* 1024 1024))
+
 (define (open-resources who device)
-  (handle->device-resources (call/raft who (lambda () (rr-resources-create device))) device))
+  (handle->device-resources (call/raft who (lambda () (rr-resources-create device)))
+                            device
+                            (make-phantom-bytes (+ worker-bytes device-bytes))))
 
 (define (device-resources #:device [device 0]) ;; noqa
   (open-resources 'device-resources device))
 
 (define (host-resources)
-  (handle->device-resources (call/raft 'host-resources rr-resources-create-host) -1))
+  (handle->device-resources (call/raft 'host-resources rr-resources-create-host)
+                            -1
+                            (make-phantom-bytes worker-bytes)))
 
 (define (resources-device r)
   (device-resources-device r))
@@ -55,7 +62,8 @@
   handle)
 
 (define (release-resources! r) ;; noqa
-  (rr-resources-free (device-resources-handle r)))
+  (rr-resources-free (device-resources-handle r))
+  (set-phantom-bytes! (device-resources-phantom r) 0))
 
 (define spin-polls 16)
 (define first-pause 1e-5)

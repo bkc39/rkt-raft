@@ -28,7 +28,7 @@
          (only-in racket/match match-define)
          ;; whole-module: it also provides syntax/parse at phase 1
          syntax/parse/define
-         (only-in "array.rkt" array-buffer-handle settled-view)
+         (only-in "array.rkt" array-buffer-handle device-array? settled-view)
          (only-in "error.rkt" call/raft)
          (only-in "exit.rkt" current-exit-wait)
          (only-in "exn.rkt" exn:fail:raft raise-native raise-raft)
@@ -98,12 +98,13 @@
 (define (pack-view who block offset _native args pins) ;; noqa
   (match-define (cons a rest) args)
   (cond
-    [a
+    [(device-array? a)
      (ptr-set! block _rr-view 'abs offset (settled-view who a))
      (values rest (cons (array-buffer-handle a) pins))]
-    [else
+    [(not a)
      (ptr-set! block _rr-view 'abs offset (blank-view))
-     (values rest pins)]))
+     (values rest pins)]
+    [else (raise-raft who 'logic "expected a device array or #f for a view, given ~e" a)]))
 
 (define ((pack-number type) who block offset _native args pins) ;; noqa
   (match-define (cons v rest) args)
@@ -145,13 +146,14 @@
   (define native (resources-handle who resources))
   (define block (make-bytes size 0))
   (define pins (pack! who block native slots offsets args))
+  (define packed (resources-handle who resources))
   (define finish
     (parameterize-break
      #f
      (with-release #:who
                    who
                    ([job
-                     (call/raft who (lambda () (rr-job-submit native entry block pins '() seconds)))
+                     (call/raft who (lambda () (rr-job-submit packed entry block pins '() seconds)))
                      rr-job-release])
        (job-finish who job block outputs exn))))
   (keep-reachable (list resources args))

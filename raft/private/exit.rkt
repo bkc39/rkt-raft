@@ -1,6 +1,7 @@
 #lang racket/base
 
-(require (only-in ffi/unsafe/custodian make-custodian-at-root register-custodian-shutdown)
+(require (only-in ffi/unsafe/atomic call-as-atomic)
+         (only-in ffi/unsafe/custodian make-custodian-at-root register-custodian-shutdown)
          (only-in "exn.rkt" raise-raft)
          (only-in "foreign/job-api.rkt" rr-exit-drain rr-os-thread-id rr-os-thread-id/original))
 
@@ -27,5 +28,5 @@
   (when (positive? still-running)
     (log-raft-warning "exit: jobs still running: ~a; exiting without native teardown" still-running)))
 
-(when (= (rr-os-thread-id) (rr-os-thread-id/original))
+(when (= (call-as-atomic rr-os-thread-id) (rr-os-thread-id/original))
   (void (register-custodian-shutdown 'raft drain-at-exit (make-custodian-at-root) #:at-exit? #t)))

@@ -25,7 +25,7 @@
                   resources-sync!
                   with-device-resources)
          (only-in "../private/foreign/memory.rkt" resources-drop-count)
-         (only-in "private/collect.rkt" drain-finalizers!)
+         (only-in "private/collect.rkt" drain-finalizers! releases-settled?)
          (only-in "private/gpu.rkt" test-gpu)
          (only-in "private/raft-error.rkt" check-raft-error))
 
@@ -142,6 +142,7 @@
   (drain-finalizers!)
   (define before (resources-drop-count))
   (check-batch-times (list (run-worker 0 (list '((1.0 2.0) (3.0 4.0)) '((5.0 6.0))))) '((2 1)))
+  (check-true (releases-settled?))
   (check-equal? (resources-drop-count) (add1 before) "the worker released its resources"))
 
 (test-gpu "resources guide: a worker leaves its thread's default alone"

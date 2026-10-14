@@ -32,6 +32,13 @@ struct gate {
     changed.wait(held, [&] { return open; });
   }
 
+  void enter_and_wait_for(std::chrono::milliseconds limit) {
+    std::unique_lock<std::mutex> held{lock};
+    entered = true;
+    changed.notify_all();
+    changed.wait_for(held, limit, [&] { return open; });
+  }
+
   bool await_entry(std::chrono::milliseconds limit) {
     std::unique_lock<std::mutex> held{lock};
     return changed.wait_for(held, limit, [&] { return entered; });
@@ -118,6 +125,10 @@ bool eventually(Pred done) {
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
   }
   return false;
+}
+
+inline bool releases_settled() {
+  return eventually([] { return rr_releases_pending() == 0; });
 }
 
 template <typename Read>

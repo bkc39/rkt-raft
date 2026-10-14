@@ -13,6 +13,7 @@
 
 #include "detail/handles.hpp"
 #include "gpu.hpp"
+#include "jobs.hpp"
 #include "raftrkt/c_api.h"
 #include "raftrkt/error.hpp"
 
@@ -98,6 +99,7 @@ TEST(Resources, CreateSyncFree) {
   ASSERT_NE(r, nullptr);
   EXPECT_EQ(rr_resources_sync(r), RR_OK) << rr_last_error();
   rr_resources_free(r);
+  EXPECT_TRUE(rr::test::releases_settled());
   EXPECT_EQ(rr_resources_drop_count(), before + 1);
 }
 
