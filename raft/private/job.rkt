@@ -35,7 +35,6 @@
          (only-in "exn.rkt" exn:fail:raft raise-native raise-raft)
          (only-in "foreign/array.rkt" _rr-view blank-view keep-reachable)
          (only-in "foreign/core.rkt" rr-resources-handle)
-         (only-in "foreign/memory.rkt" released?)
          (only-in "foreign/job-api.rkt"
                   rr-executor-threads
                   rr-job-fd
@@ -47,6 +46,7 @@
                   rr-job-submit
                   rr-jobs-in-flight
                   rr-jobs-live)
+         (only-in "foreign/memory.rkt" released?)
          (only-in "resource.rkt" with-release)
          (only-in "resources.rkt" resources-handle))
 

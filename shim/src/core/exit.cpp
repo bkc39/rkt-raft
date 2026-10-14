@@ -36,6 +36,7 @@ struct registry {
   bool skip_armed = false;
   int64_t waiters = 0;
   int64_t releases = 0;
+  std::chrono::steady_clock::time_point last_retired;
 };
 
 // Allocated on first use and never destroyed: workers and the backstop use
@@ -101,9 +102,10 @@ drained wait_out(registry& r, std::unique_lock<std::mutex>& held) noexcept {
       r.changed.wait(held);
       continue;
     }
+    const auto from = count(r) == 0 ? std::max(start, r.last_retired) : start;
     const auto deadline =
-        start + std::chrono::duration_cast<std::chrono::steady_clock::duration>(
-                    std::chrono::duration<double>(longest));
+        from + std::chrono::duration_cast<std::chrono::steady_clock::duration>(
+                   std::chrono::duration<double>(longest));
     if (std::chrono::steady_clock::now() >= deadline) {
       return skip(r, in_flight);
     }
@@ -205,6 +207,7 @@ void retire_job(double bound) noexcept {
   if (found != r.bounds.end()) {
     r.bounds.erase(found);
   }
+  r.last_retired = std::chrono::steady_clock::now();
   r.changed.notify_all();
 }
 

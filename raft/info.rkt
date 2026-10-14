@@ -19,3 +19,4 @@
 (define license 'Apache-2.0)
 (define pre-install-collection "private/install-native.rkt")
 (define test-omit-paths '("scribblings" "tests/python"))
+(define test-timeouts '(("tests/exit-test.rkt" 360)))

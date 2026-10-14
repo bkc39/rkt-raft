@@ -314,7 +314,9 @@ plans/scoping-plan.md         the approved plan (revision 5), as Markdown
 - **Exit** (`src/core/exit.cpp`). A registry of the bounds of jobs in
   flight and a count of the reapers' releases. `rr_exit_drain` waits for
   both to empty, up to the largest bound (at least one second while a
-  release is pending), and reports the jobs in flight and the jobs and
+  release is pending; once no job runs, a pending release gets that second
+  from the later of the drain's start and the last job's end, so a
+  place's teardown after a long fit is not cut off), and reports the jobs in flight and the jobs and
   releases still running; past it, it registers `on_exit(skip_teardown)`,
   which flushes stdout if unlocked and calls `_exit`, so no static
   destructor runs under a job. A release that arrives after a skip verdict
@@ -586,7 +588,7 @@ racket scripts/check-bindings.rkt  # rr_ exports against the bindings
 scripts/render-docs.sh <dir>       # the manual, red on any warning or broken link
 nix fmt                            # format and lint everything; `-- --ci` fails on a change
 scripts/review.sh                  # raco review over every .rkt
-scripts/resyntax.sh origin/master  # Resyntax, red on any suggestion
+scripts/resyntax.sh                # Resyntax against the PR's base, red on any suggestion
 nix run --max-jobs 1 --cores 4 .#copy-native-libs   # restage the shim after a C++ change
 cmake -S shim -B shim/build -G Ninja -DBUILD_TESTING=ON   # the shim's inner loop
 nix build --max-jobs 1 --cores 4 .#kmeans-canary  # the canary (lib/, and tests/bin in .tests)
@@ -660,6 +662,28 @@ not in a comment.
 with its counts, the docs rendered with no warnings, and Resyntax clean with
 both rule sets (see Tooling). After pushing, poll `gh pr checks <n>` (it exits
 non-zero while checks are pending) until green.
+
+Every test run is bounded, so a hang fails instead of stalling a gate or
+a runner. ctest fails a shim gtest past 5 s and a canary gtest past 2 s
+(`gtest_discover_tests ... PROPERTIES TIMEOUT`, about three times the
+slowest test; the nix checks run the gtests through ctest). `raco test
+--timeout 45` bounds each Racket file, and `test-timeouts` in `raft/info.rkt`
+and the canary's `info.rkt` give the slow exit and twin files their own.
+`scripts/gpu-suite.sh` runs under a 900 s `timeout`, and every CI job has a
+`timeout-minutes`. A test that legitimately grows past its bound raises the
+bound in the same commit.
+
+The `resyntax` gate runs `scripts/resyntax.sh` with no argument, which
+analyzes only what the branch changes: after a `git fetch`, its base is
+`git merge-base HEAD origin/<base>`, `<base>` being the PR's base branch from
+`gh pr view`, or `master` when there is no PR or `gh` fails. On a stacked
+branch, `origin/master` would re-analyze every leg below it. A green run
+records a key in `/var/tmp/rkt-raft-resyntax-cache/`: the sha-256 of the
+base, `git diff <base> -- '*.rkt' '*.scrbl'` (the working tree included),
+the installed Resyntax checksum and the script itself. A run whose key is
+recorded prints `resyntax: unchanged since a green run` and exits 0;
+`RESYNTAX_NO_CACHE=1` forces the analysis. An explicit base, as CI passes,
+always runs in full and records nothing.
 
 `nix flake check` runs thirteen checks: `shim` (build plus both gtest
 binaries), `shim-sanitizers` (both gtest binaries under ASAN and UBSAN),

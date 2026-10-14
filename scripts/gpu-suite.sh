@@ -1,6 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+suite_seconds=900
+if [ -z "${RAFT_GPU_SUITE_BOUNDED:-}" ]; then
+  rc=0
+  RAFT_GPU_SUITE_BOUNDED=1 timeout --kill-after=30 "$suite_seconds" "$0" "$@" || rc=$?
+  [ "$rc" -ne 124 ] || echo "gpu-suite: timed out after $suite_seconds s" >&2
+  exit "$rc"
+fi
+
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
 : "${RAFT_SHIM_TESTS:?run inside nix develop}"
@@ -53,7 +61,7 @@ LD_BIND_NOW=1 racket -l racket/base -l ffi/unsafe \
 echo "== Racket tests"
 canary=downstream/kmeans-canary/kmeans-canary
 raco make -v raft/main.rkt raft/unsafe.rkt scripts/check-bindings.rkt "$canary/main.rkt"
-raco test raft "$canary" >"$racket_log" 2>&1 || {
+raco test --timeout 45 raft "$canary" >"$racket_log" 2>&1 || {
   cat "$racket_log"
   exit 1
 }
