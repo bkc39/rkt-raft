@@ -136,10 +136,10 @@ void run(rr_job& job) noexcept {
   // Everything native is released before the job leaves the registry, so a
   // clean exit verdict means no worker touches RAPIDS.
   job.release_native();
+  retire_job(job.bound);
   job.state.store(RR_JOB_DONE, std::memory_order_release);
   const uint64_t done = 1;
   [[maybe_unused]] const ssize_t written = write(job.fd, &done, sizeof done);
-  retire_job(job.bound);
   rr_job_release(&job);
 }
 
@@ -185,9 +185,9 @@ std::shared_ptr<executor> start_worker() {
 
 // NOLINTBEGIN(bugprone-easily-swappable-parameters) -- the C ABI of
 // rr_job_submit
-job_ptr prepared_job(const rr_resources& r, rr_job_fn fn, const void* args,
-                     size_t args_len, rr_buffer* const* buffers,
-                     size_t n_buffers, double bound) {
+rr_job* queued_job(rr_resources& r, rr_job_fn fn, const void* args,
+                   size_t args_len, rr_buffer* const* buffers, size_t n_buffers,
+                   double bound) {
   // NOLINTEND(bugprone-easily-swappable-parameters)
   job_ptr job{new rr_job};
   job->fn = fn;
@@ -209,7 +209,14 @@ job_ptr prepared_job(const rr_resources& r, rr_job_fn fn, const void* args,
   job->handle = r.handle;
   job->device = r.device;
   job->bound = bound;
-  return job;
+  job->refs.store(2, std::memory_order_relaxed);
+  try {
+    r.executor.submit(job.get());
+  } catch (...) {
+    job->refs.store(1, std::memory_order_relaxed);
+    throw;
+  }
+  return job.release();
 }
 
 void require_parts(rr_buffer* const* buffers, size_t n_buffers,
@@ -271,24 +278,18 @@ int rr_job_submit(rr_resources* resources, rr_job_fn fn, const void* args,
     }
     rr::require_parts(buffers, n_buffers, holders, n_holders);
     const double bound = rr::exit_bound(exit_wait_seconds);
-    rr::job_ptr job =
-        rr::prepared_job(r, fn, args, args_len, buffers, n_buffers, bound);
     if (!rr::admit_job(bound)) {
-      job.reset();
       rr::job_ptr refused{new rr_job};
       refused->state.store(RR_JOB_REFUSED, std::memory_order_release);
       result = refused.release();
       return;
     }
-    job->refs.store(2, std::memory_order_relaxed);
     try {
-      r.executor.submit(job.get());
+      result = rr::queued_job(r, fn, args, args_len, buffers, n_buffers, bound);
     } catch (...) {
-      job->refs.store(1, std::memory_order_relaxed);
       rr::retire_job(bound);
       throw;
     }
-    result = job.release();
   });
 }
 

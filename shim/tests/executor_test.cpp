@@ -1,3 +1,4 @@
+#include <fcntl.h>
 #include <gtest/gtest.h>
 #include <unistd.h>
 
@@ -140,6 +141,50 @@ TEST(Executor, OneJobRunsOnceOnAWorker) {
   EXPECT_EQ(rr_job_read(job, &back, sizeof back), RR_OK);
   EXPECT_EQ(back.held, &g);
   rr_job_release(job);
+  rr_resources_free(r);
+}
+
+namespace {
+
+std::array<int, 2> full_pipe() {
+  std::array<int, 2> ends{-1, -1};
+  EXPECT_EQ(pipe2(ends.data(), O_CLOEXEC | O_NONBLOCK), 0);
+  const std::array<char, 4096> block{};
+  while (write(ends[1], block.data(), block.size()) > 0) {
+  }
+  while (write(ends[1], block.data(), 1) > 0) {
+  }
+  EXPECT_EQ(fcntl(ends[1], F_SETFL, 0), 0);
+  return ends;
+}
+
+void drain(int fd) {
+  std::array<char, 4096> block{};
+  while (read(fd, block.data(), block.size()) > 0) {
+  }
+}
+
+}  // namespace
+
+TEST(Executor, AJobLeavesTheRegistryBeforeItIsDone) {
+  rr_resources* r = rr::test::host_resources();
+  const int64_t live = rr_jobs_live();
+  rr::test::gate g;
+  job_args args{};
+  args.held = &g;
+  rr_job* job = rr::test::submit(r, args);
+  ASSERT_TRUE(g.await_entry(std::chrono::seconds(10)));
+  const std::array<int, 2> ends = full_pipe();
+  ASSERT_EQ(dup2(ends[1], rr_job_fd(job)), rr_job_fd(job));
+  g.open_now();
+  ASSERT_TRUE(
+      rr::test::eventually([job] { return rr_job_state(job) == RR_JOB_DONE; }));
+  EXPECT_EQ(rr_jobs_in_flight(), 0);
+  drain(ends[0]);
+  rr_job_release(job);
+  EXPECT_TRUE(rr::test::eventually([live] { return rr_jobs_live() == live; }));
+  close(ends[0]);
+  close(ends[1]);
   rr_resources_free(r);
 }
 

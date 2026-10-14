@@ -1201,6 +1201,14 @@ since cuSPARSE's error string for it is only "out of memory"). The frozen rule i
   killed caller's arrays and resources live until the job returns; the
   worker drops them before the job leaves the registry. `hold-owner!` and
   its ephemeron table are gone.
+- **A job leaves the registry before it is done** (#32 preflight, a
+  departure from the spec's worker order). The worker releases everything
+  native, erases its bound, and only then stores `RR_JOB_DONE` and signals
+  the eventfd, so a caller woken by its job never counts it in flight
+  (`Executor.AJobLeavesTheRegistryBeforeItIsDone` stalls the eventfd write
+  to pin the order). A submit asks for admission before it prepares the
+  job, so a refused submit copies, opens and pins nothing; a preparation
+  that throws erases the bound again.
 - **What the spike settled** (S1–S5): a static first touched inside a job
   registers its destructor after any `on_exit` armed at the first submit,
   so that alone is not enough (S1); `register-custodian-shutdown` with the

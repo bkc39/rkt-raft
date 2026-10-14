@@ -1,4 +1,5 @@
 #include <gtest/gtest.h>
+#include <sys/resource.h>
 #include <unistd.h>
 
 #include <array>
@@ -248,6 +249,56 @@ enum exit_code : uint8_t {
   std::exit(0);
 }
 
+template <typename Resource, typename Fn>
+auto with_no_more(Resource resource, Fn call) {
+  rlimit limit{};
+  if (getrlimit(resource, &limit) != 0) {
+    fail("getrlimit");
+  }
+  rlimit none = limit;
+  none.rlim_cur = 0;
+  if (setrlimit(resource, &none) != 0) {
+    fail("setrlimit");
+  }
+  auto result = call();
+  if (setrlimit(resource, &limit) != 0) {
+    fail("setrlimit");
+  }
+  return result;
+}
+
+[[noreturn]] void failed_submit_retires() {
+  alarm(child_limit_seconds);
+  rr_resources* r = host();
+  const int64_t live = rr_jobs_live();
+  const int64_t threads = rr_executor_threads();
+  job_args args{};
+  rr_job* job = nullptr;
+  const int status = with_no_more(RLIMIT_NPROC, [&] {
+    return rr_job_submit(r, rr::test::run_test_job, &args, sizeof args, nullptr,
+                         0, nullptr, 0, long_bound, &job);
+  });
+  if (status != RR_ERROR || job != nullptr ||
+      std::string(rr_last_error()).rfind("could not start the worker: ", 0) !=
+          0 ||
+      rr_jobs_in_flight() != 0 || rr_jobs_live() != live ||
+      rr_executor_threads() != threads) {
+    fail("the failed submit stayed in flight");
+  }
+  std::exit(0);
+}
+
+[[noreturn]] void refused_submit_opens_nothing() {
+  alarm(child_limit_seconds);
+  rr_resources* r = host();
+  require_drained(drain(), 0, 0, 0, promptly);
+  rr_job* job = with_no_more(RLIMIT_NOFILE, [&] { return sleeper(r, 0, 1.0); });
+  if (job == nullptr || rr_job_state(job) != RR_JOB_REFUSED) {
+    fail("the refused submit needed a descriptor");
+  }
+  std::exit(0);
+}
+
 [[noreturn]] void refused_job_pins_nothing() {
   alarm(child_limit_seconds);
   rr_resources* r = nullptr;
@@ -350,6 +401,15 @@ TEST_F(ExitDeathTest, ALockedStdoutDoesNotHoldTheExit) {
 
 TEST_F(ExitDeathTest, ASubmitAfterTheDrainIsRefused) {
   EXPECT_EXIT(submit_after_drain(), ::testing::ExitedWithCode(0), "^$");
+}
+
+TEST_F(ExitDeathTest, AFailedSubmitLeavesTheRegistry) {
+  EXPECT_EXIT(failed_submit_retires(), ::testing::ExitedWithCode(0), "^$");
+}
+
+TEST_F(ExitDeathTest, ARefusedSubmitPreparesNothing) {
+  EXPECT_EXIT(refused_submit_opens_nothing(), ::testing::ExitedWithCode(0),
+              "^$");
 }
 
 TEST_F(ExitGpuDeathTest, ARefusedJobPinsNothing) {
