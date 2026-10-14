@@ -1209,6 +1209,13 @@ since cuSPARSE's error string for it is only "out of memory"). The frozen rule i
   to pin the order). A submit asks for admission before it prepares the
   job, so a refused submit copies, opens and pins nothing; a preparation
   that throws erases the bound again.
+- **Two further departures from the spec's letter** (#32 review). The
+  exit hook's `register-custodian-shutdown` result is discarded, not held
+  in a module-level variable: it is only a weak custodian reference, and
+  the callback still fires after repeated major collections. Law 59's
+  `looping-main` fixture sleeps 0.3 s and then polls, bounded, until
+  `jobs-in-flight` is 1 before `(exit 10)`, since job boundaries drift
+  under load and a bare sleep races them.
 - **What the spike settled** (S1–S5): a static first touched inside a job
   registers its destructor after any `on_exit` armed at the first submit,
   so that alone is not enough (S1); `register-custodian-shutdown` with the

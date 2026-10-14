@@ -135,14 +135,23 @@
         (looping-main
          .
          (module program racket/base
-           (require raft raft/private/resources raft/tests/private/probe)
+           (require raft
+                    raft/private/job
+                    raft/private/resources
+                    raft/tests/private/probe)
            (probe-mark-atexit!)
            (define r (host-resources))
            (thread (lambda ()
                      (let loop ()
                        (probe-sleep-job 'demo r 50)
                        (loop))))
-           (sleep 0.325)
+           (sleep 0.3)
+           (for/or ([_ (in-range 200)])
+             (cond
+               [(= (jobs-in-flight) 1) #t]
+               [else
+                (sleep 0.005)
+                #f]))
            (exit 10)))
         (looping-place
          .
