@@ -30,12 +30,18 @@ std::atomic<int32_t> running{0};
 std::atomic<int32_t> most_running{0};
 std::atomic<int64_t> worker_tid{0};
 
+constexpr auto overlap_window = std::chrono::microseconds(50);
+constexpr auto meeting_limit = std::chrono::seconds(5);
+constexpr int32_t ordered_jobs = 100;
+constexpr int32_t queued_sleep_ms = 20;
+constexpr double pin_bound = 10.0;
+
 void record_order(int32_t index) {
   const int32_t now = running.fetch_add(1) + 1;
   int32_t seen = most_running.load();
   while (now > seen && !most_running.compare_exchange_weak(seen, now)) {
   }
-  std::this_thread::sleep_for(std::chrono::microseconds(50));
+  std::this_thread::sleep_for(overlap_window);
   {
     const std::lock_guard<std::mutex> held{order_lock};
     order.push_back(index);
@@ -56,8 +62,7 @@ void meet(int32_t /*index*/) {
   std::unique_lock<std::mutex> held{meet_lock};
   ++arrived;
   met.notify_all();
-  if (met.wait_for(held, std::chrono::seconds(5),
-                   [] { return arrived >= 2; })) {
+  if (met.wait_for(held, meeting_limit, [] { return arrived >= 2; })) {
     meetings.fetch_add(1);
   }
 }
@@ -82,8 +87,8 @@ TEST(Executor, SubmitRefusesWhatItCannotRun) {
   expect_refusal(rr_job_submit(r, nullptr, &args, sizeof args, nullptr, 0,
                                nullptr, 0, 1.0, &job),
                  job, "fn is NULL");
-  expect_refusal(rr_job_submit(r, rr::test::run_test_job, nullptr, 8, nullptr,
-                               0, nullptr, 0, 1.0, &job),
+  expect_refusal(rr_job_submit(r, rr::test::run_test_job, nullptr, sizeof args,
+                               nullptr, 0, nullptr, 0, 1.0, &job),
                  job, "args is NULL");
   expect_refusal(rr_job_submit(r, rr::test::run_test_job, &args, sizeof args,
                                nullptr, 1, nullptr, 0, 1.0, &job),
@@ -143,7 +148,7 @@ TEST(Executor, JobsOnOneResourcesRunInOrderOneAtATime) {
   order.clear();
   most_running = 0;
   std::vector<rr_job*> jobs;
-  for (int32_t i = 0; i < 100; ++i) {
+  for (int32_t i = 0; i < ordered_jobs; ++i) {
     job_args args{};
     args.index = i;
     args.record = record_order;
@@ -153,8 +158,8 @@ TEST(Executor, JobsOnOneResourcesRunInOrderOneAtATime) {
     ASSERT_TRUE(rr::test::wait_done(job));
     rr_job_release(job);
   }
-  std::vector<int32_t> expected(100);
-  for (int32_t i = 0; i < 100; ++i) {
+  std::vector<int32_t> expected(ordered_jobs);
+  for (int32_t i = 0; i < ordered_jobs; ++i) {
     expected[static_cast<std::size_t>(i)] = i;
   }
   EXPECT_EQ(order, expected);
@@ -202,13 +207,13 @@ TEST(Executor, EachReleaseOrderFreesTheJobOnce) {
 }
 
 TEST(Executor, FreeingResourcesRunsTheQueueThenEndsTheWorker) {
-  const int64_t threads = rr_executor_threads();
+  const int64_t threads = rr::test::settled_executor_threads();
   rr_resources* r = rr::test::host_resources();
   order.clear();
   std::vector<rr_job*> jobs;
   for (int32_t i = 0; i < 3; ++i) {
     job_args args{};
-    args.sleep_ms = 20;
+    args.sleep_ms = queued_sleep_ms;
     args.index = i;
     args.record = record_order;
     jobs.push_back(rr::test::submit(r, args));
@@ -264,7 +269,23 @@ TEST(Executor, EveryBoundIsAccepted) {
 
 namespace {
 
-enum class step { free_buffer, release_job, finish };
+enum class step : uint8_t { free_buffer, release_job, finish };
+
+void take_step(step s, rr_buffer* buffer, rr_job* job, rr::test::gate& g) {
+  switch (s) {
+    case step::free_buffer:
+      rr_buffer_free(buffer);
+      break;
+    case step::release_job:
+      rr_job_release(job);
+      break;
+    case step::finish:
+      g.open_now();
+      ASSERT_TRUE(
+          rr::test::eventually([] { return rr_jobs_in_flight() == 0; }));
+      break;
+  }
+}
 
 void pin_in_order(const std::array<step, 3>& steps) {
   rr_resources* r = nullptr;
@@ -276,27 +297,15 @@ void pin_in_order(const std::array<step, 3>& steps) {
   job_args args{};
   args.held = &g;
   std::array<rr_buffer*, 1> pins{buffer};
-  rr_job* job =
-      rr::test::submit(r, args, 10.0, rr::test::run_test_job, pins.data(), 1);
+  rr_job* job = rr::test::submit(r, args, pin_bound, rr::test::run_test_job,
+                                 pins.data(), 1);
   ASSERT_TRUE(g.await_entry(std::chrono::seconds(10)));
   bool freed = false;
   bool finished = false;
   for (const step s : steps) {
-    switch (s) {
-      case step::free_buffer:
-        rr_buffer_free(buffer);
-        freed = true;
-        break;
-      case step::release_job:
-        rr_job_release(job);
-        break;
-      case step::finish:
-        g.open_now();
-        ASSERT_TRUE(
-            rr::test::eventually([] { return rr_jobs_in_flight() == 0; }));
-        finished = true;
-        break;
-    }
+    take_step(s, buffer, job, g);
+    freed = freed || s == step::free_buffer;
+    finished = finished || s == step::finish;
     EXPECT_EQ(rr_buffer_drop_count(), drops + ((freed && finished) ? 1 : 0));
   }
   rr_resources_free(r);

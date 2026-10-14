@@ -3,11 +3,13 @@
 #include <chrono>
 #include <cmath>
 #include <condition_variable>
+#include <cstddef>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <limits>
 #include <mutex>
+#include <new>
 #include <set>
 
 #include "detail/executor.hpp"
@@ -19,7 +21,7 @@ namespace {
 
 constexpr double unbounded_from = 1e9;
 
-enum class verdict { open, clean, skip };
+enum class verdict : uint8_t { open, clean, skip };
 
 struct registry {
   std::mutex lock;
@@ -34,7 +36,8 @@ struct registry {
 // Allocated on first use and never destroyed: workers and the backstop use
 // it while exit() runs the static destructors.
 registry& jobs() noexcept {
-  static auto* const shared = new registry;
+  alignas(registry) static std::byte storage[sizeof(registry)];
+  static registry* const shared = ::new (static_cast<void*>(storage)) registry;
   return *shared;
 }
 
@@ -153,7 +156,9 @@ int64_t rr_jobs_in_flight(void) {
   return rr::count(r);
 }
 
+// NOLINTBEGIN(bugprone-easily-swappable-parameters) -- the C ABI
 void rr_exit_drain(int64_t* in_flight, int64_t* still_running) {
+  // NOLINTEND(bugprone-easily-swappable-parameters)
   const rr::drained d = rr::drain();
   if (in_flight != nullptr) {
     *in_flight = d.in_flight;

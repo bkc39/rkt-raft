@@ -39,7 +39,9 @@ void enter(int32_t entered_fd) noexcept {
   }
 }
 
+// NOLINTBEGIN(bugprone-easily-swappable-parameters) -- the probe C ABI
 bool wait_for_gate(int32_t gate_fd, int32_t timeout_ms) {
+  // NOLINTEND(bugprone-easily-swappable-parameters)
   pollfd gate{gate_fd, POLLIN, 0};
   for (;;) {
     const int ready = poll(&gate, 1, timeout_ms);
@@ -96,9 +98,11 @@ RR_API int rr_probe_last_error_kind(void) {
   return static_cast<int>(probe_slot().kind);
 }
 
+// NOLINTBEGIN(bugprone-easily-swappable-parameters) -- the probe C ABI
 RR_API int rr_probe_gate(int32_t entered_fd, int32_t gate_fd,
                          int32_t timeout_ms, int32_t say_outcome,
                          int32_t fail_kind, int32_t* opened) {
+  // NOLINTEND(bugprone-easily-swappable-parameters)
   const int status = raftrkt::translate_exceptions(probe_slot(), [&] {
     auto& result = *raftrkt::require(opened, "opened");
     result = 0;
@@ -114,11 +118,13 @@ RR_API int rr_probe_gate(int32_t entered_fd, int32_t gate_fd,
   return fail_with(fail_kind, "gate: failed");
 }
 
+// NOLINTBEGIN(bugprone-easily-swappable-parameters) -- the probe C ABI
 RR_API int rr_probe_echo(int8_t a, int16_t b, int32_t c, int64_t d, uint8_t e,
                          uint16_t f, uint32_t g, uint64_t h, float i, double j,
                          int8_t* oa, int16_t* ob, int32_t* oc, int64_t* od,
                          uint8_t* oe, uint16_t* of, uint32_t* og, uint64_t* oh,
                          float* oi, double* oj) {
+  // NOLINTEND(bugprone-easily-swappable-parameters)
   *oa = a;
   *ob = b;
   *oc = c;
@@ -132,7 +138,9 @@ RR_API int rr_probe_echo(int8_t a, int16_t b, int32_t c, int64_t d, uint8_t e,
   return RR_OK;
 }
 
+// NOLINTBEGIN(bugprone-easily-swappable-parameters) -- the probe C ABI
 RR_API int rr_probe_fail(int32_t token, int32_t kind, int32_t pad) {
+  // NOLINTEND(bugprone-easily-swappable-parameters)
   std::string message = "token " + std::to_string(token);
   if (pad > 0) {
     message += ' ';
@@ -156,8 +164,10 @@ RR_API int rr_probe_sleep(int32_t milliseconds) {
   return RR_OK;
 }
 
+// NOLINTBEGIN(bugprone-easily-swappable-parameters) -- the probe C ABI
 RR_API int rr_probe_late_static(int32_t entered_fd, int32_t gate_fd,
                                 int32_t timeout_ms) {
+  // NOLINTEND(bugprone-easily-swappable-parameters)
   return raftrkt::translate_exceptions(probe_slot(), [&] {
     static const touched_in_job object;
     enter(entered_fd);
@@ -182,18 +192,24 @@ RR_API int rr_probe_thread_id(uint64_t* out) {
   });
 }
 
+// NOLINTBEGIN(bugprone-easily-swappable-parameters) -- the probe C ABI
 RR_API int rr_probe_hold_views(int32_t entered_fd, int32_t gate_fd,
                                const rr_view* x, const rr_view* y,
                                int64_t* elements) {
+  // NOLINTEND(bugprone-easily-swappable-parameters)
   return raftrkt::translate_exceptions(probe_slot(), [&] {
     auto& result = *raftrkt::require(elements, "elements");
     result = 0;
     enter(entered_fd);
     wait_for_gate(gate_fd, hold_timeout_ms);
     const int64_t xs =
-        x == nullptr ? 0 : raftrkt::matrix_view<const float>(x, "x").size();
+        x == nullptr ? 0
+                     : static_cast<int64_t>(
+                           raftrkt::matrix_view<const float>(x, "x").size());
     const int64_t ys =
-        y == nullptr ? 0 : raftrkt::vector_view<const float>(y, "y").size();
+        y == nullptr ? 0
+                     : static_cast<int64_t>(
+                           raftrkt::vector_view<const float>(y, "y").size());
     result = xs + ys;
   });
 }

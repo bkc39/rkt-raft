@@ -26,8 +26,13 @@
 
 (define (original-place? b)
   (match (binding-signature b)
-    [(list* '_fun (list* _ ... '#:in-original-place? #t _)) #t]
+    [(cons '_fun parts) (equal? (take-after '#:in-original-place? parts) '(#t))]
     [_ #f]))
+
+(define (take-after key parts)
+  (match (memq key parts)
+    [(list* _ value _) (list value)]
+    [_ '()]))
 
 (define (missing-from present wanted)
   (sort (remove* present wanted) string<?))

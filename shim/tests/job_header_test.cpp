@@ -37,10 +37,12 @@ struct fit_block {
   int32_t n_iter;
 };
 
+// NOLINTBEGIN(bugprone-easily-swappable-parameters) -- mirrors the probe C ABI
 int echo(int8_t a, int16_t b, int32_t c, int64_t d, uint8_t e, uint16_t f,
          uint32_t g, uint64_t h, float i, double j, int8_t* oa, int16_t* ob,
          int32_t* oc, int64_t* od, uint8_t* oe, uint16_t* of, uint32_t* og,
          uint64_t* oh, float* oi, double* oj) {
+  // NOLINTEND(bugprone-easily-swappable-parameters)
   *oa = a;
   *ob = b;
   *oc = c;
@@ -126,7 +128,9 @@ const rr_view* seen_x = nullptr;
 const rr_view* seen_y = nullptr;
 rr_view seen_y_copy{};
 
+// NOLINTBEGIN(bugprone-easily-swappable-parameters) -- mirrors the probe C ABI
 int views(const rr_view* x, const rr_view* y) {
+  // NOLINTEND(bugprone-easily-swappable-parameters)
   seen_x = x;
   seen_y = y;
   if (y != nullptr) {
@@ -144,17 +148,28 @@ int failing(int32_t status) {
   return status;
 }
 
+constexpr int thrown_int = 5;
+constexpr std::size_t long_message_bytes = 5000;
+constexpr unsigned continuation_mask = 0xC0U;
+constexpr unsigned continuation_bits = 0x80U;
+constexpr int32_t small_negative = -7;
+constexpr uint32_t large_unsigned = 4000000000U;
+constexpr int64_t large_signed = 1234567890123;
+constexpr float some_float = 1.5F;
+constexpr double some_double = -2.25;
+constexpr double exact_double = 0.125;
+
 int throws_logic(int32_t /*unused*/) {
   throw raftrkt::logic_error("thrown logic");
 }
 
 int throws_five(int32_t /*unused*/) {
-  throw 5;
+  throw thrown_int;
 }
 
 std::string long_message() {
   std::string text;
-  while (text.size() < 5000) {
+  while (text.size() < long_message_bytes) {
     text += "\xC3\xA9";
   }
   return text;
@@ -175,7 +190,7 @@ bool valid_utf8(const char* text) {
   while (*p != 0) {
     const std::size_t n = raftrkt::detail::utf8_sequence_length(*p);
     for (std::size_t k = 1; k < n; ++k) {
-      if ((p[k] & 0xC0U) != 0x80U) {
+      if ((p[k] & continuation_mask) != continuation_bits) {
         return false;
       }
     }
@@ -252,16 +267,16 @@ TEST(JobHeader, OffsetsAreTheCStructOffsets) {
 
 TEST(JobHeader, ScalarsRoundTripAndOutputsAreWrittenBack) {
   echo_block block{};
-  block.a = -128;
-  block.b = 32767;
-  block.c = -7;
+  block.a = INT8_MIN;
+  block.b = INT16_MAX;
+  block.c = small_negative;
   block.d = INT64_MIN;
-  block.e = 255;
-  block.f = 65535;
-  block.g = 4000000000U;
+  block.e = UINT8_MAX;
+  block.f = UINT16_MAX;
+  block.g = large_unsigned;
   block.h = UINT64_MAX;
-  block.i = 1.5F;
-  block.j = -2.25;
+  block.i = some_float;
+  block.j = some_double;
   const rr_job_outcome outcome = run_on<&echo>(block);
   EXPECT_EQ(outcome.status, RR_OK);
   EXPECT_EQ(outcome.kind, 0);
@@ -298,15 +313,15 @@ TEST(JobHeader, AnAbsentViewIsNullAndABoundOneIsACopy) {
 TEST(JobHeader, AMisalignedBlockWorks) {
   std::vector<std::byte> bytes(sizeof(echo_block) + 1);
   echo_block block{};
-  block.d = 1234567890123;
-  block.j = 0.125;
+  block.d = large_signed;
+  block.j = exact_double;
   std::memcpy(bytes.data() + 1, &block, sizeof block);
   rr_job_outcome outcome{};
   raftrkt::run_job<&echo>(bytes.data() + 1, sizeof block, &outcome, slot);
   std::memcpy(&block, bytes.data() + 1, sizeof block);
   EXPECT_EQ(outcome.status, RR_OK);
-  EXPECT_EQ(block.od, 1234567890123);
-  EXPECT_EQ(block.oj, 0.125);
+  EXPECT_EQ(block.od, large_signed);
+  EXPECT_EQ(block.oj, exact_double);
 }
 
 TEST(JobHeader, ASizeMismatchIsRefusedWithoutCalling) {

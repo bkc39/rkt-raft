@@ -120,6 +120,19 @@ bool eventually(Pred done) {
   return false;
 }
 
+inline int64_t settled_executor_threads() {
+  int64_t seen = rr_executor_threads();
+  for (int i = 0; i < 1000; ++i) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    const int64_t now = rr_executor_threads();
+    if (now == seen) {
+      return now;
+    }
+    seen = now;
+  }
+  return seen;
+}
+
 inline std::ptrdiff_t open_fds() {
   std::ptrdiff_t n = 0;
   for ([[maybe_unused]] const auto& entry :

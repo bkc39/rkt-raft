@@ -21,6 +21,23 @@
 
 namespace {
 
+constexpr int failed_child = 99;
+constexpr unsigned child_limit_seconds = 5;
+constexpr unsigned backstop_limit_seconds = 13;
+constexpr double at_once = 0.001;
+constexpr double promptly = 0.01;
+constexpr double quickly = 0.05;
+constexpr double tenth = 0.1;
+constexpr double fifth = 0.2;
+constexpr double three_tenths = 0.3;
+constexpr double half_second = 0.5;
+constexpr double long_bound = 10.0;
+constexpr double huge_bound = 1e300;
+constexpr int32_t short_sleep_ms = 100;
+constexpr int32_t long_sleep_ms = 200;
+constexpr auto lock_settles = std::chrono::milliseconds(20);
+constexpr size_t buffer_bytes = 64;
+
 using rr::test::job_args;
 using rr::test::seconds_since;
 using one_buffer = std::array<rr_buffer*, 1>;
@@ -47,7 +64,7 @@ void mark_exit() {
 
 [[noreturn]] void fail(const std::string& why) {
   rr::test::say(why + "\n");
-  std::_Exit(99);
+  std::_Exit(failed_child);
 }
 
 struct drained {
@@ -85,8 +102,11 @@ rr_resources* host() {
   return r;
 }
 
+// NOLINTBEGIN(bugprone-easily-swappable-parameters) -- a job is its sleep and
+// its bound
 rr_job* sleeper(rr_resources* r, int32_t ms, double bound,
                 const char* say = nullptr) {
+  // NOLINTEND(bugprone-easily-swappable-parameters)
   job_args args{};
   args.sleep_ms = ms;
   args.say = say;
@@ -108,107 +128,210 @@ class ExitDeathTest : public ::testing::Test {
   }
 };
 
+class ExitGpuDeathTest : public ExitDeathTest {
+ protected:
+  void SetUp() override {
+    ExitDeathTest::SetUp();
+    RR_REQUIRE_GPU();
+  }
+};
+
+enum exit_code : uint8_t {
+  torn_down = 5,
+  skipped = 6,
+  drained_twice = 7,
+  flushed = 8,
+  backstop_waited = 9,
+  backstop_skipped = 10,
+};
+
+[[noreturn]] void nothing_in_flight() {
+  alarm(child_limit_seconds);
+  mark_exit();
+  require_drained(drain(), 0, 0, 0, at_once);
+  std::exit(torn_down);
+}
+
+[[noreturn]] void past_its_bound() {
+  alarm(child_limit_seconds);
+  mark_exit();
+  stuck(host(), fifth);
+  require_drained(drain(), 1, 1, fifth, three_tenths);
+  std::exit(skipped);
+}
+
+[[noreturn]] void every_waiter_wakes() {
+  alarm(child_limit_seconds);
+  sleeper(host(), short_sleep_ms, std::numeric_limits<double>::infinity());
+  drained other;
+  std::thread second{[&] { other = drain(); }};
+  const drained first = drain();
+  second.join();
+  require_drained(first, 1, 0, tenth, fifth);
+  require_drained(other, 1, 0, tenth, fifth);
+  std::exit(0);
+}
+
+[[noreturn]] void deadline_recomputed() {
+  alarm(child_limit_seconds);
+  stuck(host(), tenth);
+  sleeper(host(), long_sleep_ms, half_second);
+  require_drained(drain(), 2, 1, fifth, three_tenths);
+  std::exit(0);
+}
+
+[[noreturn]] void waits_for(double bound) {
+  alarm(child_limit_seconds);
+  sleeper(host(), short_sleep_ms, bound);
+  require_drained(drain(), 1, 0, tenth, fifth);
+  std::exit(0);
+}
+
+[[noreturn]] void does_not_wait_for(double bound) {
+  alarm(child_limit_seconds);
+  stuck(host(), bound);
+  require_drained(drain(), 1, 1, 0, quickly);
+  std::exit(0);
+}
+
+[[noreturn]] void second_drain() {
+  alarm(child_limit_seconds);
+  mark_exit();
+  rr_resources* r = host();
+  stuck(r, tenth);
+  stuck(r, tenth);
+  require_drained(drain(), 2, 2, tenth, fifth);
+  require_drained(drain(), 2, 2, 0, promptly);
+  std::exit(drained_twice);
+}
+
+[[noreturn]] void flush_on_skip(const std::string& path) {
+  alarm(child_limit_seconds);
+  if (std::freopen(path.c_str(), "w", stdout) == nullptr) {
+    fail("freopen failed");
+  }
+  static_cast<void>(std::setvbuf(stdout, nullptr, _IOFBF, BUFSIZ));
+  std::fputs("flushed", stdout);
+  stuck(host(), 0);
+  require_drained(drain(), 1, 1, 0, quickly);
+  std::exit(flushed);
+}
+
+[[noreturn]] void skip_with_stdout_locked() {
+  alarm(child_limit_seconds);
+  std::thread{[] {
+    flockfile(stdout);
+    std::this_thread::sleep_for(std::chrono::hours(1));
+  }}.detach();
+  std::this_thread::sleep_for(lock_settles);
+  stuck(host(), 0);
+  require_drained(drain(), 1, 1, 0, quickly);
+  std::exit(flushed);
+}
+
+[[noreturn]] void submit_after_drain() {
+  alarm(child_limit_seconds);
+  rr_resources* r = rr::test::host_resources();
+  require_drained(drain(), 0, 0, 0, promptly);
+  const int64_t live = rr_jobs_live();
+  rr_job* job = sleeper(r, 0, 1.0);
+  if (job == nullptr || rr_job_state(job) != RR_JOB_REFUSED ||
+      rr_job_fd(job) != -1 || rr_jobs_in_flight() != 0 ||
+      rr_jobs_live() != live + 1) {
+    fail("the submit was not refused");
+  }
+  rr_job_release(job);
+  if (rr_jobs_live() != live) {
+    fail("the refused job was not freed");
+  }
+  rr_resources_free(r);
+  std::exit(0);
+}
+
+[[noreturn]] void refused_job_pins_nothing() {
+  alarm(child_limit_seconds);
+  rr_resources* r = nullptr;
+  rr_buffer* buffer = nullptr;
+  if (rr_resources_create(0, &r) != RR_OK ||
+      rr_buffer_alloc(r, buffer_bytes, &buffer) != RR_OK) {
+    fail(rr_last_error());
+  }
+  require_drained(drain(), 0, 0, 0, promptly);
+  const uint64_t drops = rr_buffer_drop_count();
+  one_buffer pins{buffer};
+  rr_job* job = rr::test::submit(r, job_args{}, 1.0, rr::test::run_test_job,
+                                 pins.data(), 1);
+  rr_buffer_free(buffer);
+  if (rr_job_state(job) != RR_JOB_REFUSED ||
+      rr_buffer_drop_count() != drops + 1) {
+    fail("the refused job pinned its buffer");
+  }
+  rr_job_release(job);
+  rr_resources_free(r);
+  std::exit(0);
+}
+
+[[noreturn]] void backstop_waits() {
+  alarm(backstop_limit_seconds);
+  static_cast<void>(std::atexit(atexit_marker));
+  sleeper(host(), short_sleep_ms, long_bound, "job done\n");
+  std::exit(backstop_waited);
+}
+
+[[noreturn]] void backstop_skips() {
+  alarm(child_limit_seconds);
+  static_cast<void>(std::atexit(atexit_marker));
+  stuck(host(), fifth);
+  std::exit(backstop_skipped);
+}
+
+[[noreturn]] void queued_job_counts() {
+  alarm(backstop_limit_seconds);
+  rr_resources* r = host();
+  sleeper(r, short_sleep_ms, long_bound);
+  sleeper(r, 0, long_bound);
+  require_drained(drain(), 2, 0, tenth, fifth);
+  std::exit(0);
+}
+
 }  // namespace
 
 TEST_F(ExitDeathTest, NothingInFlightDrainsAtOnceAndTearsDown) {
-  EXPECT_EXIT(
-      {
-        mark_exit();
-        require_drained(drain(), 0, 0, 0, 0.001);
-        std::exit(5);
-      },
-      ::testing::ExitedWithCode(5), "^atexit\nstatic\n$");
+  EXPECT_EXIT(nothing_in_flight(), ::testing::ExitedWithCode(torn_down),
+              "^atexit\nstatic\n$");
 }
 
 TEST_F(ExitDeathTest, AJobPastItsBoundSkipsTeardown) {
-  EXPECT_EXIT(
-      {
-        mark_exit();
-        stuck(host(), 0.2);
-        require_drained(drain(), 1, 1, 0.2, 0.3);
-        std::exit(6);
-      },
-      ::testing::ExitedWithCode(6), "^$");
+  EXPECT_EXIT(past_its_bound(), ::testing::ExitedWithCode(skipped), "^$");
 }
 
 TEST_F(ExitDeathTest, EveryWaiterWakes) {
-  EXPECT_EXIT(
-      {
-        sleeper(host(), 100, std::numeric_limits<double>::infinity());
-        drained other;
-        std::thread second{[&] { other = drain(); }};
-        const drained first = drain();
-        second.join();
-        require_drained(first, 1, 0, 0.1, 0.2);
-        require_drained(other, 1, 0, 0.1, 0.2);
-        std::exit(0);
-      },
-      ::testing::ExitedWithCode(0), "^$");
+  EXPECT_EXIT(every_waiter_wakes(), ::testing::ExitedWithCode(0), "^$");
 }
 
 TEST_F(ExitDeathTest, TheDeadlineIsRecomputed) {
-  EXPECT_EXIT(
-      {
-        stuck(host(), 0.1);
-        sleeper(host(), 200, 0.5);
-        require_drained(drain(), 2, 1, 0.2, 0.3);
-        std::exit(0);
-      },
-      ::testing::ExitedWithCode(0), "^$");
+  EXPECT_EXIT(deadline_recomputed(), ::testing::ExitedWithCode(0), "^$");
 }
 
 TEST_F(ExitDeathTest, HugeAndInfiniteBoundsWait) {
-  for (const double bound : {1e300, std::numeric_limits<double>::infinity()}) {
-    EXPECT_EXIT(
-        {
-          sleeper(host(), 100, bound);
-          require_drained(drain(), 1, 0, 0.1, 0.2);
-          std::exit(0);
-        },
-        ::testing::ExitedWithCode(0), "^$");
-  }
+  EXPECT_EXIT(waits_for(huge_bound), ::testing::ExitedWithCode(0), "^$");
+  EXPECT_EXIT(waits_for(std::numeric_limits<double>::infinity()),
+              ::testing::ExitedWithCode(0), "^$");
 }
 
 TEST_F(ExitDeathTest, NanAndNegativeBoundsDoNotWait) {
-  for (const double bound : {std::numeric_limits<double>::quiet_NaN(), -1.0}) {
-    EXPECT_EXIT(
-        {
-          stuck(host(), bound);
-          require_drained(drain(), 1, 1, 0, 0.05);
-          std::exit(0);
-        },
-        ::testing::ExitedWithCode(0), "^$");
-  }
+  EXPECT_EXIT(does_not_wait_for(std::numeric_limits<double>::quiet_NaN()),
+              ::testing::ExitedWithCode(0), "^$");
+  EXPECT_EXIT(does_not_wait_for(-1.0), ::testing::ExitedWithCode(0), "^$");
 }
 
 TEST_F(ExitDeathTest, ASecondDrainAfterASkipAnswersAtOnce) {
-  EXPECT_EXIT(
-      {
-        mark_exit();
-        rr_resources* r = host();
-        stuck(r, 0.1);
-        stuck(r, 0.1);
-        require_drained(drain(), 2, 2, 0.1, 0.2);
-        require_drained(drain(), 2, 2, 0, 0.01);
-        std::exit(7);
-      },
-      ::testing::ExitedWithCode(7), "^$");
+  EXPECT_EXIT(second_drain(), ::testing::ExitedWithCode(drained_twice), "^$");
 }
 
 TEST_F(ExitDeathTest, StdoutIsFlushedOnTheSkipPath) {
   const std::string path = ::testing::TempDir() + "raftrkt-exit-stdout";
-  EXPECT_EXIT(
-      {
-        if (std::freopen(path.c_str(), "w", stdout) == nullptr) {
-          fail("freopen failed");
-        }
-        static_cast<void>(std::setvbuf(stdout, nullptr, _IOFBF, BUFSIZ));
-        std::fputs("flushed", stdout);
-        stuck(host(), 0);
-        require_drained(drain(), 1, 1, 0, 0.05);
-        std::exit(8);
-      },
-      ::testing::ExitedWithCode(8), "^$");
+  EXPECT_EXIT(flush_on_skip(path), ::testing::ExitedWithCode(flushed), "^$");
   std::ifstream written{path};
   EXPECT_EQ(std::string(std::istreambuf_iterator<char>(written), {}),
             "flushed");
@@ -217,101 +340,32 @@ TEST_F(ExitDeathTest, StdoutIsFlushedOnTheSkipPath) {
 
 TEST_F(ExitDeathTest, ALockedStdoutDoesNotHoldTheExit) {
   const auto baseline_start = std::chrono::steady_clock::now();
-  EXPECT_EXIT(std::_Exit(8), ::testing::ExitedWithCode(8), "");
+  EXPECT_EXIT(std::_Exit(flushed), ::testing::ExitedWithCode(flushed), "");
   const double baseline = seconds_since(baseline_start);
   const auto start = std::chrono::steady_clock::now();
-  EXPECT_EXIT(
-      {
-        std::thread{[] {
-          flockfile(stdout);
-          std::this_thread::sleep_for(std::chrono::hours(1));
-        }}.detach();
-        std::this_thread::sleep_for(std::chrono::milliseconds(20));
-        stuck(host(), 0);
-        require_drained(drain(), 1, 1, 0, 0.05);
-        std::exit(8);
-      },
-      ::testing::ExitedWithCode(8), "^$");
-  EXPECT_LT(seconds_since(start) - baseline, 0.5);
+  EXPECT_EXIT(skip_with_stdout_locked(), ::testing::ExitedWithCode(flushed),
+              "^$");
+  EXPECT_LT(seconds_since(start) - baseline, half_second);
 }
 
 TEST_F(ExitDeathTest, ASubmitAfterTheDrainIsRefused) {
-  EXPECT_EXIT(
-      {
-        rr_resources* r = rr::test::host_resources();
-        require_drained(drain(), 0, 0, 0, 0.01);
-        const int64_t live = rr_jobs_live();
-        rr_job* job = sleeper(r, 0, 1.0);
-        if (job == nullptr || rr_job_state(job) != RR_JOB_REFUSED ||
-            rr_job_fd(job) != -1 || rr_jobs_in_flight() != 0 ||
-            rr_jobs_live() != live + 1) {
-          fail("the submit was not refused");
-        }
-        rr_job_release(job);
-        if (rr_jobs_live() != live) {
-          fail("the refused job was not freed");
-        }
-        rr_resources_free(r);
-        std::exit(0);
-      },
-      ::testing::ExitedWithCode(0), "^$");
+  EXPECT_EXIT(submit_after_drain(), ::testing::ExitedWithCode(0), "^$");
 }
 
-TEST_F(ExitDeathTest, ARefusedJobPinsNothing) {
-  RR_REQUIRE_GPU();
-  EXPECT_EXIT(
-      {
-        rr_resources* r = nullptr;
-        rr_buffer* buffer = nullptr;
-        if (rr_resources_create(0, &r) != RR_OK ||
-            rr_buffer_alloc(r, 64, &buffer) != RR_OK) {
-          fail(rr_last_error());
-        }
-        require_drained(drain(), 0, 0, 0, 0.01);
-        const uint64_t drops = rr_buffer_drop_count();
-        one_buffer pins{buffer};
-        rr_job* job = rr::test::submit(r, job_args{}, 1.0,
-                                       rr::test::run_test_job, pins.data(), 1);
-        rr_buffer_free(buffer);
-        if (rr_job_state(job) != RR_JOB_REFUSED ||
-            rr_buffer_drop_count() != drops + 1) {
-          fail("the refused job pinned its buffer");
-        }
-        rr_job_release(job);
-        rr_resources_free(r);
-        std::exit(0);
-      },
-      ::testing::ExitedWithCode(0), "^$");
+TEST_F(ExitGpuDeathTest, ARefusedJobPinsNothing) {
+  EXPECT_EXIT(refused_job_pins_nothing(), ::testing::ExitedWithCode(0), "^$");
 }
 
 TEST_F(ExitDeathTest, TheBackstopWaitsWithoutADrain) {
-  EXPECT_EXIT(
-      {
-        static_cast<void>(std::atexit(atexit_marker));
-        sleeper(host(), 100, 10.0, "job done\n");
-        std::exit(9);
-      },
-      ::testing::ExitedWithCode(9), "^job done\natexit\n$");
+  EXPECT_EXIT(backstop_waits(), ::testing::ExitedWithCode(backstop_waited),
+              "^job done\natexit\n$");
 }
 
 TEST_F(ExitDeathTest, TheBackstopSkipsTeardownPastTheBound) {
-  EXPECT_EXIT(
-      {
-        static_cast<void>(std::atexit(atexit_marker));
-        stuck(host(), 0.2);
-        std::exit(10);
-      },
-      ::testing::ExitedWithCode(10), "^$");
+  EXPECT_EXIT(backstop_skips(), ::testing::ExitedWithCode(backstop_skipped),
+              "^$");
 }
 
 TEST_F(ExitDeathTest, AQueuedJobCounts) {
-  EXPECT_EXIT(
-      {
-        rr_resources* r = host();
-        sleeper(r, 100, 10.0);
-        sleeper(r, 0, 10.0);
-        require_drained(drain(), 2, 0, 0.1, 0.2);
-        std::exit(0);
-      },
-      ::testing::ExitedWithCode(0), "^$");
+  EXPECT_EXIT(queued_job_counts(), ::testing::ExitedWithCode(0), "^$");
 }

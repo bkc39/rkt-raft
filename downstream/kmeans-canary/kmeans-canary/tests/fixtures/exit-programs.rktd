@@ -46,7 +46,7 @@
          .
          (module program racket/base
            (require racket/place raft)
-           (define worker
+           (define (start-worker)
              (place ch
                (define blobs (dynamic-require 'kmeans-canary 'blobs))
                (define kmeans-fit (dynamic-require 'kmeans-canary 'kmeans-fit))
@@ -56,9 +56,11 @@
                (long-fit X)
                (place-channel-put ch 'warm)
                (long-fit X)))
-           (place-channel-get worker)
-           (sleep 0.1)
-           (exit 0)))
+           (module+ main
+             (define worker (start-worker))
+             (void (place-channel-get worker))
+             (sleep 0.1)
+             (exit 0))))
         (sleep-job
          .
          (module program racket/base

@@ -183,9 +183,12 @@ std::shared_ptr<executor> start_worker() {
   return slot;
 }
 
+// NOLINTBEGIN(bugprone-easily-swappable-parameters) -- the C ABI of
+// rr_job_submit
 job_ptr prepared_job(const rr_resources& r, rr_job_fn fn, const void* args,
                      size_t args_len, rr_buffer* const* buffers,
                      size_t n_buffers, double bound) {
+  // NOLINTEND(bugprone-easily-swappable-parameters)
   job_ptr job{new rr_job};
   job->fn = fn;
   job->args_len = args_len;
@@ -251,10 +254,13 @@ int rr_resources_create_host(rr_resources** out) {
   });
 }
 
+// NOLINTBEGIN(bugprone-easily-swappable-parameters) -- the C ABI of
+// rr_job_submit
 int rr_job_submit(rr_resources* resources, rr_job_fn fn, const void* args,
                   size_t args_len, rr_buffer* const* buffers, size_t n_buffers,
                   rr_holder* const* holders, size_t n_holders,
                   double exit_wait_seconds, rr_job** out) {
+  // NOLINTEND(bugprone-easily-swappable-parameters)
   return rr::translate_exceptions([&] {
     auto& result = *rr::require(out, "out");
     result = nullptr;
