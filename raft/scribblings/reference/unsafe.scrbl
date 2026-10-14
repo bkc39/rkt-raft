@@ -448,8 +448,8 @@ open''.}
 (eq? indices (first (deposit->list members)))
 ]
 
-A deposit is converted after its form, it is filled once, and it belongs to
-the resources it was made on:
+A deposit can be converted once it is filled, it is filled only once, and it
+belongs to the resources it was made on:
 
 @examples[#:eval ev #:label #f
 (define pending (deposit))
