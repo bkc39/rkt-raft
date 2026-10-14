@@ -40,22 +40,23 @@ int32_t state_of(const rr_holder& holder) noexcept {
       .load(std::memory_order_acquire);
 }
 
-bool filled(const rr_holder& holder) noexcept {
-  return holder.filled_at_close.load(std::memory_order_relaxed) ||
-         state_of(holder) == RR_DEPOSIT_FILLED;
+bool filled(const rr_holder& holder, int32_t state) noexcept {
+  return state == RR_DEPOSIT_FILLED ||
+         (state == RR_DEPOSIT_CLOSED &&
+          holder.filled_at_close.load(std::memory_order_relaxed));
 }
 
 void keep_owner(rr_holder& holder) {
-  if (holder.keep || !filled(holder) || holder.record.owner == nullptr ||
-      holder.record.release == nullptr) {
+  if (holder.keep || !filled(holder, state_of(holder)) ||
+      holder.record.owner == nullptr || holder.record.release == nullptr) {
     return;
   }
   holder.keep = std::shared_ptr<void>(
       holder.record.owner, owner_release{holder.record.release, holder.device});
 }
 
-bool adoptable(const rr_holder& holder) noexcept {
-  switch (state_of(holder)) {
+bool adoptable(const rr_holder& holder, int32_t state) noexcept {
+  switch (state) {
     case RR_DEPOSIT_CLOSED:
       return true;
     case RR_DEPOSIT_FILLED:
@@ -66,10 +67,11 @@ bool adoptable(const rr_holder& holder) noexcept {
 }
 
 int32_t checked_count(const rr_holder& holder) {
-  if (!adoptable(holder)) {
+  const int32_t state = state_of(holder);
+  if (!adoptable(holder, state)) {
     throw logic_error("the deposit is still open");
   }
-  if (!filled(holder)) {
+  if (!filled(holder, state)) {
     return 0;
   }
   const rr_deposit& record = holder.record;

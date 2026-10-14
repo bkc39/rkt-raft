@@ -226,6 +226,16 @@
 (test-probe "law 8: a killed caller's filled deposit adopts, and its owner is released once"
   (released-once "killed after filling" killed-after-filling (counts 1 1 1 2 0)))
 
+(define (converted-inside-the-form)
+  (define d (deposit))
+  (define inside #f)
+  (fill! d 'float64 3 4 #:then (lambda () (set! inside (deposit->list d))))
+  (check-true (eq? inside (deposit->list d)))
+  (check-pattern inside 'float64 3 4))
+
+(test-probe "law 8: a deposit converted inside its form keeps its arrays when the form closes it"
+  (released-once "converted inside the form" converted-inside-the-form (counts 1 1 1 2 0)))
+
 (test-probe "law 10: adopted arrays work wherever a raft array does"
   (match-define (list m _) (deposit->list (filled 'float32 3 4)))
   (match-define (list v _) (deposit->list (filled 'float32 7 #f)))

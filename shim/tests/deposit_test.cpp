@@ -122,6 +122,30 @@ void expect_indices(rr_buffer* indices) {
   EXPECT_EQ(read_indices, iota<int64_t>(index_count));
 }
 
+TEST(Deposit, AFilledHolderNoJobHoldsAdoptsBeforeItCloses) {
+  RR_REQUIRE_GPU();
+  const counters before;
+  tally t;
+  session s = open_session();
+  fill(s, t);
+  expect_filled(s);
+  rr_view view{};
+  rr_buffer* first = adopted(s.holder, 0, view);
+  ASSERT_NE(first, nullptr);
+  expect_matrix_shape(view);
+  rr_buffer* second = adopted(s.holder, 1, view);
+  ASSERT_NE(second, nullptr);
+  expect_closes_once(s);
+  expect_count(s.holder, 2);
+  expect_adoption_refusals(s.holder);
+  expect_indices(second);
+  EXPECT_EQ(t.drops, 0);
+  free_holder_then_buffers(s.holder, {first, second}, t);
+  rr_resources_free(s.resources);
+  EXPECT_EQ(t.stale, 0);
+  expect_released(before, {1, 1, 2});
+}
+
 void expect_ready_and_written(rr_buffer* matrix,
                               const std::vector<float>& written) {
   int32_t ready = 0;
