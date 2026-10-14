@@ -198,7 +198,9 @@ plans/scoping-plan.md         the approved plan (revision 5), as Markdown
      `rr_release_failure_count` every release that leaked because its device
      was unreachable; reclamation tests assert on them, because Racket cannot
      otherwise observe a native free. A release completes on the reaper
-     thread, so a test reads a counter only once `rr_releases_pending` is 0
+     thread, so a test reads a counter only once `rr_releases_pending` (the
+     releases queued for or running on the reaper, declared beside the
+     counters in `memory.h` so a downstream's tests can settle too) is 0
      (`settled-count` and `releases-settled?` in `tests/private/collect.rkt`,
      `rr::test::releases_settled` in the gtests).
    - A changed C signature gets a new symbol name, so a stale library fails
@@ -289,8 +291,7 @@ plans/scoping-plan.md         the approved plan (revision 5), as Markdown
   job accessors, the counters, `rr_exit_drain`, `rr_os_thread_id`), bound
   in `private/foreign/job-api.rkt`. `rr_exit_waiters` counts the threads
   waiting inside a drain, so the exit gtests can open a job only once
-  every drain is waiting. `rr_releases_pending` counts the releases queued
-  for or running on the reaper.
+  every drain is waiting.
 - **The executor** (`src/core/executor.cpp`, #32). Each `rr_resources`
   owns an `rr::executor_slot`: one worker thread, started on first use,
   that runs that object's jobs in FIFO order, one at a time; workers of

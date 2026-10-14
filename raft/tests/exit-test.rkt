@@ -145,6 +145,11 @@
 (test-host-probe "a late static survives the skip"
   (check-exit 'late-static-skip 19 (list (in-flight-line 1 500 1000) (still-running-line 1))))
 
+(test-host-probe "the exit hook survives major collections"
+  (check-exit 'late-static-skip-after-collections
+              19
+              (list (in-flight-line 1 500 1000) (still-running-line 1))))
+
 (test-host-probe "loaded first from a parallel thread, the main place still drains at exit"
   (check-exit 'late-static-skip-parallel
               19

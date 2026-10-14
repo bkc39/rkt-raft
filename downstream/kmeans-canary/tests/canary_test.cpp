@@ -222,14 +222,19 @@ TEST(KMeans, FitsAndPredictsTheBlobsItMade) {
 
 constexpr int release_polls = 1000;
 
-TEST(KMeans, EveryBufferOfARunIsFreed) {
-  KC_REQUIRE_GPU();
-  const uint64_t drops = rr_buffer_drop_count();
-  EXPECT_EQ(fit_and_predict_blobs().outcome, "accepted");
-  for (int i = 0; i < release_polls && rr_buffer_drop_count() < drops + 4;
-       ++i) {
+bool releases_settled() {
+  for (int i = 0; i < release_polls && rr_releases_pending() != 0; ++i) {
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
   }
+  return rr_releases_pending() == 0;
+}
+
+TEST(KMeans, EveryBufferOfARunIsFreed) {
+  KC_REQUIRE_GPU();
+  ASSERT_TRUE(releases_settled());
+  const uint64_t drops = rr_buffer_drop_count();
+  EXPECT_EQ(fit_and_predict_blobs().outcome, "accepted");
+  EXPECT_TRUE(releases_settled());
   EXPECT_EQ(rr_buffer_drop_count(), drops + 4);
 }
 

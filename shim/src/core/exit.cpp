@@ -15,6 +15,7 @@
 
 #include "detail/executor.hpp"
 #include "detail/executor_api.h"
+#include "raftrkt/memory.h"
 
 namespace rr {
 
@@ -133,6 +134,13 @@ void backstop(int status, void* /*unused*/) noexcept {
   }
 }
 
+void arm_backstop(registry& r) noexcept {
+  if (!r.backstop_armed) {
+    r.backstop_armed = true;
+    static_cast<void>(on_exit(backstop, nullptr));
+  }
+}
+
 }  // namespace
 
 bool& on_native_worker() noexcept {
@@ -146,6 +154,7 @@ bool admit_release() noexcept {
   if (r.decided != verdict::open) {
     return false;
   }
+  arm_backstop(r);
   ++r.releases;
   return true;
 }
@@ -173,10 +182,7 @@ bool admit_job(double bound) {
   if (r.closing) {
     return false;
   }
-  if (!r.backstop_armed) {
-    r.backstop_armed = true;
-    static_cast<void>(on_exit(backstop, nullptr));
-  }
+  arm_backstop(r);
   r.bounds.insert(bound);
   return true;
 }

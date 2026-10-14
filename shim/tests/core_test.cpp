@@ -93,6 +93,7 @@ TEST(Errors, WithoutADriverDeviceQueriesAreCudaErrors) {
 
 TEST(Resources, CreateSyncFree) {
   RR_REQUIRE_GPU();
+  ASSERT_TRUE(rr::test::releases_settled());
   const uint64_t before = rr_resources_drop_count();
   rr_resources* r = nullptr;
   ASSERT_EQ(rr_resources_create(0, &r), RR_OK) << rr_last_error();
@@ -188,6 +189,7 @@ TEST(Resources, HandleRefusesNull) {
 }
 
 TEST(Resources, FreeAcceptsNull) {
+  ASSERT_TRUE(rr::test::releases_settled());
   const uint64_t before = rr_resources_drop_count();
   rr_resources_free(nullptr);
   rr_buffer_free(nullptr);

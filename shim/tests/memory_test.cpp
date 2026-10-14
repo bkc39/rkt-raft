@@ -16,6 +16,7 @@ constexpr auto drop_limit = std::chrono::seconds(5);
 constexpr double returns_at_once = 1.0;
 
 TEST(Release, AnUnreachableDeviceLeaksAndIsCounted) {
+  ASSERT_TRUE(rr::test::releases_settled());
   const uint64_t failures = rr_release_failure_count();
   const uint64_t drops = rr_resources_drop_count();
   constexpr int32_t no_such_device = 4096;
