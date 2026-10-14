@@ -6,6 +6,8 @@
 
 (define calls 20000)
 
+(define r (current-device-resources))
+
 (define (milliseconds-for call)
   (collect-garbage 'minor)
   (define start (current-inexact-monotonic-milliseconds))
@@ -24,8 +26,6 @@
       median-of-five
       (* 1e6)
       (/ calls)))
-
-(define r (current-device-resources))
 
 (define rows
   (list (list "the bare _fun" (lambda () (kc-noop 1)))

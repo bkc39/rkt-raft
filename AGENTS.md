@@ -1185,8 +1185,8 @@ since cuSPARSE's error string for it is only "out of memory"). The frozen rule i
   and the worker never runs Racket. The job owns a copy of its arguments and
   native references to its handle and buffers. The caller waits on an
   `unsafe-poller` over the job's eventfd, which registers nothing between
-  sleeps and so needs no cleanup. A job costs about 18 µs a call
-  (`bench/status-checker.rkt`), against 31–33 µs for #21's OS thread per
+  sleeps and so needs no cleanup. A job costs about 20 µs a call (19,895 ns
+  in `bench/status-checker.rkt`), against 31–33 µs for #21's OS thread per
   call.
 - **`status-checker` is #20's `call-as-atomic`**, for short calls only;
   `os-call.rkt`, `calls-in-flight` and the `#:blocking?`/`atomic-interior`
