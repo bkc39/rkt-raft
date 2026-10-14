@@ -22,6 +22,8 @@ constexpr double grace_overrun = 2.0;
 constexpr double finite_bound = 3.0;
 constexpr double half_second = 0.5;
 constexpr double short_bound = 0.2;
+constexpr auto past_the_grace = std::chrono::milliseconds(1200);
+constexpr auto brief_release = std::chrono::milliseconds(300);
 constexpr auto entry_limit = std::chrono::seconds(4);
 
 enum exit_code : uint8_t {
@@ -146,6 +148,24 @@ void exits_in_job(void* /*args*/, size_t /*args_len*/,
   std::exit(torn_down);
 }
 
+[[noreturn]] void a_release_after_the_last_job_gets_its_grace() {
+  alarm(child_limit_seconds);
+  auto* held = new rr::test::gate;
+  rr::test::submit(rr::test::host_resources(), rr::test::job_args{held},
+                   finite_bound);
+  if (!held->await_entry(entry_limit)) {
+    fail("the job never started");
+  }
+  std::thread{[held] {
+    std::this_thread::sleep_for(past_the_grace);
+    rr_resources_free(rr::test::resources_dropping_with(
+        [] { std::this_thread::sleep_for(brief_release); }));
+    held->open_now();
+  }}.detach();
+  require_drained({1, 0, 0}, release_grace, grace_overrun);
+  std::exit(torn_down);
+}
+
 [[noreturn]] void release_after_a_skip() {
   alarm(child_limit_seconds);
   auto* held = new rr::test::gate;
@@ -215,6 +235,11 @@ TEST_F(ExitWorkerDeathTest,
        HandlersRegisteredAfterTheFirstJobRunBeforeTheWorkerSkipsTeardown) {
   EXPECT_EXIT(job_calls_exit_after_later_handlers(),
               ::testing::ExitedWithCode(exited_in_job), "^atexit\nstatic\n$");
+}
+
+TEST_F(ExitWorkerDeathTest, AReleaseQueuedAsTheLastJobEndsGetsAGraceOfItsOwn) {
+  EXPECT_EXIT(a_release_after_the_last_job_gets_its_grace(),
+              ::testing::ExitedWithCode(torn_down), "^$");
 }
 
 TEST_F(ExitWorkerDeathTest, AReleaseAfterASkipLeaksInsteadOfHangingTheExit) {
