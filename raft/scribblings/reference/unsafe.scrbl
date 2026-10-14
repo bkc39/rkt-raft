@@ -174,9 +174,12 @@ otherwise. Released resources or arrays raise @racket[exn:fail:raft] of kind
 where the calling thread cannot wait. A number its type refuses raises
 @racket[exn:fail:contract] naming @racket[who].
 
-The job holds what it uses, the handle and each array's memory, until it
-returns, even if the calling thread is killed or the arrays and resources
-become unreachable. Each view is bound once the work queued on its array's
+The job holds what it uses, the handle, each array's memory and each
+deposit, until it returns, even if the calling thread is killed or the
+arrays, deposits and resources become unreachable. A deposit that cannot be
+bound raises @racket[exn:fail:raft] of kind @racket['logic] before the job
+runs, as does a job that cannot be submitted; either closes the deposits
+bound before it. Each view is bound once the work queued on its array's
 stream is done. The calling thread waits with breaks disabled: a break that
 arrives meanwhile is raised when the job returns, and its outputs are
 dropped. When the process exits, a running job is waited for as
@@ -229,8 +232,7 @@ A declaration of the wrong size is refused:
 (eval:error (kc-fit-job/short 'kmeans-fit (current-device-resources) X #f fitted 0))
 ]
 
-A deposit parameter takes outputs sized by the call (@racket[deposit]); the
-job closes the deposit when it returns:
+A deposit parameter takes outputs sized by the call (@racket[deposit]):
 
 @examples[#:eval ev #:label #f
 (define labels (device-vector 300 #:dtype 'int32))
@@ -238,8 +240,7 @@ job closes the deposit when it returns:
 (define-job kc-cluster-members-job canary "kc_cluster_members_job" (handle view view _int32 deposit))
 (define found (deposit))
 (kc-cluster-members-job 'cluster-members (current-device-resources) X labels 0 found)
-(match-define (list found-indices found-rows) (deposit->list found))
-(= (car (shape found-rows)) (car (shape found-indices)))
+(deposit->list found)
 (eval:error (kc-cluster-members-job 'cluster-members (current-device-resources) X labels 0 found))
 ]}
 
@@ -424,9 +425,7 @@ empty holds no arrays. A deposit is bound once: binding it again, even while
 a @tech{job} is still filling it, raises @racket[exn:fail:raft] of
 kind @racket['logic]: ``the deposit is already bound'', ``already filled''
 or ``closed'', whichever it is. Make the deposit on the
-resources the call runs on. Two identical @racket[id]s are a syntax error.
-A @tech{job} takes a deposit as a @racket[deposit] parameter instead
-(@racket[define-job]); the job closes it when its entry returns.}
+resources the call runs on. Two identical @racket[id]s are a syntax error.}
 
 @defproc[(deposit->list [d deposit?]) (listof (or/c device-vector? device-matrix?))]{
 
@@ -434,8 +433,10 @@ Returns the arrays of @racket[d]'s regions, in order, with the shapes,
 layouts and dtypes the native call recorded: the same arrays on every call.
 Each holds the native owner: it is freed, exactly once, when the deposit and
 all its arrays are gone, on the deposit's stream, and it outlives the
-resources object it was made from. An open deposit raises
-@racket[exn:fail:raft] of kind @racket['logic].}
+resources object it was made from. A deposit not yet closed, inside
+@racket[with-deposits] or while a @tech{job} that holds it runs, raises
+@racket[exn:fail:raft] of kind @racket['logic]: ``the deposit is still
+open''.}
 
 @examples[#:eval ev
 (define members (deposit))
@@ -653,8 +654,8 @@ records its status and, on failure, the kind and message from @tt{slot}, the
 library's error slot, read on the worker right after @tt{f} returns. @tt{f}
 returns @tt{int} and takes only @tt{void*} (the handle), @tt{const rr_view*},
 @tt{rr_deposit*}, numbers, and pointers to non-const numbers (its outputs);
-anything else does not compile (@tt{raftrkt::job_parameter}). @tt{raftrkt::job_args_size<&f>}
-is the block's size.
+anything else does not compile (@tt{raftrkt::job_parameter}).
+@tt{raftrkt::job_args_size<&f>} is the block's size.
 
 @bold{What is frozen.} @tt{rr_view}, @tt{RR_MAX_RANK} and the dtype and memory
 codes; @tt{rr_buffer_view}; @tt{rr_resources_handle}; @tt{rr_abi_tag},

@@ -1239,7 +1239,8 @@ since cuSPARSE's error string for it is only "out of memory"). The frozen rule i
   the eventfd, so a caller woken by its job never counts it in flight
   (`Executor.AJobLeavesTheRegistryBeforeItIsDone` stalls the eventfd write
   to pin the order). A submit asks for admission before it prepares the
-  job, so a refused submit copies, opens and pins nothing; a preparation
+  job, so a refused submit copies, opens and pins nothing (it closes the
+  deposits it was given, as the worker would have); a preparation
   that throws erases the bound again.
 - **Two further departures from the spec's letter** (#32 review). The
   exit hook's `register-custodian-shutdown` result is discarded, not held
@@ -1293,8 +1294,12 @@ since cuSPARSE's error string for it is only "out of memory"). The frozen rule i
 - **The ABI version stays 1**; the additions are listed as such and raft's
   package version is 0.2.
 - **`with-deposits` is its own form**, so `with-array-views` stays frozen.
-  A job pins the holder natively and closes it on the worker;
-  `with-deposits` (short calls) closes on every exit. A closed record
+  A job pins the holder natively and closes it on the worker (or at a
+  refused submit, which pins nothing); `define-job` binds a job's deposits
+  through `call-with-deposits-bound` (`deposit.rkt`, over `with-release`),
+  which closes those it bound when a later binding or the submit raises and
+  otherwise leaves them to the worker. `with-deposits` (short calls) closes
+  on every exit. A closed record
   refuses a fill.
   `rr_holder_record` hands the record out once (every exit closes, so no
   legitimate second binding exists). `deposit.hpp` first claims the record
@@ -1306,7 +1311,13 @@ since cuSPARSE's error string for it is only "out of memory"). The frozen rule i
   it wrote and refuses with "closed", and the caller's `unique_ptr` frees the
   owner. A refused claim says "being filled" for FILLING, "already
   filled" for FILLED and "closed" otherwise: a claimant can still unclaim or
-  lose to a close. Readers treat FILLING as OPEN. The shim's refusals: "the deposit is
+  lose to a close. Readers treat FILLING as OPEN. A deposit is adopted
+  only once it is CLOSED (#30 preflight, a departure from #22's spec, which
+  refused only OPEN and FILLING): a job publishes FILLED while its entry
+  still runs and the worker closes the deposit after the entry returns, so
+  `rr_holder_count` and `rr_holder_adopt` refuse FILLED with "still open"
+  too, and adoption happens after the compare-and-swap that closed the
+  record and stored `filled_at_close` (law 104). The shim's refusals: "the deposit is
   closed", "the deposit is already filled", "the deposit is already bound",
   "the deposit is still open", "the deposit has no region 3; it holds 2",
   "region 0 is already adopted".
