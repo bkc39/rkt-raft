@@ -211,6 +211,21 @@
   (check-exn #rx"duplicate binding name"
              (lambda () (convert-syntax-error (with-deposits ([a (deposit)] [a (deposit)]) a)))))
 
+(define (killed-after-filling)
+  (define r (current-device-resources))
+  (define d (deposit #:resources r))
+  (define filled-signal (make-semaphore 0))
+  (define (filled-then-blocked)
+    (semaphore-post filled-signal)
+    (sync never-evt))
+  (define caller (thread (lambda () (fill! d 'float64 3 4 #:resources r #:then filled-then-blocked))))
+  (check-equal? (sync filled-signal caller) filled-signal "the caller died before filling")
+  (kill-thread caller)
+  (check-pattern (deposit->list d) 'float64 3 4))
+
+(test-probe "law 8: a killed caller's filled deposit adopts, and its owner is released once"
+  (released-once "killed after filling" killed-after-filling (counts 1 1 1 2 0)))
+
 (test-probe "law 10: adopted arrays work wherever a raft array does"
   (match-define (list m _) (deposit->list (filled 'float32 3 4)))
   (match-define (list v _) (deposit->list (filled 'float32 7 #f)))

@@ -44,6 +44,7 @@ void expect_filled(const session& s) {
   EXPECT_EQ(failure(rr_holder_record(s.holder, &again)),
             "the deposit is already filled");
   EXPECT_EQ(again, nullptr);
+  expect_count(s.holder, 2);
 }
 
 void expect_closes_once(const session& s) {

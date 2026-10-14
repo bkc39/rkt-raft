@@ -48,12 +48,14 @@
                cols
                #:count [k 2]
                #:flags [flags 0]
-               #:resources [r (current-device-resources)])
+               #:resources [r (current-device-resources)]
+               #:then [then void])
   (with-deposits ([out d])
                  (with-array-views #:resources [h r] ()
                    (call/probe 'probe-deposit
                                (lambda ()
-                                 (probe-deposit h out (dtype->code dt) k rows (or cols -1) flags))))))
+                                 (probe-deposit h out (dtype->code dt) k rows (or cols -1) flags))))
+                 (then)))
 
 (define (filled dt
                 rows

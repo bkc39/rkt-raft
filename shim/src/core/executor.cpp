@@ -215,6 +215,7 @@ rr_job* queued_job(rr_resources& r, rr_job_fn fn, const void* args,
   job->holders.reserve(n_holders);
   for (size_t i = 0; i < n_holders; ++i) {
     pin(*holders[i]);
+    holders[i]->job_bound.store(true, std::memory_order_relaxed);
     job->holders.push_back(holders[i]);
   }
   job->handle = r.handle;

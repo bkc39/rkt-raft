@@ -54,6 +54,8 @@ struct rr_holder {
   // Stored before the compare-and-swap that closes the record, and read only
   // after a load that sees it closed.
   std::atomic<bool> filled_at_close{false};
+  // Stored before the job's submit, which orders it before the job's fill.
+  std::atomic<bool> job_bound{false};
   std::atomic<bool> issued{false};
   std::array<bool, RR_MAX_REGIONS> adopted{};
   // Set only by the test probe: adopting this region fails, once.

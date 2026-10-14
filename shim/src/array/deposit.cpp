@@ -54,11 +54,22 @@ void keep_owner(rr_holder& holder) {
       holder.record.owner, owner_release{holder.record.release, holder.device});
 }
 
+bool adoptable(const rr_holder& holder) noexcept {
+  switch (state_of(holder)) {
+    case RR_DEPOSIT_CLOSED:
+      return true;
+    case RR_DEPOSIT_FILLED:
+      return !holder.job_bound.load(std::memory_order_relaxed);
+    default:
+      return false;
+  }
+}
+
 int32_t checked_count(const rr_holder& holder) {
-  if (state_of(holder) != RR_DEPOSIT_CLOSED) {
+  if (!adoptable(holder)) {
     throw logic_error("the deposit is still open");
   }
-  if (!holder.filled_at_close.load(std::memory_order_relaxed)) {
+  if (!filled(holder)) {
     return 0;
   }
   const rr_deposit& record = holder.record;

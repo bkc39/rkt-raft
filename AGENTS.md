@@ -1311,13 +1311,16 @@ since cuSPARSE's error string for it is only "out of memory"). The frozen rule i
   it wrote and refuses with "closed", and the caller's `unique_ptr` frees the
   owner. A refused claim says "being filled" for FILLING, "already
   filled" for FILLED and "closed" otherwise: a claimant can still unclaim or
-  lose to a close. Readers treat FILLING as OPEN. A deposit is adopted
-  only once it is CLOSED (#30 preflight, a departure from #22's spec, which
-  refused only OPEN and FILLING): a job publishes FILLED while its entry
-  still runs and the worker closes the deposit after the entry returns, so
-  `rr_holder_count` and `rr_holder_adopt` refuse FILLED with "still open"
-  too, and adoption happens after the compare-and-swap that closed the
-  record and stored `filled_at_close` (law 104). The shim's refusals: "the deposit is
+  lose to a close. Readers treat FILLING as OPEN. `rr_holder_count` and
+  `rr_holder_adopt` refuse a deposit with "still open" while it is open,
+  while it is being filled, and while a job that filled it still runs (#30,
+  a departure from #22's spec, which refused only OPEN and FILLING): a job
+  publishes FILLED while its entry still runs and the worker closes the
+  deposit after the entry returns, so `queued_job` sets the holder's
+  `job_bound` before the submit and adoption of a job's deposit waits for
+  the close (law 104). A FILLED deposit no job holds adopts unclosed: a
+  `with-deposits` caller killed after the fill never runs the close (law 8).
+  The shim's refusals: "the deposit is
   closed", "the deposit is already filled", "the deposit is already bound",
   "the deposit is still open", "the deposit has no region 3; it holds 2",
   "region 0 is already adopted".

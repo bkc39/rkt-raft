@@ -433,8 +433,8 @@ Returns the arrays of @racket[d]'s regions, in order, with the shapes,
 layouts and dtypes the native call recorded: the same arrays on every call.
 Each holds the native owner: it is freed, exactly once, when the deposit and
 all its arrays are gone, on the deposit's stream, and it outlives the
-resources object it was made from. A deposit not yet closed, inside
-@racket[with-deposits] or while a @tech{job} that holds it runs, raises
+resources object it was made from. While @racket[d] is open, while it is
+being filled, and while a @tech{job} that filled it still runs, raises
 @racket[exn:fail:raft] of kind @racket['logic]: ``the deposit is still
 open''.}
 
