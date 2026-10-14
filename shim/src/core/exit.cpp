@@ -1,5 +1,6 @@
 #include <unistd.h>
 
+#include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <condition_variable>
@@ -20,6 +21,7 @@ namespace rr {
 namespace {
 
 constexpr double unbounded_from = 1e9;
+constexpr double release_grace = 1.0;
 
 enum class verdict : uint8_t { open, clean, skip };
 
@@ -32,6 +34,7 @@ struct registry {
   bool backstop_armed = false;
   bool skip_armed = false;
   int64_t waiters = 0;
+  int64_t releases = 0;
 };
 
 // Allocated on first use and never destroyed: workers and the backstop use
@@ -59,6 +62,15 @@ int64_t count(const registry& r) noexcept {
   return static_cast<int64_t>(r.bounds.size());
 }
 
+int64_t running(const registry& r) noexcept {
+  return count(r) + r.releases;
+}
+
+double longest_bound(const registry& r) noexcept {
+  const double jobs = r.bounds.empty() ? 0 : *r.bounds.rbegin();
+  return r.releases > 0 ? std::max(jobs, release_grace) : jobs;
+}
+
 drained skip(registry& r, int64_t in_flight) noexcept {
   r.decided = verdict::skip;
   if (!r.skip_armed) {
@@ -66,19 +78,19 @@ drained skip(registry& r, int64_t in_flight) noexcept {
     static_cast<void>(on_exit(skip_teardown, nullptr));
   }
   r.changed.notify_all();
-  return {in_flight, count(r)};
+  return {in_flight, running(r)};
 }
 
 drained wait_out(registry& r, std::unique_lock<std::mutex>& held) noexcept {
   const auto start = std::chrono::steady_clock::now();
   const int64_t in_flight = count(r);
   for (;;) {
-    if (r.bounds.empty()) {
+    if (running(r) == 0) {
       r.decided = verdict::clean;
       r.changed.notify_all();
       return {in_flight, 0};
     }
-    const double longest = *r.bounds.rbegin();
+    const double longest = longest_bound(r);
     if (std::isinf(longest)) {
       r.changed.wait(held);
       continue;
@@ -98,7 +110,7 @@ drained drain() noexcept {
   std::unique_lock<std::mutex> held{r.lock};
   r.closing = true;
   if (r.decided != verdict::open) {
-    return {count(r), count(r)};
+    return {count(r), running(r)};
   }
   ++r.waiters;
   const drained d = wait_out(r, held);
@@ -107,6 +119,9 @@ drained drain() noexcept {
 }
 
 void backstop(int status, void* /*unused*/) noexcept {
+  if (on_native_worker()) {
+    skip_teardown(status, nullptr);
+  }
   bool decided = false;
   {
     registry& r = jobs();
@@ -119,6 +134,28 @@ void backstop(int status, void* /*unused*/) noexcept {
 }
 
 }  // namespace
+
+bool& on_native_worker() noexcept {
+  thread_local bool on = false;
+  return on;
+}
+
+bool admit_release() noexcept {
+  registry& r = jobs();
+  const std::lock_guard<std::mutex> held{r.lock};
+  if (r.decided != verdict::open) {
+    return false;
+  }
+  ++r.releases;
+  return true;
+}
+
+void retire_release() noexcept {
+  registry& r = jobs();
+  const std::lock_guard<std::mutex> held{r.lock};
+  --r.releases;
+  r.changed.notify_all();
+}
 
 double exit_bound(double seconds) noexcept {
   if (std::isnan(seconds) || seconds <= 0) {
@@ -162,6 +199,12 @@ int64_t rr_jobs_in_flight(void) {
   rr::registry& r = rr::jobs();
   const std::lock_guard<std::mutex> held{r.lock};
   return rr::count(r);
+}
+
+int64_t rr_releases_pending(void) {
+  rr::registry& r = rr::jobs();
+  const std::lock_guard<std::mutex> held{r.lock};
+  return r.releases;
 }
 
 int64_t rr_exit_waiters(void) {

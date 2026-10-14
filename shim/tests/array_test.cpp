@@ -5,6 +5,7 @@
 #include <vector>
 
 #include "gpu.hpp"
+#include "jobs.hpp"
 #include "raftrkt/c_api.h"
 
 namespace {
@@ -50,12 +51,14 @@ TEST_F(Buffers, ABufferOutlivesItsResources) {
 
 TEST_F(Buffers, FreeCountsEveryRelease) {
   constexpr int releases = 5;
+  ASSERT_TRUE(rr::test::releases_settled());
   const uint64_t before = rr_buffer_drop_count();
   for (int i = 0; i < releases; ++i) {
     rr_buffer* b = nullptr;
     ASSERT_EQ(rr_buffer_alloc(resources_, 64, &b), RR_OK) << rr_last_error();
     rr_buffer_free(b);
   }
+  EXPECT_TRUE(rr::test::releases_settled());
   EXPECT_EQ(rr_buffer_drop_count(), before + releases);
 }
 

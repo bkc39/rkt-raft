@@ -8,6 +8,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstdint>
+#include <cstring>
 #include <limits>
 #include <mutex>
 #include <string>
@@ -170,7 +171,7 @@ void drain(int fd) {
 
 TEST(Executor, AJobLeavesTheRegistryBeforeItIsDone) {
   rr_resources* r = rr::test::host_resources();
-  const int64_t live = rr_jobs_live();
+  const int64_t live = rr::test::settled_jobs_live();
   const int64_t in_flight = rr_jobs_in_flight();
   rr::test::gate g;
   job_args args{};
@@ -217,6 +218,8 @@ TEST(Executor, JobsOnOneResourcesRunInOrderOneAtATime) {
 }
 
 TEST(Executor, JobsOnTwoResourcesRunAtOnce) {
+  arrived = 0;
+  meetings = 0;
   std::array<rr_resources*, 2> rs{rr::test::host_resources(),
                                   rr::test::host_resources()};
   std::array<rr_job*, 2> jobs{};
@@ -234,7 +237,7 @@ TEST(Executor, JobsOnTwoResourcesRunAtOnce) {
 }
 
 TEST(Executor, EachReleaseOrderFreesTheJobOnce) {
-  const int64_t live = rr_jobs_live();
+  const int64_t live = rr::test::settled_jobs_live();
   const std::ptrdiff_t fds = rr::test::open_fds();
   rr_resources* r = rr::test::host_resources();
   rr::test::gate g;
@@ -328,6 +331,7 @@ void take_step(step s, rr_buffer* buffer, rr_job* job, rr::test::gate& g) {
   switch (s) {
     case step::free_buffer:
       rr_buffer_free(buffer);
+      ASSERT_TRUE(rr::test::releases_settled());
       break;
     case step::release_job:
       rr_job_release(job);
@@ -345,6 +349,7 @@ void pin_in_order(const std::array<step, 3>& steps) {
   ASSERT_EQ(rr_resources_create(0, &r), RR_OK) << rr_last_error();
   rr_buffer* buffer = nullptr;
   ASSERT_EQ(rr_buffer_alloc(r, 1024, &buffer), RR_OK) << rr_last_error();
+  ASSERT_TRUE(rr::test::releases_settled());
   const uint64_t drops = rr_buffer_drop_count();
   rr::test::gate g;
   job_args args{};
@@ -373,4 +378,54 @@ TEST(Executor, AJobPinsItsBuffersUntilItIsDone) {
   do {
     pin_in_order(steps);
   } while (std::next_permutation(steps.begin(), steps.end()));
+}
+
+namespace {
+
+void throws_a_number(void* /*args*/, size_t /*args_len*/,
+                     rr_job_outcome* /*outcome*/) {
+  throw 42;  // NOLINT(hicpp-exception-baseclass)
+}
+
+void fills_the_message(void* args, size_t /*args_len*/,
+                       rr_job_outcome* outcome) {
+  const auto* tail = static_cast<const char*>(args);
+  outcome->status = RR_ERROR;
+  std::memset(outcome->message, 'a', RR_JOB_MESSAGE_BYTES);
+  std::memcpy(outcome->message + RR_JOB_MESSAGE_BYTES - 2, tail, 2);
+}
+
+std::string unterminated_message(const std::array<char, 2>& tail) {
+  rr_resources* r = rr::test::host_resources();
+  rr_job* job = nullptr;
+  EXPECT_EQ(rr_job_submit(r, fills_the_message, tail.data(), tail.size(),
+                          nullptr, 0, nullptr, 0, pin_bound, &job),
+            RR_OK);
+  EXPECT_TRUE(rr::test::wait_done(job));
+  std::string message = rr_job_message(job);
+  rr_job_release(job);
+  rr_resources_free(r);
+  return message;
+}
+
+}  // namespace
+
+TEST(Executor, ARawEntryThrowingANonStandardExceptionFailsGenerically) {
+  rr_resources* r = rr::test::host_resources();
+  rr_job* job = rr::test::submit(r, job_args{}, pin_bound, throws_a_number);
+  ASSERT_TRUE(rr::test::wait_done(job));
+  int32_t kind = -1;
+  EXPECT_EQ(rr_job_status(job, &kind), RR_ERROR);
+  EXPECT_EQ(kind, RR_ERROR_GENERIC);
+  EXPECT_STREQ(rr_job_message(job), "unknown exception");
+  rr_job_release(job);
+  rr_resources_free(r);
+}
+
+TEST(Executor, AnUnterminatedMessageIsCutInsideItsBuffer) {
+  const std::string ascii = unterminated_message({'a', 'a'});
+  EXPECT_EQ(ascii.size(), RR_JOB_MESSAGE_BYTES - 1);
+  EXPECT_EQ(ascii, std::string(RR_JOB_MESSAGE_BYTES - 1, 'a'));
+  const std::string cut = unterminated_message({'\xc3', '\xa9'});
+  EXPECT_EQ(cut, std::string(RR_JOB_MESSAGE_BYTES - 2, 'a'));
 }

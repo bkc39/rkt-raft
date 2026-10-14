@@ -28,8 +28,8 @@
          (only-in racket/match match match-define)
          ;; whole-module: it also provides syntax/parse at phase 1
          syntax/parse/define
-         (only-in "array.rkt" array-buffer-handle settled-view)
-         (only-in "deposit.rkt" call-with-deposits-bound)
+         (only-in "array.rkt" array-buffer-handle device-array? settled-view)
+         (only-in "deposit.rkt" call-with-deposits-bound deposit?)
          (only-in "error.rkt" call/raft)
          (only-in "exit.rkt" current-exit-wait)
          (only-in "exn.rkt" exn:fail:raft raise-native raise-raft)
@@ -98,15 +98,18 @@
 
 (define (pack-view who block offset _native a) ;; noqa
   (cond
-    [a
+    [(device-array? a)
      (ptr-set! block _rr-view 'abs offset (settled-view who a))
      (array-buffer-handle a)]
-    [else
+    [(not a)
      (ptr-set! block _rr-view 'abs offset (blank-view))
-     #f]))
+     #f]
+    [else (raise-raft who 'logic "expected a device array or #f for a view, given ~e" a)]))
 
-(define (pack-deposit _who _block offset _native d) ;; noqa
-  (cons offset d))
+(define (pack-deposit who _block offset _native d) ;; noqa
+  (cond
+    [(deposit? d) (cons offset d)]
+    [else (raise-raft who 'logic "expected a deposit for a deposit parameter, given ~e" d)]))
 
 (define ((pack-number type) who block offset _native v) ;; noqa
   (set-number! who block type offset v)
@@ -171,12 +174,13 @@
   (define native (resources-handle who resources))
   (define block (make-bytes size 0))
   (define-values (deposits pins) (pack! who block native slots offsets args))
+  (define packed (resources-handle who resources))
   (define finish
     (parameterize-break
      #f
      (with-release #:who
                    who
-                   ([job (submit who native entry block pins deposits seconds) rr-job-release])
+                   ([job (submit who packed entry block pins deposits seconds) rr-job-release])
        (job-finish who job block outputs exn))))
   (keep-reachable (list resources args))
   (parameterize-break (break-enabled) (void))

@@ -26,5 +26,8 @@ struct executor_slot {
 bool admit_job(double bound);
 void retire_job(double bound) noexcept;
 double exit_bound(double seconds) noexcept;
+bool admit_release() noexcept;
+void retire_release() noexcept;
+bool& on_native_worker() noexcept;
 
 }  // namespace rr

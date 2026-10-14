@@ -22,7 +22,7 @@
                   resources-sync!
                   with-device-resources)
          (only-in "../private/foreign/memory.rkt" resources-drop-count)
-         (only-in "private/collect.rkt" collect-until drain-finalizers!)
+         (only-in "private/collect.rkt" collect-until drain-finalizers! releases-settled?)
          (only-in "private/gpu.rkt" test-gpu test-without-gpu)
          (only-in "private/python-env.rkt" run-twin test-twin)
          (only-in "private/raft-error.rkt" check-raft-error))
@@ -38,6 +38,7 @@
   (drain-finalizers!)
   (define before (resources-drop-count))
   (thunk)
+  (releases-settled?)
   (- (resources-drop-count) before))
 
 (test-gpu "a thread asking twice gets the same default resources"

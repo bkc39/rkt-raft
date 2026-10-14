@@ -244,6 +244,57 @@
              (define again (closed-gate))
              (open-gate! again)
              (printf "~a ~a ~a\n" code first-answer (gate-job 'demo r again)))))
+        (place-parallel-exits
+         .
+         (module program racket/base
+           (require racket/place
+                    raft
+                    raft/private/resources
+                    raft/tests/private/gate
+                    raft/tests/private/probe)
+           (define (start-worker)
+             (place ch
+               (define loaded (make-channel))
+               (thread #:pool 'own
+                       (lambda ()
+                         (dynamic-require 'raft #f)
+                         (channel-put loaded 'raft)))
+               (void (channel-get loaded))
+               (define host-resources (dynamic-require 'raft/private/resources 'host-resources))
+               (define probe-sleep-job (dynamic-require 'raft/tests/private/probe 'probe-sleep-job))
+               (probe-sleep-job 'demo (host-resources) 0)
+               (exit 5)))
+           (module+ main
+             (probe-mark-atexit!)
+             (define r (host-resources))
+             (define g (closed-gate))
+             (define first-job (thread (lambda () (gate-job 'demo r g)) #:keep 'results))
+             (void (await-entry g))
+             (define worker (start-worker))
+             (define code (place-wait worker))
+             (open-gate! g)
+             (define first-answer (thread-wait first-job))
+             (define again (closed-gate))
+             (open-gate! again)
+             (printf "~a ~a ~a\n" code first-answer (gate-job 'demo r again)))))
+        (place-churns-at-exit
+         .
+         (module program racket/base
+           (require racket/place
+                    raft)
+           (define (start-churn)
+             (place ch
+               (define device-vector (dynamic-require 'raft 'device-vector))
+               (define release-array! (dynamic-require 'raft/private/array 'release-array!))
+               (place-channel-put ch 'churning)
+               (let loop ()
+                 (release-array! (device-vector 1024))
+                 (device-vector 64)
+                 (loop))))
+           (module+ main
+             (void (place-channel-get (start-churn)))
+             (sleep 0.05)
+             (exit 7))))
         (own-bound
          .
          (module program racket/base
@@ -330,6 +381,29 @@
                     raft/tests/private/gate
                     raft/tests/private/probe)
            (probe-mark-atexit!)
+           (define g (closed-gate))
+           (parameterize ([current-exit-wait 0.5])
+             (thread (lambda ()
+                       (probe-late-static-job 'demo (host-resources) (gate-entered-fd g) (gate-fd g) -1))))
+           (await-entry g)
+           (exit 19)))
+        (late-static-skip-parallel
+         .
+         (module program racket/base
+           (define loaded (make-channel))
+           (thread #:pool 'own
+                   (lambda ()
+                     (dynamic-require 'raft #f)
+                     (channel-put loaded 'raft)))
+           (void (channel-get loaded))
+           (define current-exit-wait (dynamic-require 'raft 'current-exit-wait))
+           (define host-resources (dynamic-require 'raft/private/resources 'host-resources))
+           (define closed-gate (dynamic-require 'raft/tests/private/gate 'closed-gate))
+           (define await-entry (dynamic-require 'raft/tests/private/gate 'await-entry))
+           (define gate-entered-fd (dynamic-require 'raft/tests/private/gate 'gate-entered-fd))
+           (define gate-fd (dynamic-require 'raft/tests/private/gate 'gate-fd))
+           (define probe-late-static-job (dynamic-require 'raft/tests/private/probe 'probe-late-static-job))
+           ((dynamic-require 'raft/tests/private/probe 'probe-mark-atexit!))
            (define g (closed-gate))
            (parameterize ([current-exit-wait 0.5])
              (thread (lambda ()

@@ -174,12 +174,18 @@ releases every bound resources object when control leaves the form by return,
 raise or escape. Release is idempotent; re-entering the body by a
 continuation raises @racket[exn:fail:raft] of kind @racket['logic]. A
 @tech{device array} allocated with the resources keeps the stream and
-handles alive until it is freed.
+handles alive until it is freed. The native teardown runs on a library
+thread, so a release, explicit or by the finalizer, returns at once even when
+destroying a cuBLAS handle or freeing memory waits for the device.
 
 The finalizer alone is correct: it releases unreachable resources at some
 collection. The form gives their lifetime a clear timeline, a release at a
-known point, because resources hold GPU and driver state the collector cannot
-see: a CUDA stream and lazily created cuBLAS, cuSOLVER and cuSPARSE handles.
+known point, because resources hold GPU and driver state the collector sees
+only as an estimate: a CUDA stream, a @tech{job} worker thread and lazily
+created cuBLAS, cuSOLVER and cuSPARSE handles. Each resources object charges
+the collector about 1 MiB until it is released, so the defaults of
+short-lived threads are collected soon after the threads end; a cuBLAS
+handle alone holds several MiB of device memory.
 Scoped, they are released when the body exits:
 
 @examples[#:eval ev #:label #f
@@ -330,7 +336,11 @@ there. The exit logs to the @racket['raft] topic: the jobs in flight and the
 time waited at @racket['debug], and a skipped teardown at
 @racket['warning]. If only a place, and not the main place, instantiates
 @racketmodname[raft], the exit still waits, but native destructors registered
-after the first job may run first.
+after the first job may run first. Instantiating it from a parallel thread of
+the main place counts as the main place. A release still running on the
+library thread that tears resources and arrays down holds the exit the same
+way, for up to the largest bound in flight or one second, whichever is
+longer.
 
 @examples[#:eval ev
 (current-exit-wait)

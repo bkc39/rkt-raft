@@ -98,6 +98,7 @@ if(BUILD_TESTING)
     tests/deposit_test.cpp
     tests/executor_test.cpp
     tests/exit_test.cpp
+    tests/exit_worker_test.cpp
     tests/job_header_test.cpp
     tests/memory_test.cpp
     tests/resources_test.cpp

@@ -23,6 +23,7 @@
 #include "detail/internal_api.h"
 #include "detail/memory_resource.hpp"
 #include "gpu.hpp"
+#include "jobs.hpp"
 #include "raftrkt/c_api.h"
 
 namespace {
@@ -183,6 +184,7 @@ TEST_F(Pool, BuffersComeFromTheAsyncPool) {
       << rr_last_error();
   EXPECT_GE(used(), before + mebibyte);
   rr_buffer_free(b);
+  EXPECT_TRUE(rr::test::releases_settled());
   EXPECT_EQ(used(), before);
 }
 

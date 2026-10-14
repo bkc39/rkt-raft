@@ -1,11 +1,13 @@
 #include <gtest/gtest.h>
 
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
 #include <map>
 #include <set>
 #include <string>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -111,10 +113,16 @@ TEST(KMeans, FitsAndPredictsTheBlobsItMade) {
             static_cast<std::size_t>(clusters));
 }
 
+constexpr int release_polls = 1000;
+
 TEST(KMeans, EveryBufferOfARunIsFreed) {
   KC_REQUIRE_GPU();
   const uint64_t drops = rr_buffer_drop_count();
   EXPECT_EQ(fit_and_predict_blobs().outcome, "accepted");
+  for (int i = 0; i < release_polls && rr_buffer_drop_count() < drops + 4;
+       ++i) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  }
   EXPECT_EQ(rr_buffer_drop_count(), drops + 4);
 }
 
