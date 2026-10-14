@@ -165,11 +165,14 @@
 
 (test-probe "law 104: a deposit job's arrays are adopted only after the job closes the deposit"
   (define d (deposit))
-  (call-with-gated-job (gated probe-deposit-before-gate-job d 'int32)
+  (define job (gated probe-deposit-before-gate-job d 'int32))
+  (call-with-gated-job (lambda (g)
+                         (job g)
+                         'returned)
                        (lambda (g caller)
                          (check-raft-error 'logic
                                            "deposit->list: the deposit is still open"
                                            (lambda () (deposit->list d)))
                          (open-gate! g)
-                         (thread-wait caller)))
+                         (check-equal? (thread-wait caller) 'returned)))
   (check-pattern (deposit->list d) 'int32 3 4))
