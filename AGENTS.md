@@ -309,7 +309,9 @@ plans/scoping-plan.md         the approved plan (revision 5), as Markdown
 - **Exit** (`src/core/exit.cpp`). A registry of the bounds of jobs in
   flight and a count of the reapers' releases. `rr_exit_drain` waits for
   both to empty, up to the largest bound (at least one second while a
-  release is pending), and reports the jobs in flight and the jobs and
+  release is pending; once no job runs, a pending release gets that second
+  from the later of the drain's start and the last job's end, so a
+  place's teardown after a long fit is not cut off), and reports the jobs in flight and the jobs and
   releases still running; past it, it registers `on_exit(skip_teardown)`,
   which flushes stdout if unlocked and calls `_exit`, so no static
   destructor runs under a job. A release that arrives after a skip verdict

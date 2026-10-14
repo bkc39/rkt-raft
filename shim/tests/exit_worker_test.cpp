@@ -150,19 +150,21 @@ void exits_in_job(void* /*args*/, size_t /*args_len*/,
 
 [[noreturn]] void a_release_after_the_last_job_gets_its_grace() {
   alarm(child_limit_seconds);
-  auto* held = new rr::test::gate;
-  rr::test::submit(rr::test::host_resources(), rr::test::job_args{held},
-                   finite_bound);
-  if (!held->await_entry(entry_limit)) {
+  static rr::test::gate held;
+  rr_resources* r = rr::test::host_resources();
+  rr_job* job = rr::test::submit(r, rr::test::job_args{&held}, finite_bound);
+  if (!held.await_entry(entry_limit)) {
     fail("the job never started");
   }
-  std::thread{[held] {
+  std::thread{[] {
     std::this_thread::sleep_for(past_the_grace);
     rr_resources_free(rr::test::resources_dropping_with(
         [] { std::this_thread::sleep_for(brief_release); }));
-    held->open_now();
+    held.open_now();
   }}.detach();
   require_drained({1, 0, 0}, release_grace, grace_overrun);
+  rr_job_release(job);
+  rr_resources_free(r);
   std::exit(torn_down);
 }
 
