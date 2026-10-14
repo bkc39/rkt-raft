@@ -65,12 +65,12 @@ if(BUILD_TESTING)
   find_package(GTest REQUIRED)
   find_library(RAFTRKT_LIBRARY NAMES raftrkt REQUIRED)
 
-  add_executable(kmeans_canary_tests tests/canary_test.cpp)
+  add_executable(kmeans_canary_tests tests/canary_test.cpp tests/members_test.cpp)
   target_include_directories(kmeans_canary_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
   target_link_libraries(kmeans_canary_tests
     PRIVATE kmeans_canary raftrkt::headers "${RAFTRKT_LIBRARY}" GTest::gtest_main)
   kc_strict(kmeans_canary_tests)
-  list(APPEND kc_tidy_sources tests/canary_test.cpp)
+  list(APPEND kc_tidy_sources tests/canary_test.cpp tests/members_test.cpp)
 endif()
 
 find_program(CLANG_TIDY_EXECUTABLE NAMES clang-tidy)

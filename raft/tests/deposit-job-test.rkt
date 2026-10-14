@@ -135,17 +135,17 @@
   (check-pattern (deposit->list d) 'float64 3 4)
   (define broken (deposit))
   (with-release ([g (closed-gate) release-gate])
-    (define caller
+    (define breaking
       (thread (lambda ()
                 (with-handlers ([exn:break? (lambda (_) 'broken)])
                   (gated-deposit-job g broken 'float32 #:resources r)
                   'returned))
               #:keep 'results))
     (check-true (await-entry g))
-    (break-thread caller)
-    (check-false (sync/timeout 0.2 caller))
+    (break-thread breaking)
+    (check-false (sync/timeout 0.2 breaking))
     (open-gate! g)
-    (check-equal? (thread-wait caller) 'broken))
+    (check-equal? (thread-wait breaking) 'broken))
   (check-raft-error 'logic
                     "with-deposits: the deposit is closed"
                     (lambda () (with-deposits ([out broken]) out)))

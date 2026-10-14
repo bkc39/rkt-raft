@@ -96,7 +96,7 @@
         symbol<?))
 
 (define unsafe-names
-  '(define-job deposit
+  '(define-job deposit ;; noqa
                deposit->list
                deposit?
                raft-abi-pointer
