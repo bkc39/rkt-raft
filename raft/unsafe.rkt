@@ -5,13 +5,16 @@
          ;; whole-module: it also provides syntax/parse at phase 1
          syntax/parse/define
          (only-in "private/array.rkt" settled-view)
-         (only-in "private/error.rkt" call/raft exn:fail:raft)
+         (only-in "private/error.rkt" call/raft)
+         (only-in "private/exn.rkt" exn:fail:raft raise-native)
          (only-in "private/foreign/array.rkt" clear-view! keep-reachable)
          (only-in "private/foreign/core.rkt" rr-abi rr-resources-handle)
+         (only-in "private/job.rkt" define-job)
          (only-in "private/resource.rkt" with-release)
          (only-in "private/resources.rkt" resources-handle))
 
-(provide raft-abi-pointer
+(provide define-job ;; noqa
+         raft-abi-pointer
          resources->handle-pointer
          status-checker
          with-array-views)
@@ -24,15 +27,6 @@
 
 (define (resources->handle-pointer r)
   (handle-for 'resources->handle-pointer r))
-
-(define error-kinds #(generic out-of-memory cuda logic))
-
-(define (kind->symbol kind)
-  (cond
-    [(symbol? kind) kind]
-    [(and (exact-nonnegative-integer? kind) (< kind (vector-length error-kinds)))
-     (vector-ref error-kinds kind)]
-    [else 'generic]))
 
 (define (message->string message)
   (if (bytes? message)
@@ -47,11 +41,9 @@
                                           (if (eqv? status 0)
                                               (values results #f #f)
                                               (values #f (last-error) (last-error-kind))))))))
-  (unless results
-    (raise (exn (format "~a: ~a" who (message->string message))
-                (current-continuation-marks)
-                (kind->symbol kind))))
-  (apply values results))
+  (if results
+      (apply values results)
+      (raise-native exn who kind (message->string message))))
 
 (define (view-release a) ;; noqa
   (lambda (view) (clear-view! view a)))

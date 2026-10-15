@@ -13,6 +13,7 @@
 
 #include "detail/handles.hpp"
 #include "gpu.hpp"
+#include "jobs.hpp"
 #include "raftrkt/c_api.h"
 #include "raftrkt/error.hpp"
 
@@ -90,14 +91,20 @@ TEST(Errors, WithoutADriverDeviceQueriesAreCudaErrors) {
   EXPECT_EQ(rr_last_error_kind(), RR_ERROR_CUDA);
 }
 
-TEST(Resources, CreateSyncFree) {
-  RR_REQUIRE_GPU();
-  const uint64_t before = rr_resources_drop_count();
+void create_sync_free() {
   rr_resources* r = nullptr;
   ASSERT_EQ(rr_resources_create(0, &r), RR_OK) << rr_last_error();
   ASSERT_NE(r, nullptr);
   EXPECT_EQ(rr_resources_sync(r), RR_OK) << rr_last_error();
   rr_resources_free(r);
+}
+
+TEST(Resources, CreateSyncFree) {
+  RR_REQUIRE_GPU();
+  ASSERT_TRUE(rr::test::releases_settled());
+  const uint64_t before = rr_resources_drop_count();
+  create_sync_free();
+  EXPECT_TRUE(rr::test::releases_settled());
   EXPECT_EQ(rr_resources_drop_count(), before + 1);
 }
 
@@ -186,6 +193,7 @@ TEST(Resources, HandleRefusesNull) {
 }
 
 TEST(Resources, FreeAcceptsNull) {
+  ASSERT_TRUE(rr::test::releases_settled());
   const uint64_t before = rr_resources_drop_count();
   rr_resources_free(nullptr);
   rr_buffer_free(nullptr);

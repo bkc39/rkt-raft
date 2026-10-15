@@ -1,6 +1,29 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+suite_seconds=1800
+if [ -z "${RAFT_GPU_SUITE_BOUNDED:-}" ]; then
+  suite=
+  sig=
+  trap 'sig=INT; kill -TERM "${suite:-}" 2>/dev/null || true' INT
+  trap 'sig=TERM; kill -TERM "${suite:-}" 2>/dev/null || true' TERM
+  trap 'sig=HUP; kill -TERM "${suite:-}" 2>/dev/null || true' HUP
+  RAFT_GPU_SUITE_BOUNDED=1 timeout --kill-after=30 "$suite_seconds" "$BASH" "$0" "$@" &
+  suite=$!
+  [ -z "$sig" ] || kill -TERM "$suite" 2>/dev/null || true
+  while :; do
+    rc=0
+    wait "$suite" || rc=$?
+    kill -0 "$suite" 2>/dev/null || break
+  done
+  [ -z "$sig" ] || {
+    trap - "$sig"
+    kill -"$sig" $$
+  }
+  [ "$rc" -ne 124 ] || echo "gpu-suite: timed out after $suite_seconds s" >&2
+  exit "$rc"
+fi
+
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
 : "${RAFT_SHIM_TESTS:?run inside nix develop}"
@@ -53,7 +76,7 @@ LD_BIND_NOW=1 racket -l racket/base -l ffi/unsafe \
 echo "== Racket tests"
 canary=downstream/kmeans-canary/kmeans-canary
 raco make -v raft/main.rkt raft/unsafe.rkt scripts/check-bindings.rkt "$canary/main.rkt"
-raco test raft "$canary" >"$racket_log" 2>&1 || {
+raco test --process --timeout 45 raft "$canary" >"$racket_log" 2>&1 || {
   cat "$racket_log"
   exit 1
 }

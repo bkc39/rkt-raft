@@ -1,0 +1,36 @@
+#pragma once
+
+#include <cstdint>
+#include <memory>
+#include <mutex>
+
+struct rr_job;
+
+namespace rr {
+
+struct executor;
+
+struct executor_slot {
+  executor_slot() = default;
+  executor_slot(const executor_slot&) = delete;
+  executor_slot& operator=(const executor_slot&) = delete;
+  executor_slot(executor_slot&&) = delete;
+  executor_slot& operator=(executor_slot&&) = delete;
+  ~executor_slot() = default;
+
+  void submit(rr_job* job);
+
+  std::mutex lock;
+  std::shared_ptr<executor> running;
+};
+
+bool admit_job(double bound);
+void retire_job(double bound) noexcept;
+double exit_bound(double seconds) noexcept;
+enum class admission : uint8_t { queued, in_place, leaked };
+
+admission admit_release() noexcept;
+void retire_release() noexcept;
+bool& on_native_worker() noexcept;
+
+}  // namespace rr

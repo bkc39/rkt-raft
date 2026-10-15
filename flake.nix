@@ -40,6 +40,7 @@
       minRacketVersion = "9.3";
       cudaArchitectures = "86";
       buildJobs = 4;
+      singleProcessSeconds = 60;
       capJobs = ''
         NIX_BUILD_CORES=$(( NIX_BUILD_CORES < ${toString buildJobs} ? NIX_BUILD_CORES : ${toString buildJobs} ))
         export CMAKE_BUILD_PARALLEL_LEVEL=$NIX_BUILD_CORES
@@ -98,8 +99,7 @@
         doCheck = true;
         checkPhase = ''
           runHook preCheck
-          ./raftrkt_tests
-          ./raftrkt_error_tests
+          ctest -j1 --output-on-failure
           runHook postCheck
         '';
         passthru = { inherit rapids; };
@@ -144,7 +144,7 @@
         doCheck = true;
         checkPhase = ''
           runHook preCheck
-          ./kmeans_canary_tests
+          ctest -j1 --output-on-failure
           runHook postCheck
         '';
       };
@@ -223,7 +223,8 @@
         doCheck = true;
         checkPhase = ''
           runHook preCheck
-          raco test raft
+          export RAFT_SHIM_PROBE="${shim.tests}/lib/libraftrkt_probe.so"
+          raco test --process --timeout 45 raft
           raco make -v raft/scribblings/raft.scrbl
           racket scripts/check-bindings.rkt
           runHook postCheck
@@ -359,7 +360,7 @@
       });
 
       sanitizerOptions = {
-        asan = "protect_shadow_gap=0:detect_leaks=1:abort_on_error=1";
+        asan = "protect_shadow_gap=0:detect_leaks=1:detect_stack_use_after_return=1:abort_on_error=1";
         ubsan = "print_stacktrace=1:halt_on_error=1";
       };
 
@@ -374,8 +375,8 @@
           runHook preCheck
           export ASAN_OPTIONS=${sanitizerOptions.asan}
           export UBSAN_OPTIONS=${sanitizerOptions.ubsan}
-          ./raftrkt_error_tests
-          ./raftrkt_tests
+          ctest -j1 --output-on-failure
+          timeout --kill-after=10 ${toString singleProcessSeconds} ./raftrkt_tests --gtest_brief=1
           runHook postCheck
         '';
       });
@@ -598,6 +599,8 @@
         racket-version = racketVersion;
         no-syntax-rule = grepGate "no-syntax-rule" "no-syntax-rule.sh";
         no-raw-malloc = grepGate "no-raw-malloc" "no-raw-malloc.sh";
+        bounded-death-tests = grepGate "bounded-death-tests" "bounded-death-tests.sh";
+        gpu-suite-signals = grepGate "gpu-suite-signals" "gpu-suite-signals.sh";
       };
 
       devShells.${system} = {

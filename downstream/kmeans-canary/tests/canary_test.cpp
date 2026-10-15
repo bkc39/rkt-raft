@@ -1,16 +1,19 @@
 #include <gtest/gtest.h>
 
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
 #include <map>
 #include <set>
 #include <string>
+#include <thread>
 #include <utility>
 #include <vector>
 
 #include "kmeans_canary.h"
 #include "raftrkt/c_api.h"
+#include "raftrkt/job.hpp"
 
 namespace {
 
@@ -217,11 +220,75 @@ TEST(KMeans, FitsAndPredictsTheBlobsItMade) {
             static_cast<std::size_t>(clusters));
 }
 
+constexpr int release_polls = 1000;
+constexpr auto release_poll_interval = std::chrono::milliseconds(10);
+
+bool releases_settled() {
+  for (int i = 0; i < release_polls && rr_releases_pending() != 0; ++i) {
+    std::this_thread::sleep_for(release_poll_interval);
+  }
+  return rr_releases_pending() == 0;
+}
+
 TEST(KMeans, EveryBufferOfARunIsFreed) {
   KC_REQUIRE_GPU();
+  ASSERT_TRUE(releases_settled());
   const uint64_t drops = rr_buffer_drop_count();
   EXPECT_EQ(fit_and_predict_blobs().outcome, "accepted");
+  EXPECT_TRUE(releases_settled());
   EXPECT_EQ(rr_buffer_drop_count(), drops + 4);
+}
+
+constexpr size_t fit_block_bytes = 520;
+constexpr size_t predict_block_bytes = 632;
+constexpr size_t make_blobs_block_bytes = 360;
+
+static_assert(raftrkt::job_args_size<&kc_fit> == fit_block_bytes);
+static_assert(raftrkt::job_args_size<&kc_predict> == predict_block_bytes);
+static_assert(raftrkt::job_args_size<&kc_make_blobs> == make_blobs_block_bytes);
+
+struct fit_block {
+  void* handle;
+  rr_view x;
+  rr_view sample_weight;
+  rr_view centroids;
+  int32_t init;
+  int32_t max_iter;
+  double tol;
+  int32_t n_init;
+  double oversampling_factor;
+  uint64_t seed;
+  double inertia;
+  int32_t n_iter;
+};
+
+static_assert(sizeof(fit_block) == raftrkt::job_args_size<&kc_fit>);
+
+TEST(Jobs, TheFitJobFitsAPackedBlock) {
+  KC_REQUIRE_GPU();
+  const resources res;
+  device_array x(res.r, RR_DTYPE_FLOAT32, {samples, features});
+  device_array truth(res.r, RR_DTYPE_INT32, {samples});
+  device_array direct(res.r, RR_DTYPE_FLOAT32, {clusters, features});
+  device_array packed(res.r, RR_DTYPE_FLOAT32, {clusters, features});
+  ASSERT_EQ(blobs(res, x, truth), "accepted");
+  const fitted expected = fit(res, x.view, direct);
+  ASSERT_EQ(expected.outcome, "accepted");
+  fit_block block{};
+  block.handle = res.handle;
+  block.x = x.view;
+  block.sample_weight.dtype = -1;
+  block.centroids = packed.view;
+  block.init = KC_INIT_KMEANS_PLUS_PLUS;
+  block.max_iter = max_iter;
+  block.tol = tol;
+  block.n_init = 1;
+  block.seed = fit_seed;
+  rr_job_outcome result{};
+  kc_fit_job(&block, sizeof block, &result);
+  ASSERT_EQ(result.status, RR_OK) << result.message;
+  EXPECT_NEAR(block.inertia, expected.inertia, 1e-4 * expected.inertia);
+  EXPECT_EQ(block.n_iter, expected.n_iter);
 }
 
 TEST(KMeans, Float64AndColumnMajorBlobs) {
@@ -307,6 +374,11 @@ struct pool_run {
   pool_bytes after;
 };
 
+pool_bytes settled_pool() {
+  EXPECT_TRUE(releases_settled());
+  return pool();
+}
+
 pool_run fit_in_pool() {
   const resources res;
   device_array x(res.r, RR_DTYPE_FLOAT32, {samples, features});
@@ -318,11 +390,11 @@ pool_run fit_in_pool() {
     return run;
   }
   run.outcome = outcome(kc_pool_reset_high(0));
-  run.before = pool();
+  run.before = settled_pool();
   if (run.outcome == "accepted") {
     run.outcome = fit(res, x.view, centroids).outcome;
   }
-  run.after = pool();
+  run.after = settled_pool();
   return run;
 }
 

@@ -1,6 +1,17 @@
 #lang racket/base
 
-(require (only-in ffi/unsafe _int32 _int64 cpointer? ptr-equal? ptr-ref)
+(require (only-in ffi/unsafe
+                  _fun
+                  _int
+                  _int32
+                  _int64
+                  _uint32
+                  _uintptr
+                  cpointer?
+                  get-ffi-obj
+                  ptr-equal?
+                  ptr-ref)
+         (only-in ffi/unsafe/atomic in-atomic-mode?)
          (only-in racket/generator in-generator yield)
          (only-in rackunit
                   check-equal?
@@ -167,8 +178,8 @@
   (check-not-false (sync/timeout 10 worker))
   (check-true (>= (unbox entered) (unbox released))))
 
-(define (checker . failure)
-  (status-checker (lambda () (car failure)) (lambda () (cadr failure))))
+(define (checker message kind)
+  (status-checker (lambda () message) (lambda () kind)))
 
 (test-case "status-checker answers the values after a zero status"
   (define check (checker #"unused" 0))
@@ -207,6 +218,25 @@
                     (lambda () 0)))
   (check 'demo (lambda () 0))
   (check-equal? reads 0))
+
+(define os-thread-id (get-ffi-obj "pthread_self" #f (_fun -> _uintptr)))
+(define sleep-microseconds (get-ffi-obj "usleep" #f (_fun _uint32 -> _int)))
+
+(test-case "status-checker calls the thunk in atomic mode on the caller's OS thread"
+  (define seen (box #f))
+  ((checker #"unused" 0) 'demo
+                         (lambda ()
+                           (set-box! seen (list (os-thread-id) (in-atomic-mode?)))
+                           0))
+  (check-equal? (unbox seen) (list (os-thread-id) #t)))
+
+(test-case "status-checker raises the thunk's own exception on the caller's thread"
+  (define check (checker #"unused" 0))
+  (check-exn #rx"^usleep: given value does not fit primitive C type"
+             (lambda () (check 'demo (lambda () (sleep-microseconds -1)))))
+  (check-exn #rx"^demo: contract violation"
+             (lambda () (check 'demo (lambda () (raise-argument-error 'demo "fixnum?" 'x)))))
+  (check-exn #rx"arity mismatch" (lambda () (check 'demo (lambda () (values))))))
 
 (test-gpu "the handle pointer and views of the default resources work together"
   (define r (current-device-resources))

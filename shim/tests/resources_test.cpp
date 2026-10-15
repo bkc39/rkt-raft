@@ -1,5 +1,6 @@
 #include <cuda_runtime_api.h>
 #include <gtest/gtest.h>
+#include <unistd.h>
 
 #include <atomic>
 #include <chrono>
@@ -19,10 +20,12 @@
 #include <string>
 #include <thread>
 
+#include "death.hpp"
 #include "detail/handles.hpp"
 #include "detail/internal_api.h"
 #include "detail/memory_resource.hpp"
 #include "gpu.hpp"
+#include "jobs.hpp"
 #include "raftrkt/c_api.h"
 
 namespace {
@@ -98,10 +101,6 @@ int only_the_first_use_installs() {
   return kind == rr::memory_resource_cuda ? 0 : 2;
 }
 
-[[noreturn]] void exit_with(int code) {
-  std::_Exit(code);
-}
-
 class MemoryResourceDeathTest : public ::testing::Test {
  protected:
   void SetUp() override {
@@ -112,13 +111,13 @@ class MemoryResourceDeathTest : public ::testing::Test {
 
 TEST_F(MemoryResourceDeathTest,
        TheFirstResourcesInstallThePoolWherePoolsAreSupported) {
-  EXPECT_EXIT(exit_with(first_use_installs_the_default()),
-              ::testing::ExitedWithCode(0), "");
+  RR_EXPECT_EXIT(std::_Exit(first_use_installs_the_default()),
+                 ::testing::ExitedWithCode(0), "");
 }
 
 TEST_F(MemoryResourceDeathTest, AResourceSetBeforehandIsKept) {
-  EXPECT_EXIT(exit_with(a_resource_set_beforehand_is_kept()),
-              ::testing::ExitedWithCode(0), "");
+  RR_EXPECT_EXIT(std::_Exit(a_resource_set_beforehand_is_kept()),
+                 ::testing::ExitedWithCode(0), "");
 }
 
 class PoolDeathTest : public MemoryResourceDeathTest {
@@ -133,8 +132,8 @@ class PoolDeathTest : public MemoryResourceDeathTest {
 };
 
 TEST_F(PoolDeathTest, OnlyTheFirstUseOfADeviceInstalls) {
-  EXPECT_EXIT(exit_with(only_the_first_use_installs()),
-              ::testing::ExitedWithCode(0), "");
+  RR_EXPECT_EXIT(std::_Exit(only_the_first_use_installs()),
+                 ::testing::ExitedWithCode(0), "");
 }
 
 class Pool : public ::testing::Test {
@@ -183,6 +182,7 @@ TEST_F(Pool, BuffersComeFromTheAsyncPool) {
       << rr_last_error();
   EXPECT_GE(used(), before + mebibyte);
   rr_buffer_free(b);
+  EXPECT_TRUE(rr::test::releases_settled());
   EXPECT_EQ(used(), before);
 }
 

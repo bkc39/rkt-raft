@@ -9,6 +9,7 @@ jobs:
   lint:
     name: Format and lint
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/nix-cache
@@ -22,12 +23,15 @@ jobs:
           .#checks.x86_64-linux.racket-review
           .#checks.x86_64-linux.no-syntax-rule
           .#checks.x86_64-linux.no-raw-malloc
+          .#checks.x86_64-linux.bounded-death-tests
+          .#checks.x86_64-linux.gpu-suite-signals
           .#checks.x86_64-linux.line-count
           .#checks.x86_64-linux.racket-version
 
   check:
     name: nix flake check
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     steps:
       # The CUDA 13 redistributables are unfree, so no public cache has them
       # and they unpack on the runner.
@@ -42,11 +46,12 @@ jobs:
           ts-oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
           ts-oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
       - name: Build, test, sanitize and lint (GPU cases print SKIP)
-        run: nix flake check --keep-going --print-build-logs
+        run: nix flake check --max-jobs 1 --keep-going --print-build-logs
 
   resyntax:
     name: Resyntax lint
     runs-on: ubuntu-latest
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v7
         with:

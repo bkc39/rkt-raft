@@ -1,10 +1,12 @@
 #ifndef KMEANS_CANARY_H
 #define KMEANS_CANARY_H
 
+#include <stddef.h>
 #include <stdint.h>
 
 #include "raftrkt/abi.h"
 #include "raftrkt/array.h"
+#include "raftrkt/job.h"
 
 #ifdef __GNUC__
 #define KC_API __attribute__((visibility("default")))
@@ -39,6 +41,17 @@ KC_API int kc_make_blobs(void* handle, const rr_view* out,
                          double cluster_std, int32_t shuffle,
                          double center_box_min, double center_box_max,
                          uint64_t seed);
+
+KC_API void kc_fit_job(void* args, size_t args_len, rr_job_outcome* outcome);
+KC_API void kc_predict_job(void* args, size_t args_len,
+                           rr_job_outcome* outcome);
+KC_API void kc_make_blobs_job(void* args, size_t args_len,
+                              rr_job_outcome* outcome);
+
+KC_API int kc_noop(int32_t value, int32_t* out);
+KC_API void kc_noop_job(void* args, size_t args_len, rr_job_outcome* outcome);
+KC_API int kc_sleep(int32_t milliseconds);
+KC_API void kc_sleep_job(void* args, size_t args_len, rr_job_outcome* outcome);
 
 KC_API int kc_current_is_async(int32_t device, int32_t* out);
 KC_API int kc_pool_bytes(int32_t device, int64_t* used, int64_t* high,

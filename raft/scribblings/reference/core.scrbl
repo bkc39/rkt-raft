@@ -137,7 +137,7 @@ Returns the calling thread's default resources for @racket[device], creating
 them on first use, or again after they are released. The array constructors
 and conversions of @racketmodname[raft/array] use it when given no
 @racket[#:resources]. Each Racket thread has its own, so
-threads never share a stream by accident.
+threads never share a stream, or a @tech{job} worker, by accident.
 
 @examples[#:eval ev
 (eq? (current-device-resources) (current-device-resources))
@@ -174,12 +174,19 @@ releases every bound resources object when control leaves the form by return,
 raise or escape. Release is idempotent; re-entering the body by a
 continuation raises @racket[exn:fail:raft] of kind @racket['logic]. A
 @tech{device array} allocated with the resources keeps the stream and
-handles alive until it is freed.
+handles alive until it is freed. The native teardown runs on a library
+thread, so a release, explicit or by the finalizer, returns at once (until
+the exit decides: see @secref["ref-core-exit"]) even when destroying a cuBLAS
+handle or freeing memory waits for the device.
 
 The finalizer alone is correct: it releases unreachable resources at some
 collection. The form gives their lifetime a clear timeline, a release at a
-known point, because resources hold GPU and driver state the collector cannot
-see: a CUDA stream and lazily created cuBLAS, cuSOLVER and cuSPARSE handles.
+known point, because resources hold GPU and driver state the collector sees
+only as an estimate: a CUDA stream, a @tech{job} worker thread and lazily
+created cuBLAS, cuSOLVER and cuSPARSE handles. Each resources object charges
+the collector about 1 MiB until it is released, so the defaults of
+short-lived threads are collected soon after the threads end; a cuBLAS
+handle alone holds several MiB of device memory.
 Scoped, they are released when the body exits:
 
 @examples[#:eval ev #:label #f
@@ -307,6 +314,64 @@ Recovering the procedure name from the message:
                      (string-split (exn-message e) ": "))
                    who)])
   (resources-sync! finished))
+]}
+
+@section[#:tag "ref-core-exit"]{Exiting while jobs run}
+
+@defparam[current-exit-wait seconds (>=/c 0) #:value 10]{
+
+How long the process's exit waits for a @tech{job} made while the parameter
+holds @racket[seconds]. A native binding's long calls run as jobs on worker
+threads (@racket[define-job]), so @racket[exit], or the main module
+returning, can come while one is still running. The exit first waits until
+each job has returned or has had its own @racket[seconds], counted from the
+start of the exit. If none is still running, the process exits normally.
+Otherwise it ends at once with the requested exit code, skipping the native
+libraries' C @tt{atexit} handlers and static destructors, which would
+otherwise run under the job. @racket[0] does not wait, and @racket[+inf.0]
+waits until the job returns.
+
+The value is read when a job is made, on the calling thread, so
+@racket[parameterize] covers the jobs made in its body and in threads created
+there. The exit logs to the @racket['raft] topic: the jobs in flight and the
+time waited at @racket['debug], and a skipped teardown, with the jobs and the
+releases still running, at @racket['warning]. If only a place, and not the
+main place, instantiates @racketmodname[raft], the exit still waits, but native
+destructors registered after the first job or release may run first.
+Instantiating it from a parallel thread of the main place counts as the main
+place. A release still running on the library threads that tear resources and
+arrays down holds the exit the same way, for up to one second after the exit
+begins or the last job in flight finishes, whichever is later: up to the
+largest bound in flight plus one second. The wait covers any release made
+before the exit decides. The exit decides as soon as no job and no release
+is running, so a release made after that, such as a place's teardown that
+starts once everything else has finished, is not waited for. It runs on its
+caller and can run while the native static destructors run, or be cut off
+by the process exit. A job or a release that itself calls the C
+@tt{exit} skips the teardown, but the C @tt{atexit} handlers and static
+destructors registered after the first job or release run first, on that
+thread, while other jobs and releases keep running.
+
+@examples[#:eval ev
+(current-exit-wait)
+(parameterize ([current-exit-wait 60])
+  (current-exit-wait))
+]
+
+A thread created inside @racket[parameterize] keeps the value for its jobs:
+
+@examples[#:eval ev #:label #f
+(define seen (make-channel))
+(parameterize ([current-exit-wait +inf.0])
+  (thread (lambda () (channel-put seen (current-exit-wait)))))
+(channel-get seen)
+]
+
+A negative or non-real value is refused:
+
+@examples[#:eval ev #:label #f
+(eval:error (current-exit-wait -1))
+(eval:error (parameterize ([current-exit-wait +nan.0]) 'unreached))
 ]}
 
 @section[#:tag "ref-core-version"]{Version and ABI}

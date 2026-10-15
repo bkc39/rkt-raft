@@ -8,6 +8,7 @@
          buffer-drop-count
          released?
          release-failure-count
+         release-once
          resources-allocator
          resources-drop-count
          rr-buffer-free

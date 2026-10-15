@@ -6,7 +6,7 @@
          (only-in racket/port with-output-to-string)
          (only-in racket/string string-split)
          (only-in racket/system system*)
-         (only-in raft/tests/private/bindings binding-c-id foreign-bindings))
+         (only-in raft/tests/private/bindings binding-c-id binding-signature foreign-bindings))
 
 (define library (build-path (collection-file-path "native-libs" "raft") "libraftrkt.so"))
 
@@ -24,18 +24,29 @@
               #:when (and symbol (regexp-match? #rx"^rr_" symbol)))
     symbol))
 
+(define (original-place? b)
+  (match (binding-signature b)
+    [(cons '_fun parts) (equal? (take-after '#:in-original-place? parts) '(#t))]
+    [_ #f]))
+
+(define (take-after key parts)
+  (match (memq key parts)
+    [(list* _ value _) (list value)]
+    [_ '()]))
+
 (define (missing-from present wanted)
   (sort (remove* present wanted) string<?))
 
 (define (main)
   (define digest (call-with-input-file library sha256-bytes))
   (printf "libraftrkt: ~a (sha256 ~a)\n" library (substring (bytes->hex-string digest) 0 16))
-  (define bound (map binding-c-id (foreign-bindings)))
+  (define bindings (foreign-bindings))
+  (define bound (map binding-c-id bindings))
   (define duplicates
     (filter-map (match-lambda
-                  [(list* id _ _) id]
+                  [(list* b _ _) (binding-c-id b)]
                   [_ #f])
-                (group-by values bound)))
+                (group-by (lambda (b) (cons (binding-c-id b) (original-place? b))) bindings)))
   (define exported (exports library))
   (define unbound (missing-from bound exported))
   (define missing (missing-from exported bound))

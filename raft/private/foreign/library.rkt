@@ -13,6 +13,10 @@
          _raft-handle/null ;; noqa
          _rr-buffer
          _rr-buffer/null ;; noqa
+         _rr-holder
+         _rr-holder/null ;; noqa
+         _rr-job
+         _rr-job/null ;; noqa
          _rr-resources
          _rr-resources/null ;; noqa
          released-tag)
@@ -48,4 +52,6 @@
 
 (define-cpointer-type _rr-resources #f (refuse-released 'device-resources) #f)
 (define-cpointer-type _rr-buffer #f (refuse-released 'device-array) #f)
+(define-cpointer-type _rr-holder #f (refuse-released 'deposit) #f)
+(define-cpointer-type _rr-job #f (refuse-released 'job) #f)
 (define-cpointer-type _raft-handle)

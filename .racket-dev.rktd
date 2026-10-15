@@ -17,17 +17,19 @@
   (format         "nix fmt --max-jobs 1 --cores 4 -- --ci")
   (no-syntax-rule ("scripts/no-syntax-rule.sh" #:shell ""))
   (no-raw-malloc  ("scripts/no-raw-malloc.sh" #:shell ""))
+  (bounded-death-tests ("scripts/bounded-death-tests.sh" #:shell ""))
+  (gpu-suite-signals ("scripts/gpu-suite-signals.sh" #:shell ""))
   (review         "scripts/review.sh")
   (compile        "raco make -v raft/main.rkt scripts/check-bindings.rkt")
-  (test           "raco test raft")
+  (test           "raco test --process --timeout 45 raft")
   (bindings       "racket scripts/check-bindings.rkt")
   ;; Needs the GPU host: shim gtests (also under compute-sanitizer memcheck),
   ;; an LD_BIND_NOW load, the Racket tests with twin parity, the census.
   ;; Prints the SKIP count.
   (gpu            "scripts/gpu-suite.sh")
-  (resyntax       "scripts/resyntax.sh origin/master")
+  (resyntax       "scripts/resyntax.sh")
   (docs           "scripts/render-docs.sh /tmp/rkt-raft-docs")
   (sanitizers     "nix build --max-jobs 1 --cores 4 --no-link .#checks.x86_64-linux.shim-sanitizers")
   ;; The CI-equivalent: every flake check (AGENTS.md lists them).
   (check          "nix flake check --max-jobs 1 --cores 4"))
- (push-gates (format no-syntax-rule no-raw-malloc review compile test bindings)))
+ (push-gates (format no-syntax-rule no-raw-malloc bounded-death-tests gpu-suite-signals review compile test bindings)))

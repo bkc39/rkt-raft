@@ -15,6 +15,7 @@
                   test-case)
          (only-in "../main.rkt"
                   current-device-resources
+                  current-exit-wait
                   device-count
                   device-resources
                   device-resources?
@@ -24,7 +25,7 @@
                   resources-sync!
                   with-device-resources)
          (only-in "../private/foreign/memory.rkt" resources-drop-count)
-         (only-in "private/collect.rkt" drain-finalizers!)
+         (only-in "private/collect.rkt" drain-finalizers! releases-settled?)
          (only-in "private/gpu.rkt" test-gpu)
          (only-in "private/raft-error.rkt" check-raft-error))
 
@@ -141,6 +142,7 @@
   (drain-finalizers!)
   (define before (resources-drop-count))
   (check-batch-times (list (run-worker 0 (list '((1.0 2.0) (3.0 4.0)) '((5.0 6.0))))) '((2 1)))
+  (check-true (releases-settled?))
   (check-equal? (resources-drop-count) (add1 before) "the worker released its resources"))
 
 (test-gpu "resources guide: a worker leaves its thread's default alone"
@@ -320,3 +322,21 @@
                   (resources-sync! scoped)
                   (resources-device scoped))
                 0))
+
+(test-case "reference: current-exit-wait"
+  (check-equal? (current-exit-wait) 10)
+  (check-equal? (parameterize ([current-exit-wait 60])
+                  (current-exit-wait))
+                60)
+  (define seen (make-channel))
+  (parameterize ([current-exit-wait +inf.0])
+    (thread (lambda () (channel-put seen (current-exit-wait)))))
+  (check-equal? (channel-get seen) +inf.0)
+  (check-raft-error 'logic
+                    "current-exit-wait: expected a non-negative real number of seconds, given -1"
+                    (lambda () (current-exit-wait -1)))
+  (check-raft-error 'logic
+                    "current-exit-wait: expected a non-negative real number of seconds, given +nan.0"
+                    (lambda ()
+                      (parameterize ([current-exit-wait +nan.0])
+                        'unreached))))

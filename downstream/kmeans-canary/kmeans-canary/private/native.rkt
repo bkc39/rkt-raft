@@ -14,18 +14,21 @@
          (only-in ffi/unsafe/define define-ffi-definer)
          (only-in ffi/unsafe/define/conventions convention:hyphen->underscore)
          (only-in raft exn:fail:raft)
-         (only-in raft/unsafe raft-abi-pointer status-checker))
+         (only-in raft/unsafe define-job raft-abi-pointer status-checker))
 
 (provide call/kc
          canary-path
          kc-check-abi
          kc-current-is-async
          kc-device-memory
-         kc-fit
-         kc-make-blobs
+         kc-fit-job
+         kc-make-blobs-job
+         kc-noop
+         kc-noop-job
          kc-pool-bytes
          kc-pool-reset-high
-         kc-predict)
+         kc-predict-job
+         kc-sleep-job)
 
 (define canary-path (getenv "RAFT_KMEANS_CANARY"))
 
@@ -47,29 +50,23 @@
 
 (define-kc kc-check-abi (_fun _pointer -> _int))
 
-(define-kc kc-fit
-  (_fun _pointer
-        _pointer
-        _pointer
-        _pointer
-        _int32
-        _int32
-        _double
-        _int32
-        _double
-        _uint64
-        (inertia : (_ptr o _double))
-        (n-iter : (_ptr o _int32))
-        -> (status : _int)
-        -> (values status inertia n-iter)))
+(define-kc kc-noop (_fun _int32 (out : (_ptr o _int32)) -> (status : _int) -> (values status out)))
 
-(define-kc kc-predict
-  (_fun _pointer _pointer _pointer _pointer _int32 _pointer (inertia : (_ptr o _double))
-        -> (status : _int)
-        -> (values status inertia)))
-
-(define-kc kc-make-blobs
-  (_fun _pointer _pointer _pointer _int32 _double _int32 _double _double _uint64 -> _int))
+(define-job kc-make-blobs-job
+            canary-library
+            "kc_make_blobs_job"
+            (handle view view _int32 _double _int32 _double _double _uint64))
+(define-job
+ kc-fit-job
+ canary-library
+ "kc_fit_job"
+ (handle view view view _int32 _int32 _double _int32 _double _uint64 (out _double) (out _int32)))
+(define-job kc-predict-job
+            canary-library
+            "kc_predict_job"
+            (handle view view view _int32 view (out _double)))
+(define-job kc-noop-job canary-library "kc_noop_job" (_int32 (out _int32)))
+(define-job kc-sleep-job canary-library "kc_sleep_job" (_int32))
 
 (define-kc kc-current-is-async
   (_fun _int32 (out : (_ptr o _int32)) -> (status : _int) -> (values status (= out 1))))

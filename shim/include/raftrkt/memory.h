@@ -17,6 +17,7 @@ RR_API void rr_buffer_free(rr_buffer* buffer);
 RR_API uint64_t rr_resources_drop_count(void);
 RR_API uint64_t rr_buffer_drop_count(void);
 RR_API uint64_t rr_release_failure_count(void);
+RR_API int64_t rr_releases_pending(void);
 
 #ifdef __cplusplus
 }
