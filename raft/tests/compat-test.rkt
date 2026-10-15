@@ -292,10 +292,9 @@
   (check-raft-error 'logic
                     "array->device-array: cannot infer a dtype: 0.0+1.0i is not a real number"
                     (lambda ()
-                      (parameterize ([error-value->string-handler
-                                      (lambda (v n)
-                                        (set! printed (cons v printed))
-                                        (print-value v n))])
+                      (parameterize ([error-value->string-handler (lambda (v n)
+                                                                    (set! printed (cons v printed))
+                                                                    (print-value v n))])
                         (array->device-array complex))))
   (check-false (ormap array? printed) (format "printed ~e" printed)))
 
