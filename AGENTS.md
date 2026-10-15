@@ -311,9 +311,13 @@ plans/scoping-plan.md         the approved plan (revision 5), as Markdown
   flight and a count of the reapers' releases. `rr_exit_drain` waits for
   both to empty, up to the largest bound (at least one second while a
   release is pending; once no job runs, a pending release gets that second
-  from the later of the drain's start and the last job's end, so a
-  place's teardown after a long fit is not cut off), and reports the jobs in flight and the jobs and
-  releases still running; past it, it registers `on_exit(skip_teardown)`,
+  from the later of the drain's start and the last job's end), and reports
+  the jobs in flight and the jobs and releases still running. The grace
+  covers only a release already queued when the last job ends: the drain
+  decides clean once nothing runs, so a place's teardown that begins after
+  the verdict is not waited for; it runs on its caller beside `exit()`'s
+  static destructors, or the process exit cuts it off (the short-call
+  window of S5). Past the bound the drain registers `on_exit(skip_teardown)`,
   which flushes stdout if unlocked and calls `_exit`, so no static
   destructor runs under a job. A release that arrives after a skip verdict
   leaks and is counted as a release failure (releasing it on the caller
@@ -1355,6 +1359,8 @@ since cuSPARSE's error string for it is only "out of memory"). The frozen rule i
   reaper releases. The window is real and unfixed: `exit-test.rkt` runs a
   place allocating and freeing in a loop through `(exit 7)` fifty times
   and has never seen it, so short calls are not counted (#27 round 4).
+  A place's teardown begun after a clean drain verdict is in the same
+  window (`AReleaseAfterACleanVerdictRunsOnItsCaller`).
 - **The refinements over the spike** (R1–R9): the exit wait runs in the
   main place's at-exit hook, with a C backstop (R1); a submit during exit
   answers a refused job, not NULL (R2); outputs are copied back with
