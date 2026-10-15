@@ -2,6 +2,8 @@
 
 #|review: ignore|#
 
-(require "core.rkt")
+(require "array.rkt"
+         "core.rkt")
 
-(provide (all-from-out "core.rkt"))
+(provide (all-from-out "array.rkt")
+         (all-from-out "core.rkt"))

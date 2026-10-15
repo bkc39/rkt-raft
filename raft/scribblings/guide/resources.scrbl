@@ -9,7 +9,7 @@ Every RAFT operation runs with a @tech{resources} object: a device, a CUDA
 @tech{stream} and the library handles it needs. This chapter builds one batch
 program around them: workers spread over the GPUs, each timing its batches on
 resources of its own, and a report of the workers that failed. A batch
-checks its rows.
+checks its rows; device arrays are the next chapter, @secref["arrays"].
 
 @section[#:tag "res-devices"]{Finding the GPU}
 
@@ -41,7 +41,9 @@ r
 (eq? r (current-device-resources 0))
 ]
 
-They are not the thread's default, @racket[current-device-resources].
+They are not the thread's default, @racket[current-device-resources], which
+the array constructors and conversions fall back to without
+@racket[#:resources].
 Owning its resources lets a worker release them without taking the default
 from other code on its thread.
 

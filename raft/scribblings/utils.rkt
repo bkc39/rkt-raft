@@ -2,6 +2,7 @@
 
 (require (for-label raft
                     racket/base
+                    racket/flonum
                     racket/format
                     racket/list
                     racket/match
@@ -21,6 +22,7 @@
          (all-from-out scribble/manual)
          (for-label (all-from-out raft
                                   racket/base
+                                  racket/flonum
                                   racket/format
                                   racket/list
                                   racket/match
@@ -35,6 +37,7 @@
                  [sandbox-security-guard current-security-guard]
                  [sandbox-path-permissions '((exists "/"))])
     (make-base-eval '(require raft
+                              racket/flonum
                               racket/format
                               racket/list
                               racket/match
