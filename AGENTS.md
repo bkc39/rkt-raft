@@ -664,9 +664,13 @@ Every `EXPECT_EXIT`/`EXPECT_DEATH`/`EXPECT_DEBUG_DEATH` body is a named
 function whose first statement is `alarm(...)` with a non-zero argument (a
 suffixed zero such as `0U` counts as zero), or `std::_Exit` itself, and
 nothing in the same test declares or assigns that name (a lambda, a function
-pointer, a `std::function`, on one line or wrapped);
+pointer, a `std::function`, initialised with `=`, braces or parentheses, on
+one line or wrapped);
 `scripts/bounded-death-tests.sh` fails on any other, after checking itself
-against `scripts/fixtures/death-test-bodies.cpp`.
+against `scripts/fixtures/death-test-bodies.cpp` and checking that a missing
+search root fails it. Known limit: the lint does not see an indented member
+such as a `TEST_F` fixture's `static void child()`, so a death test that
+calls it passes when an armed free `child()` exists.
 `scripts/gpu-suite.sh` runs under a 1800 s `timeout`; SIGINT, SIGTERM or
 SIGHUP to the script stops `timeout` and with it the suite's whole process
 group, and the script then dies by the same signal, so a calling loop stops
