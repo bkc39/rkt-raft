@@ -203,6 +203,14 @@ void exits_in_job(void* /*args*/, size_t /*args_len*/,
   std::exit(kept_the_skip);
 }
 
+#ifdef __SANITIZE_ADDRESS__
+[[noreturn]] void read_after_free() {
+  int* volatile freed = new int(1);
+  delete freed;
+  std::exit(*freed);
+}
+#endif
+
 class ExitWorkerDeathTest : public ::testing::Test {
  protected:
   void SetUp() override {
@@ -234,6 +242,13 @@ TEST_F(DeathMacroDeathTest, OnlyAnAbortOrLsansExitCodeReportsALeak) {
 TEST_F(DeathMacroDeathTest, ALeakWithoutAbortOnErrorExitsWithLsansExitCode) {
   const rr::test::options_appended no_abort("ASAN_OPTIONS", "abort_on_error=0");
   RR_EXPECT_EXIT(rr::test::leak_and_exit(),
+                 ::testing::ExitedWithCode(rr::test::lsan_exit_code), "^$");
+  RR_EXPECT_EXIT(rr::test::leak_and_exit(), rr::test::reports_a_leak, "^$");
+}
+
+TEST_F(DeathMacroDeathTest, AnyAsanReportInAChildExitsWithLsansExitCode) {
+  const rr::test::options_appended no_abort("ASAN_OPTIONS", "abort_on_error=0");
+  RR_EXPECT_EXIT(read_after_free(),
                  ::testing::ExitedWithCode(rr::test::lsan_exit_code), "^$");
 }
 #endif
