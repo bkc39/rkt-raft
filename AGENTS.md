@@ -706,7 +706,9 @@ log, not to the stderr its death test matches. ASan reads `exitcode`, a common
 flag, from `LSAN_OPTIONS` too, so with `abort_on_error` off any ASan report in
 those children, a leak or not, exits 23 (LSan's own code) rather than ASan's 1;
 with it on (CI's options) the report aborts. `rr::test::reports_a_leak` accepts
-either, so it means "ASan reported something", not "a leak". UBSan's runtime
+any abort or an exit of 23, which is how an ASan report ends in these
+children; it does not tell a leak from another ASan error, nor an ASan abort
+from any other abort. UBSan's runtime
 reads only `UBSAN_OPTIONS`, so its reports stay on stderr and still exit 1.
 Under a load average of 20 or more, LSan in a child that exits with live
 threads prints `Unable to get registers from thread N`, which is harmless (it
