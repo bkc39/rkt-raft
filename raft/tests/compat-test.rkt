@@ -284,15 +284,20 @@
   (check-exn #rx"match-define"
              (lambda () (device-matrix->matrix (vector->device-vector #(1.0 2.0))))))
 
-(test-gpu "a large complex array is refused quickly, without printing it"
+(test-gpu "a complex array is refused without printing it"
   (define complex
-    (array->fcarray (build-array #(500 500) (lambda (js) (make-rectangular (vector-ref js 0) 1.0)))))
-  (define start (current-inexact-milliseconds))
+    (array->fcarray (build-array #(2 2) (lambda (js) (make-rectangular (vector-ref js 0) 1.0)))))
+  (define printed '())
+  (define print-value (error-value->string-handler))
   (check-raft-error 'logic
                     "array->device-array: cannot infer a dtype: 0.0+1.0i is not a real number"
-                    (lambda () (array->device-array complex)))
-  (define elapsed (- (current-inexact-milliseconds) start))
-  (check-true (< elapsed 1000.0) (format "refused in ~a ms" elapsed)))
+                    (lambda ()
+                      (parameterize ([error-value->string-handler
+                                      (lambda (v n)
+                                        (set! printed (cons v printed))
+                                        (print-value v n))])
+                        (array->device-array complex))))
+  (check-false (ormap array? printed) (format "printed ~e" printed)))
 
 (test-gpu "where inference differs from NumPy's: rationals, booleans and 2^63"
   (check-equal? (dtype (vector->device-vector #(1/2 3))) 'float64)
