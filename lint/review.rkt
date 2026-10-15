@@ -8,7 +8,8 @@
 (provide review-syntax
          should-review?)
 
-(define scoped-test-forms (seteq 'test-gpu 'test-pools 'test-probe 'test-twin 'test-without-gpu))
+(define scoped-test-forms
+  (seteq 'test-canary 'test-gpu 'test-pools 'test-probe 'test-twin 'test-without-gpu))
 
 (define (named? head name)
   (eq? (syntax-e head) name))

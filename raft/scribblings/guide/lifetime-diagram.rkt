@@ -50,7 +50,11 @@
         (words "buffer: native handle, device, bytes")
         (words "phantom bytes: the GC sees the size")))
 (define resources (node racket-fill (words "resources r: a CUDA stream,") (words "library handles")))
-(define scoped (node release-fill (code "with-device-resources") (words "releases r at body exit")))
+(define scoped
+  (node release-fill
+        (hc-append (code "with-device-resources") (words ": releases r at body exit"))
+        (hc-append (code "with-array-views") (words ": holds the arrays for a native"))
+        (words "call, then clears its views")))
 (define pool
   (node gpu-fill (words "RMM async pool on the device") (code "cudaMallocAsync / cudaFreeAsync")))
 (define finalizer

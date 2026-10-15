@@ -40,6 +40,7 @@
          read-all
          read-array
          release-array!
+         settled-view
          strides->layout
          write-array!)
 
@@ -192,6 +193,10 @@
                     (device-array-strides a)))
   (call/raft who (lambda () (rr-buffer-view (array-buffer-handle a) (device-array-offset a) view)))
   view)
+
+(define (settled-view who a)
+  (await who a)
+  (bound-view who a))
 
 (define (array->string a)
   (define shape (device-array-shape a))

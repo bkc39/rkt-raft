@@ -21,6 +21,8 @@
           '_rr-buffer 'buffer-allocator
           '_rr-buffer/null 'buffer-allocator))
 
+(define borrowed-types '(_raft-handle _raft-handle/null))
+
 (define (strip-name part)
   (match part
     [(list _ ': type) type]
@@ -64,7 +66,10 @@
                (format "~a returns ~a without #:wrap ~a"
                        (binding-name b)
                        type
-                       (hash-ref handle-allocators type))))]))
+                       (hash-ref handle-allocators type)))
+             (for/list ([type (in-list returned)]
+                        #:when (and wrap (memq type borrowed-types)))
+               (format "~a returns the borrowed ~a with #:wrap ~a" (binding-name b) type wrap)))]))
 
 (define (release-problem by-name allocator release)
   (define b (hash-ref by-name release #f))
@@ -122,13 +127,16 @@
                 (sort (remove-duplicates (hash-values handle-allocators)) symbol<?))
   (check-equal? (release-violations (foreign-bindings) pairs) '()))
 
-(test-case "every handle type has an allocator in the audit"
+(define (audited? type)
+  (or (hash-has-key? handle-allocators type) (and (memq type borrowed-types) #t)))
+
+(test-case "every handle type has an allocator in the audit, or is borrowed"
   (define types (cpointer-types (foreign-modules)))
   (check-true (pair? types))
   (for ([type (in-list types)])
-    (check-true (hash-has-key? handle-allocators type) (format "~a" type))
+    (check-true (audited? type) (format "~a" type))
     (define nullable (string->symbol (format "~a/null" type)))
-    (check-true (hash-has-key? handle-allocators nullable) (format "~a" nullable))))
+    (check-true (audited? nullable) (format "~a" nullable))))
 
 (define cases (call-with-input-file case-file read))
 

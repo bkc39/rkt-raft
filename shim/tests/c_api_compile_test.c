@@ -8,6 +8,9 @@ _Static_assert(offsetof(rr_view, dtype) == 8, "dtype follows data");
 _Static_assert(offsetof(rr_view, shape) == 24, "shape follows rank");
 _Static_assert(offsetof(rr_view, strides) == 88, "strides follow shape");
 _Static_assert(RR_MAX_RANK == 8, "RR_MAX_RANK is 8");
+_Static_assert(sizeof(rr_abi_tag) == 56, "rr_abi_tag is 56 bytes");
+_Static_assert(offsetof(rr_abi_tag, handle_size) == 48, "handle_size last");
+_Static_assert(RR_ABI_VERSION == 1, "the frozen interface is ABI version 1");
 
 void raftrkt_c_api_compile_check(void);
 
@@ -19,6 +22,9 @@ void raftrkt_c_api_compile_check(void) {
   int (*device_count)(int32_t*) = rr_device_count;
   int (*resources_create)(int32_t, rr_resources**) = rr_resources_create;
   int (*resources_sync)(rr_resources*) = rr_resources_sync;
+  int (*resources_handle)(rr_resources*, void**) = rr_resources_handle;
+  int (*abi_compare)(const rr_abi_tag*, const rr_abi_tag*, char*, size_t) =
+      rr_abi_compare;
   void (*resources_free)(rr_resources*) = rr_resources_free;
   void (*buffer_free)(rr_buffer*) = rr_buffer_free;
   uint64_t (*resources_drop_count)(void) = rr_resources_drop_count;
@@ -37,6 +43,8 @@ void raftrkt_c_api_compile_check(void) {
   (void)device_count;
   (void)resources_create;
   (void)resources_sync;
+  (void)resources_handle;
+  (void)abi_compare;
   (void)resources_free;
   (void)buffer_free;
   (void)resources_drop_count;

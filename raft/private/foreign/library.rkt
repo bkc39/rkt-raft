@@ -10,6 +10,7 @@
 
 (provide define-raft
          native-library-error
+         _raft-handle/null ;; noqa
          _rr-buffer
          _rr-buffer/null ;; noqa
          _rr-resources
@@ -47,3 +48,4 @@
 
 (define-cpointer-type _rr-resources #f (refuse-released 'device-resources) #f)
 (define-cpointer-type _rr-buffer #f (refuse-released 'device-array) #f)
+(define-cpointer-type _raft-handle)

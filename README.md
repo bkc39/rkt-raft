@@ -37,19 +37,38 @@ A test that cannot run prints a line starting with `SKIP:`; a green run with
 SKIP lines has not tested what was skipped. Contributors and agents:
 [`AGENTS.md`](AGENTS.md).
 
+### Native bindings
+
+A downstream shim (the cuML binding, the k-means canary) compiles against the
+raftrkt headers and the RAPIDS 26.08 prefix that `libraftrkt` was built with,
+and never another RAPIDS. The flake provides them as `packages.raft-dev` (the
+headers and `find_package(raftrkt)`), `packages.shim` (`libraftrkt`) and
+`packages.rapids` (RAFT, RMM, cuML, cuVS and their libraries); a package
+outside this repository takes the flake as an input and uses them. The
+canary's derivation, `kmeansCanary` in `flake.nix`, is the pattern, and
+`downstream/kmeans-canary/` a minimal cuML binding on the frozen interface in
+`raft/unsafe`:
+
+```bash
+nix build --max-jobs 1 --cores 4 .#kmeans-canary
+export RAFT_KMEANS_CANARY=$PWD/result/lib/libkmeans_canary.so   # nix develop sets it
+```
+
 ## Licences
 
 rkt-raft is Apache-2.0 (`LICENSE`). The repository holds only its own code and
 does not redistribute what it builds on:
 
-- RAFT and RMM, from NVIDIA's RAPIDS wheels on PyPI, and `rapids-logger`,
-  which they use: Apache-2.0.
+- RAFT, RMM, cuML and cuVS, from NVIDIA's RAPIDS wheels on PyPI, with
+  `rapids-logger`, which RAFT and RMM use, and nvForest, which cuML loads:
+  Apache-2.0.
 - CCCL (Thrust, CUB and libcu++), whose headers come inside the RAFT wheel:
   Apache-2.0, libcu++ with LLVM exceptions, with some parts under other
   permissive licences.
 - The CUDA toolkit and libraries (the runtime, cuBLAS, cuSOLVER, cuSPARSE
   and the rest): NVIDIA's CUDA Toolkit End User License Agreement, which is
-  not an open-source licence.
-- The Python twins, used only by the tests: `pylibraft` and `rmm`
+  not an open-source licence. NCCL, which cuVS loads, comes from NVIDIA's
+  wheel under a BSD-style licence.
+- The Python twins, used only by the tests: `pylibraft`, `rmm` and cuML
   (Apache-2.0), CuPy (MIT) and NumPy (BSD-3-Clause, with parts under other
   permissive licences).

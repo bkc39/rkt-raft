@@ -11,13 +11,16 @@
                   _size
                   _uint64
                   ctype-sizeof
-                  define-cstruct)
+                  define-cstruct
+                  void/reference-sink)
          (only-in racket/list make-list take)
          (only-in "host.rkt" _host host-bytes)
          (only-in "library.rkt" _rr-buffer _rr-buffer/null _rr-resources define-raft)
          (only-in "memory.rkt" buffer-allocator))
 
 (provide blank-view
+         clear-view!
+         keep-reachable
          describe-view!
          rr-buffer-view
          (rename-out [rr-view-data view-data]) ;; noqa
@@ -56,6 +59,15 @@
   (set-rr-view-shape! view (padded shape))
   (set-rr-view-strides! view (padded strides))
   view)
+
+(define (keep-reachable v)
+  (void/reference-sink v))
+
+(define (clear-view! view keep)
+  (set-rr-view-data! view #f)
+  (set-rr-view-device! view -1)
+  (set-rr-view-memory! view -1)
+  (void/reference-sink keep))
 
 (define (view-list v view)
   (take (vector->list v) (rr-view-rank view)))

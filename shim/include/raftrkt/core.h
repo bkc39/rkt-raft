@@ -22,26 +22,10 @@ extern "C" {
 #define RR_ERROR_CUDA 2
 #define RR_ERROR_LOGIC 3
 
-#define RR_ABI_VERSION 1
-
 typedef struct rr_resources rr_resources;
 typedef struct rr_buffer rr_buffer;
 
-typedef struct rr_abi_tag {
-  int32_t abi_version;
-  int32_t raft_major;
-  int32_t raft_minor;
-  int32_t raft_patch;
-  int32_t rmm_major;
-  int32_t rmm_minor;
-  int32_t rmm_patch;
-  int32_t cccl_major;
-  int32_t cccl_minor;
-  int32_t cccl_patch;
-  int32_t cuda_runtime;
-  int32_t resource_types;
-  int64_t handle_size;
-} rr_abi_tag;
+typedef struct rr_abi_tag rr_abi_tag;
 
 /* The last error is per OS thread: read it on the thread that made the
    failing call, before any other rr_ call. */
@@ -55,6 +39,7 @@ RR_API int rr_device_count(int32_t* out);
 
 RR_API int rr_resources_create(int32_t device, rr_resources** out);
 RR_API int rr_resources_sync(rr_resources* resources);
+RR_API int rr_resources_handle(rr_resources* resources, void** out);
 
 #ifdef __cplusplus
 }
