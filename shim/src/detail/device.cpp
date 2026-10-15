@@ -24,32 +24,26 @@ std::string cuda_release(int code) {
 
 }  // namespace
 
-void driver_check(cudaError_t status, const char* call, int driver_version) {
-  if (status != cudaErrorInsufficientDriver ||
-      driver_version >= cuda_major * major_scale) {
-    cuda_check(status, call);
-    return;
-  }
-  static_cast<void>(cudaGetLastError());
-  const std::string needed = "CUDA " + std::to_string(cuda_major) +
-                             ".0 (NVIDIA driver " +
-                             std::to_string(minimum_driver) + " or newer)";
-  const std::string found =
-      driver_version == 0
-          ? "no NVIDIA driver found (libcuda.so.1 would not load)"
-          : "the NVIDIA driver supports CUDA " + cuda_release(driver_version);
-  throw cuda_error(std::string(call) + ": " + found + "; raft needs " + needed,
-                   status);
-}
-
-int32_t device_count() {
+int32_t device_count(const driver_queries& queries) {
   int count = 0;
-  const cudaError_t status = cudaGetDeviceCount(&count);
-  if (status != cudaSuccess) {
-    int driver_version = 0;
-    static_cast<void>(cudaDriverGetVersion(&driver_version));
-    driver_check(status, "cudaGetDeviceCount", driver_version);
+  const cudaError_t status = queries.count(&count);
+  int driver_version = 0;
+  const bool old_driver = status == cudaErrorInsufficientDriver &&
+                          queries.version(&driver_version) == cudaSuccess &&
+                          driver_version < cuda_major * major_scale;
+  if (old_driver) {
+    static_cast<void>(cudaGetLastError());
+    const std::string needed = "CUDA " + std::to_string(cuda_major) +
+                               ".0 (NVIDIA driver " +
+                               std::to_string(minimum_driver) + " or newer)";
+    const std::string found =
+        driver_version == 0
+            ? "no NVIDIA driver found (libcuda.so.1 would not load)"
+            : "the NVIDIA driver supports CUDA " + cuda_release(driver_version);
+    throw cuda_error("cudaGetDeviceCount: " + found + "; raft needs " + needed,
+                     status);
   }
+  cuda_check(status, "cudaGetDeviceCount");
   return count;
 }
 

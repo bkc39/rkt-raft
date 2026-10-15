@@ -413,9 +413,11 @@ plans/scoping-plan.md         the approved plan (revision 5), as Markdown
 - `src/detail/device.{hpp,cpp}`: `device_guard`, `device_count` and
   `require_device`, host code that needs no RAFT header. `device_count` is the
   first device call of every path in; on `cudaErrorInsufficientDriver` it
-  reads `cudaDriverGetVersion` and `driver_check` says which failure it is: no
-  driver (version 0, `libcuda.so.1` would not load) or a driver for CUDA X.Y
-  where CUDA 13.0 (driver 580 or newer) is needed (#41; `driver_test.cpp`).
+  reads `cudaDriverGetVersion` and says which failure it is: no driver
+  (version 0, `libcuda.so.1` would not load) or a driver for CUDA X.Y where
+  CUDA 13.0 (driver 580 or newer) is needed. A failed version query keeps the
+  plain CUDA error. Both queries come in as `driver_queries`, defaulting to
+  the CUDA calls, so `driver_test.cpp` stubs them (#41).
 - **The public C++ headers are the shim's own.** `core.cpp` builds the tag
   `rr_abi` returns with `raftrkt::compiled_abi()` (`abi.h`), `view.cpp`
   decides layouts with `raftrkt::canonical_strides` and `raftrkt::has_layout`

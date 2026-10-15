@@ -10,9 +10,14 @@ namespace rr {
 
 using device_guard = raftrkt::device_scope;
 
-void driver_check(cudaError_t status, const char* call, int driver_version);
+using cuda_query = cudaError_t (*)(int*);
 
-int32_t device_count();
+struct driver_queries {
+  cuda_query count = cudaGetDeviceCount;
+  cuda_query version = cudaDriverGetVersion;
+};
+
+int32_t device_count(const driver_queries& queries = {});
 
 void require_device(int32_t device);
 
