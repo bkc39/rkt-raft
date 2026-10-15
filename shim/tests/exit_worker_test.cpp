@@ -8,6 +8,7 @@
 #include <string>
 #include <thread>
 
+#include "death.hpp"
 #include "detail/executor_api.h"
 #include "jobs.hpp"
 #include "raftrkt/c_api.h"
@@ -16,7 +17,6 @@
 namespace {
 
 constexpr int failed_child = 99;
-constexpr unsigned child_limit_seconds = 5;
 constexpr double release_grace = 1.0;
 constexpr double grace_overrun = 2.0;
 constexpr double finite_bound = 3.0;
@@ -87,7 +87,6 @@ void exits_in_job(void* /*args*/, size_t /*args_len*/,
 }
 
 [[noreturn]] void job_calls_exit(double bound) {
-  alarm(child_limit_seconds);
   mark_exit();
   rr::test::submit(rr::test::host_resources(), rr::test::job_args{}, bound,
                    exits_in_job);
@@ -97,7 +96,6 @@ void exits_in_job(void* /*args*/, size_t /*args_len*/,
 }
 
 [[noreturn]] void release_calls_exit() {
-  alarm(child_limit_seconds);
   mark_exit();
   rr_resources_free(
       rr::test::resources_dropping_with([] { std::exit(exited_in_release); }));
@@ -107,7 +105,6 @@ void exits_in_job(void* /*args*/, size_t /*args_len*/,
 }
 
 [[noreturn]] void job_calls_exit_after_later_handlers() {
-  alarm(child_limit_seconds);
   rr_resources_free(rr::test::host_resources());
   mark_exit();
   rr::test::submit(rr::test::host_resources(), rr::test::job_args{},
@@ -118,7 +115,6 @@ void exits_in_job(void* /*args*/, size_t /*args_len*/,
 }
 
 [[noreturn]] void exit_while_a_release_is_stuck() {
-  alarm(child_limit_seconds);
   mark_exit();
   auto* dropping = new rr::test::gate;
   rr_resources_free(rr::test::resources_dropping_with(
@@ -131,7 +127,6 @@ void exits_in_job(void* /*args*/, size_t /*args_len*/,
 }
 
 [[noreturn]] void exit_waits_for_a_release() {
-  alarm(child_limit_seconds);
   mark_exit();
   auto* dropping = new rr::test::gate;
   rr_resources_free(rr::test::resources_dropping_with([dropping] {
@@ -152,7 +147,6 @@ void exits_in_job(void* /*args*/, size_t /*args_len*/,
 }
 
 [[noreturn]] void a_release_after_the_last_job_gets_its_grace() {
-  alarm(child_limit_seconds);
   static rr::test::gate held;
   rr_resources* r = rr::test::host_resources();
   rr_job* job = rr::test::submit(r, rr::test::job_args{&held}, finite_bound);
@@ -172,7 +166,6 @@ void exits_in_job(void* /*args*/, size_t /*args_len*/,
 }
 
 [[noreturn]] void release_after_a_skip() {
-  alarm(child_limit_seconds);
   auto* held = new rr::test::gate;
   rr::test::submit(rr::test::host_resources(), rr::test::job_args{held},
                    short_bound);
@@ -189,7 +182,6 @@ void exits_in_job(void* /*args*/, size_t /*args_len*/,
 }
 
 [[noreturn]] void a_later_drain_keeps_the_skip() {
-  alarm(child_limit_seconds);
   rr_resources_free(rr::test::resources_dropping_with(
       [] { std::this_thread::sleep_for(past_the_grace); }));
   std::thread first{[] { rr_exit_drain(nullptr, nullptr, nullptr); }};
@@ -223,60 +215,62 @@ class ExitWorkerDeathTest : public ::testing::Test {
 
 TEST_F(ExitWorkerDeathTest,
        AJobCallingExitSkipsTeardownWithoutWaitingOnItself) {
-  EXPECT_EXIT(job_calls_exit(std::numeric_limits<double>::infinity()),
-              ::testing::ExitedWithCode(exited_in_job), "^$");
+  RR_EXPECT_EXIT(job_calls_exit(std::numeric_limits<double>::infinity()),
+                 ::testing::ExitedWithCode(exited_in_job), "^$");
 }
 
 TEST_F(ExitWorkerDeathTest, AJobCallingExitDoesNotWaitOutItsOwnBound) {
   const auto bare = std::chrono::steady_clock::now();
-  EXPECT_EXIT(std::_Exit(exited_in_job),
-              ::testing::ExitedWithCode(exited_in_job), "");
+  RR_EXPECT_EXIT(std::_Exit(exited_in_job),
+                 ::testing::ExitedWithCode(exited_in_job), "");
   const double baseline = rr::test::seconds_since(bare);
   const auto start = std::chrono::steady_clock::now();
-  EXPECT_EXIT(job_calls_exit(finite_bound),
-              ::testing::ExitedWithCode(exited_in_job), "^$");
+  RR_EXPECT_EXIT(job_calls_exit(finite_bound),
+                 ::testing::ExitedWithCode(exited_in_job), "^$");
   EXPECT_LT(rr::test::seconds_since(start) - baseline, exit_overrun);
 }
 
 TEST_F(ExitWorkerDeathTest,
        AReleaseCallingExitSkipsTeardownWithoutWaitingOnItself) {
   const auto bare = std::chrono::steady_clock::now();
-  EXPECT_EXIT(std::_Exit(exited_in_release),
-              ::testing::ExitedWithCode(exited_in_release), "");
+  RR_EXPECT_EXIT(std::_Exit(exited_in_release),
+                 ::testing::ExitedWithCode(exited_in_release), "");
   const double baseline = rr::test::seconds_since(bare);
   const auto start = std::chrono::steady_clock::now();
-  EXPECT_EXIT(release_calls_exit(),
-              ::testing::ExitedWithCode(exited_in_release), "^$");
+  RR_EXPECT_EXIT(release_calls_exit(),
+                 ::testing::ExitedWithCode(exited_in_release), "^$");
   EXPECT_LT(rr::test::seconds_since(start) - baseline, exit_overrun);
 }
 
 TEST_F(ExitWorkerDeathTest, AnExitDuringAStuckReleaseSkipsTeardown) {
-  EXPECT_EXIT(exit_while_a_release_is_stuck(),
-              ::testing::ExitedWithCode(skipped), "^$");
+  RR_EXPECT_EXIT(exit_while_a_release_is_stuck(),
+                 ::testing::ExitedWithCode(skipped), "^$");
 }
 
 TEST_F(ExitWorkerDeathTest, TheExitWaitsForAReleaseInProgress) {
-  EXPECT_EXIT(exit_waits_for_a_release(), ::testing::ExitedWithCode(torn_down),
-              "^dropped\natexit\nstatic\n$");
+  RR_EXPECT_EXIT(exit_waits_for_a_release(),
+                 ::testing::ExitedWithCode(torn_down),
+                 "^dropped\natexit\nstatic\n$");
 }
 
 TEST_F(ExitWorkerDeathTest,
        HandlersRegisteredAfterTheFirstJobRunBeforeTheWorkerSkipsTeardown) {
-  EXPECT_EXIT(job_calls_exit_after_later_handlers(),
-              ::testing::ExitedWithCode(exited_in_job), "^atexit\nstatic\n$");
+  RR_EXPECT_EXIT(job_calls_exit_after_later_handlers(),
+                 ::testing::ExitedWithCode(exited_in_job),
+                 "^atexit\nstatic\n$");
 }
 
 TEST_F(ExitWorkerDeathTest, AReleaseQueuedAsTheLastJobEndsGetsAGraceOfItsOwn) {
-  EXPECT_EXIT(a_release_after_the_last_job_gets_its_grace(),
-              ::testing::ExitedWithCode(torn_down), "^$");
+  RR_EXPECT_EXIT(a_release_after_the_last_job_gets_its_grace(),
+                 ::testing::ExitedWithCode(torn_down), "^$");
 }
 
 TEST_F(ExitWorkerDeathTest, AReleaseAfterASkipLeaksInsteadOfHangingTheExit) {
-  EXPECT_EXIT(release_after_a_skip(),
-              ::testing::ExitedWithCode(released_after_a_skip), "^$");
+  RR_EXPECT_EXIT(release_after_a_skip(),
+                 ::testing::ExitedWithCode(released_after_a_skip), "^$");
 }
 
 TEST_F(ExitWorkerDeathTest, ALaterDrainDoesNotTurnASkipIntoATeardown) {
-  EXPECT_EXIT(a_later_drain_keeps_the_skip(),
-              ::testing::ExitedWithCode(kept_the_skip), "^$");
+  RR_EXPECT_EXIT(a_later_drain_keeps_the_skip(),
+                 ::testing::ExitedWithCode(kept_the_skip), "^$");
 }
