@@ -2,11 +2,14 @@
 
 #include <array>
 #include <atomic>
+#include <chrono>
 #include <cstdint>
 #include <cstring>
+#include <functional>
 #include <memory>
 #include <string>
 #include <thread>
+#include <vector>
 
 #include "deposit_fixture.hpp"
 #include "detail/deposit_api.h"
@@ -118,6 +121,92 @@ TEST(Deposit, StressFillAgainstCloseFillsOrLeavesTheOwnerToTheCaller) {
   EXPECT_EQ(t.drops, closing_rounds);
   EXPECT_EQ(t.stale, 0);
   expect_released(before, {closing_rounds, static_cast<uint64_t>(filled), 0});
+}
+
+constexpr std::size_t counting_rounds = 8000;
+constexpr int counters_per_race = 2;
+constexpr auto counting_budget = std::chrono::seconds(2);
+
+struct count_race {
+  std::atomic<rr_holder*> current{nullptr};
+  std::atomic<rr_holder*> picked{nullptr};
+  std::atomic<bool> done{false};
+  std::atomic<int> miscounts{0};
+};
+
+void count_until_done(count_race& race) {
+  while (!race.done.load(std::memory_order_acquire)) {
+    rr_holder* holder = race.current.load(std::memory_order_acquire);
+    race.picked.store(holder, std::memory_order_release);
+    int32_t count = -1;
+    if (holder != nullptr && rr_holder_count(holder, &count) == RR_OK &&
+        count != 2) {
+      race.miscounts.fetch_add(1, std::memory_order_relaxed);
+    }
+  }
+}
+
+rr_holder* closed_while_counting(count_race& race, const session& shared,
+                                 tally& t) {
+  session s = shared;
+  EXPECT_EQ(rr_holder_create(s.resources, &s.holder), RR_OK) << rr_last_error();
+  EXPECT_EQ(rr_holder_record(s.holder, &s.record), RR_OK) << rr_last_error();
+  fill(s, t);
+  race.current.store(s.holder, std::memory_order_release);
+  while (race.picked.load(std::memory_order_acquire) != s.holder) {
+  }
+  EXPECT_EQ(rr_holder_close(s.holder), RR_OK);
+  return s.holder;
+}
+
+struct race_result {
+  std::size_t rounds;
+  int miscounts;
+};
+
+session holderless_session() {
+  session s;
+  EXPECT_EQ(rr_resources_create(0, &s.resources), RR_OK) << rr_last_error();
+  void* handle = nullptr;
+  EXPECT_EQ(rr_resources_handle(s.resources, &handle), RR_OK);
+  s.handle = static_cast<const raft::handle_t*>(handle);
+  return s;
+}
+
+race_result counted_while_closing(const session& shared, tally& t) {
+  count_race race;
+  std::array<std::thread, counters_per_race> counting;
+  for (auto& counter : counting) {
+    counter = std::thread(count_until_done, std::ref(race));
+  }
+  std::vector<rr_holder*> holders;
+  const auto start = std::chrono::steady_clock::now();
+  while (holders.size() < counting_rounds &&
+         std::chrono::steady_clock::now() - start < counting_budget) {
+    holders.push_back(closed_while_counting(race, shared, t));
+  }
+  race.done.store(true, std::memory_order_release);
+  for (auto& counter : counting) {
+    counter.join();
+  }
+  for (rr_holder* holder : holders) {
+    rr_holder_free(holder);
+  }
+  return {holders.size(), race.miscounts.load()};
+}
+
+TEST(Deposit, StressCountAgainstCloseAlwaysSeesTheFill) {
+  RR_REQUIRE_GPU();
+  const counters before;
+  tally t;
+  const session shared = holderless_session();
+  const race_result raced = counted_while_closing(shared, t);
+  rr_resources_free(shared.resources);
+  EXPECT_EQ(raced.miscounts, 0) << "over " << raced.rounds << " rounds";
+  EXPECT_TRUE(releases_settled());
+  EXPECT_EQ(t.drops, static_cast<int>(raced.rounds));
+  EXPECT_EQ(t.stale, 0);
+  expect_released(before, {raced.rounds, raced.rounds, 0});
 }
 
 TEST(Deposit, AFailedAdoptionForgetsEveryAdoptionSoARetryStartsAgain) {

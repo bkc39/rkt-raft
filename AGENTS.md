@@ -1488,10 +1488,13 @@ since cuSPARSE's error string for it is only "out of memory"). The frozen rule i
 - **A count reads the deposit's state once** and decides from that one
   load whether the deposit adopts and whether it was filled. The two loads
   it replaced let a close between them hide a fill. No deterministic test
-  can reach that window, since the fixed code has no second load to stop
-  between; `StressFillAgainstCloseFillsOrLeavesTheOwnerToTheCaller` (64
-  rounds of a fill against a close) is the regression, and the test-only
-  hook production code carried for it was removed.
+  can reach that window without a test-only hook in production code, so
+  `StressCountAgainstCloseAlwaysSeesTheFill` keeps two threads counting
+  while it fills and closes up to 8000 deposits (2 s at most), each close
+  once a counter has picked that deposit up, and fails on any count that is
+  not 2. Against the two-load shape it failed 40 runs of 40,
+  each with at least 6 short counts. It needs a GPU, so the `gpu` gate runs
+  it and CI does not.
 - **`deposit->list` adopts every region in one `call-as-atomic`** and caches
   the list, so two threads get `eq?` arrays. Phantom bytes cover the regions
   only.
