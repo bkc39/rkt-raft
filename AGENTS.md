@@ -663,14 +663,20 @@ a loaded GPU host.
 Every `EXPECT_EXIT`/`EXPECT_DEATH`/`EXPECT_DEBUG_DEATH` body is a named
 function whose first statement is `alarm(...)` with a non-zero argument (a
 suffixed zero such as `0U` counts as zero), or `std::_Exit` itself, and
-nothing in the same test declares or assigns that name (a lambda, a function
-pointer, a `std::function`, initialised with `=`, braces or parentheses, on
-one line or wrapped);
+nothing in the same test declares or assigns that name: initialised with
+`=` or braces after any type, with parentheses holding a lambda after any
+type, or with any parentheses after `auto`, `auto*`, `auto&`, a template's
+`>` or a pointer or reference declarator (`auto child(&unbounded);`,
+`std::function<void()> child(unbounded);`, `void (*child)()(unbounded);`),
+on one line or wrapped;
 `scripts/bounded-death-tests.sh` fails on any other, after checking itself
 against `scripts/fixtures/death-test-bodies.cpp` and checking that a missing
-search root fails it. Known limit: the lint does not see an indented member
+search root fails it. Known limits: the lint does not see an indented member
 such as a `TEST_F` fixture's `static void child()`, so a death test that
-calls it passes when an armed free `child()` exists.
+calls it passes when an armed free `child()` exists; it does not see a
+parenthesised initialiser after a type spelled as a plain name, such as an
+alias `Fn child(unbounded);`; and it reads a call such as
+`static_cast<T>(child(x))` as a declaration, so it flags that test.
 The exit death-test fixtures hold a `rr::test::no_leak_check_in_children`,
 which appends `detect_leaks=0` to `LSAN_OPTIONS` for the re-executed
 children only; the parent keeps its leak check. Under a load average of 20

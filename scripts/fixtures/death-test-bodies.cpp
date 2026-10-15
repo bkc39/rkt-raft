@@ -85,6 +85,35 @@ TEST(Unbounded, AParenInitialisedStdFunctionShadowsAnArmedFunction) {
   EXPECT_EXIT(child(), ::testing::ExitedWithCode(0), "");
 }
 
+TEST(Unbounded, AParenInitialisedStdFunctionOfANamedFunction) {
+  std::function<void()> child(unbounded);
+  EXPECT_EXIT(child(), ::testing::ExitedWithCode(0), "");
+}
+
+TEST(Unbounded, AParenInitialisedAutoOfAnAddress) {
+  auto child(&unbounded);
+  EXPECT_EXIT(child(), ::testing::ExitedWithCode(0), "");
+}
+
+TEST(Unbounded, AParenInitialisedAutoPointer) {
+  auto* child(unbounded);
+  EXPECT_EXIT(child(), ::testing::ExitedWithCode(0), "");
+}
+
+TEST(Unbounded, AParenInitialisedFunctionPointer) {
+  void (*child)()(unbounded);
+  EXPECT_EXIT(child(), ::testing::ExitedWithCode(0), "");
+}
+
+TEST(Unbounded, AParenInitialisedStdFunctionOfAWrappedLambda) {
+  std::function<void()> child(std::function<void()>([] {
+    for (;;) {
+      pause();
+    }
+  }));
+  EXPECT_EXIT(child(), ::testing::ExitedWithCode(0), "");
+}
+
 TEST(Unbounded, ADebugDeathTest) {
   EXPECT_DEBUG_DEATH(unbounded(), "");
 }
