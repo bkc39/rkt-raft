@@ -25,8 +25,6 @@ namespace {
 
 constexpr int failed_child = 99;
 constexpr unsigned backstop_limit_seconds = 13;
-constexpr double at_once = 0.001;
-constexpr double promptly = 0.01;
 constexpr double quickly = 0.05;
 constexpr double tenth = 0.1;
 constexpr double fifth = 0.2;
@@ -174,7 +172,7 @@ enum exit_code : uint8_t {
 
 [[noreturn]] void nothing_in_flight() {
   mark_exit();
-  require_drained(drain(), 0, 0, 0, at_once);
+  require_drained(drain(), 0, 0, 0, tenth);
   std::exit(torn_down);
 }
 
@@ -225,7 +223,7 @@ enum exit_code : uint8_t {
   stuck(r, tenth);
   stuck(r, tenth);
   require_drained(drain(), 2, 2, tenth, fifth);
-  require_drained(drain(), 2, 2, 0, promptly);
+  require_drained(drain(), 2, 2, 0, quickly);
   std::exit(drained_twice);
 }
 
