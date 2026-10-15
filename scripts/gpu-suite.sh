@@ -3,8 +3,14 @@ set -euo pipefail
 
 suite_seconds=1800
 if [ -z "${RAFT_GPU_SUITE_BOUNDED:-}" ]; then
-  rc=0
-  RAFT_GPU_SUITE_BOUNDED=1 timeout --kill-after=30 "$suite_seconds" "$0" "$@" || rc=$?
+  RAFT_GPU_SUITE_BOUNDED=1 timeout --kill-after=30 "$suite_seconds" "$BASH" "$0" "$@" &
+  suite=$!
+  trap 'kill -TERM "$suite" 2>/dev/null || true' INT TERM HUP
+  while :; do
+    rc=0
+    wait "$suite" || rc=$?
+    kill -0 "$suite" 2>/dev/null || break
+  done
   [ "$rc" -ne 124 ] || echo "gpu-suite: timed out after $suite_seconds s" >&2
   exit "$rc"
 fi
@@ -61,7 +67,7 @@ LD_BIND_NOW=1 racket -l racket/base -l ffi/unsafe \
 echo "== Racket tests"
 canary=downstream/kmeans-canary/kmeans-canary
 raco make -v raft/main.rkt raft/unsafe.rkt scripts/check-bindings.rkt "$canary/main.rkt"
-raco test --timeout 45 raft "$canary" >"$racket_log" 2>&1 || {
+raco test --process --timeout 45 raft "$canary" >"$racket_log" 2>&1 || {
   cat "$racket_log"
   exit 1
 }

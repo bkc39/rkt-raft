@@ -92,6 +92,9 @@ drained wait_out(registry& r, std::unique_lock<std::mutex>& held) noexcept {
   const auto start = std::chrono::steady_clock::now();
   const int64_t in_flight = count(r);
   for (;;) {
+    if (r.decided != verdict::open) {
+      return left(r, in_flight);
+    }
     if (running(r) == 0) {
       r.decided = verdict::clean;
       r.changed.notify_all();

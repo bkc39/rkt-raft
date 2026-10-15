@@ -385,7 +385,7 @@ namespace {
 void throws_a_number(void* /*args*/, size_t /*args_len*/,
                      rr_job_outcome* /*outcome*/) {
   constexpr int thrown = 42;
-  throw thrown;  // NOLINT(hicpp-exception-baseclass)
+  throw thrown;
 }
 
 void fills_the_message(void* args, size_t /*args_len*/,

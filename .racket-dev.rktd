@@ -18,9 +18,10 @@
   (no-syntax-rule ("scripts/no-syntax-rule.sh" #:shell ""))
   (no-raw-malloc  ("scripts/no-raw-malloc.sh" #:shell ""))
   (bounded-death-tests ("scripts/bounded-death-tests.sh" #:shell ""))
+  (gpu-suite-signals ("scripts/gpu-suite-signals.sh" #:shell ""))
   (review         "scripts/review.sh")
   (compile        "raco make -v raft/main.rkt scripts/check-bindings.rkt")
-  (test           "raco test --timeout 45 raft")
+  (test           "raco test --process --timeout 45 raft")
   (bindings       "racket scripts/check-bindings.rkt")
   ;; Needs the GPU host: shim gtests (also under compute-sanitizer memcheck),
   ;; an LD_BIND_NOW load, the Racket tests with twin parity, the census.
@@ -31,4 +32,4 @@
   (sanitizers     "nix build --max-jobs 1 --cores 4 --no-link .#checks.x86_64-linux.shim-sanitizers")
   ;; The CI-equivalent: every flake check (AGENTS.md lists them).
   (check          "nix flake check --max-jobs 1 --cores 4"))
- (push-gates (format no-syntax-rule no-raw-malloc bounded-death-tests review compile test bindings)))
+ (push-gates (format no-syntax-rule no-raw-malloc bounded-death-tests gpu-suite-signals review compile test bindings)))

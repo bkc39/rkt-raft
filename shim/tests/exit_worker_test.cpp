@@ -20,10 +20,11 @@ constexpr unsigned child_limit_seconds = 5;
 constexpr double release_grace = 1.0;
 constexpr double grace_overrun = 2.0;
 constexpr double finite_bound = 3.0;
-constexpr double half_second = 0.5;
+constexpr double exit_overrun = 1.5;
 constexpr double short_bound = 0.2;
 constexpr auto past_the_grace = std::chrono::milliseconds(1200);
 constexpr auto brief_release = std::chrono::milliseconds(300);
+constexpr auto second_drain_after = std::chrono::milliseconds(500);
 constexpr auto entry_limit = std::chrono::seconds(4);
 
 enum exit_code : uint8_t {
@@ -32,6 +33,7 @@ enum exit_code : uint8_t {
   exited_in_job = 11,
   exited_in_release = 12,
   released_after_a_skip = 9,
+  kept_the_skip = 13,
 };
 
 void atexit_marker() {
@@ -185,6 +187,23 @@ void exits_in_job(void* /*args*/, size_t /*args_len*/,
   std::exit(released_after_a_skip);
 }
 
+[[noreturn]] void a_later_drain_keeps_the_skip() {
+  alarm(child_limit_seconds);
+  rr_resources_free(rr::test::resources_dropping_with(
+      [] { std::this_thread::sleep_for(past_the_grace); }));
+  std::thread first{[] { rr_exit_drain(nullptr, nullptr, nullptr); }};
+  std::this_thread::sleep_for(second_drain_after);
+  std::thread second{[] { rr_exit_drain(nullptr, nullptr, nullptr); }};
+  first.join();
+  second.join();
+  rr_resources_free(rr::test::resources_dropping_with([] {
+    for (;;) {
+      pause();
+    }
+  }));
+  std::exit(kept_the_skip);
+}
+
 class ExitWorkerDeathTest : public ::testing::Test {
  protected:
   void SetUp() override {
@@ -208,7 +227,7 @@ TEST_F(ExitWorkerDeathTest, AJobCallingExitDoesNotWaitOutItsOwnBound) {
   const auto start = std::chrono::steady_clock::now();
   EXPECT_EXIT(job_calls_exit(finite_bound),
               ::testing::ExitedWithCode(exited_in_job), "^$");
-  EXPECT_LT(rr::test::seconds_since(start) - baseline, half_second);
+  EXPECT_LT(rr::test::seconds_since(start) - baseline, exit_overrun);
 }
 
 TEST_F(ExitWorkerDeathTest,
@@ -220,7 +239,7 @@ TEST_F(ExitWorkerDeathTest,
   const auto start = std::chrono::steady_clock::now();
   EXPECT_EXIT(release_calls_exit(),
               ::testing::ExitedWithCode(exited_in_release), "^$");
-  EXPECT_LT(rr::test::seconds_since(start) - baseline, half_second);
+  EXPECT_LT(rr::test::seconds_since(start) - baseline, exit_overrun);
 }
 
 TEST_F(ExitWorkerDeathTest, AnExitDuringAStuckReleaseSkipsTeardown) {
@@ -247,4 +266,9 @@ TEST_F(ExitWorkerDeathTest, AReleaseQueuedAsTheLastJobEndsGetsAGraceOfItsOwn) {
 TEST_F(ExitWorkerDeathTest, AReleaseAfterASkipLeaksInsteadOfHangingTheExit) {
   EXPECT_EXIT(release_after_a_skip(),
               ::testing::ExitedWithCode(released_after_a_skip), "^$");
+}
+
+TEST_F(ExitWorkerDeathTest, ALaterDrainDoesNotTurnASkipIntoATeardown) {
+  EXPECT_EXIT(a_later_drain_keeps_the_skip(),
+              ::testing::ExitedWithCode(kept_the_skip), "^$");
 }

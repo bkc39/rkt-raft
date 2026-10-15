@@ -40,6 +40,7 @@
       minRacketVersion = "9.3";
       cudaArchitectures = "86";
       buildJobs = 4;
+      singleProcessSeconds = 60;
       capJobs = ''
         NIX_BUILD_CORES=$(( NIX_BUILD_CORES < ${toString buildJobs} ? NIX_BUILD_CORES : ${toString buildJobs} ))
         export CMAKE_BUILD_PARALLEL_LEVEL=$NIX_BUILD_CORES
@@ -98,7 +99,7 @@
         doCheck = true;
         checkPhase = ''
           runHook preCheck
-          ctest --output-on-failure
+          ctest -j1 --output-on-failure
           runHook postCheck
         '';
         passthru = { inherit rapids; };
@@ -143,7 +144,7 @@
         doCheck = true;
         checkPhase = ''
           runHook preCheck
-          ctest --output-on-failure
+          ctest -j1 --output-on-failure
           runHook postCheck
         '';
       };
@@ -223,7 +224,7 @@
         checkPhase = ''
           runHook preCheck
           export RAFT_SHIM_PROBE="${shim.tests}/lib/libraftrkt_probe.so"
-          raco test --timeout 45 raft
+          raco test --process --timeout 45 raft
           raco make -v raft/scribblings/raft.scrbl
           racket scripts/check-bindings.rkt
           runHook postCheck
@@ -374,7 +375,8 @@
           runHook preCheck
           export ASAN_OPTIONS=${sanitizerOptions.asan}
           export UBSAN_OPTIONS=${sanitizerOptions.ubsan}
-          ctest --output-on-failure
+          ctest -j1 --output-on-failure
+          timeout --kill-after=10 ${toString singleProcessSeconds} ./raftrkt_tests --gtest_brief=1
           runHook postCheck
         '';
       });
@@ -598,6 +600,7 @@
         no-syntax-rule = grepGate "no-syntax-rule" "no-syntax-rule.sh";
         no-raw-malloc = grepGate "no-raw-malloc" "no-raw-malloc.sh";
         bounded-death-tests = grepGate "bounded-death-tests" "bounded-death-tests.sh";
+        gpu-suite-signals = grepGate "gpu-suite-signals" "gpu-suite-signals.sh";
       };
 
       devShells.${system} = {

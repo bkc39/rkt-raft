@@ -82,9 +82,6 @@ struct reaper {
 
 enum class lane : uint8_t { buffers, handles };
 
-// Allocated on first use and never destroyed, like the exit registry: the
-// reaper threads outlive exit()'s static destructors. Buffer memory has its
-// own lane so a free never waits behind a handle drop that synchronizes.
 template <lane L>
 reaper& releases() noexcept {
   alignas(reaper) static std::byte storage[sizeof(reaper)];
@@ -168,7 +165,7 @@ struct owner_ref {
 void drop_buffer(void* object) noexcept {
   auto* buffer = static_cast<rr_buffer*>(object);
   owner_ref* owner = nullptr;
-  if (buffer->owner || buffer->keep) {
+  if (buffer->owner.use_count() != 0 || buffer->keep) {
     owner = new (std::nothrow)
         owner_ref{buffer->device, buffer->owner, std::move(buffer->keep)};
   }

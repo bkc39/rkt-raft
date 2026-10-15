@@ -3,6 +3,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <thread>
@@ -103,6 +104,42 @@ TEST(Release, ABufferFreeDoesNotWaitBehindAStuckHandleDrop) {
   EXPECT_TRUE(buffer_dropped_within(drops, buffer_free_limit));
   s.dropping->open_now();
   EXPECT_TRUE(rr::test::releases_settled());
+}
+
+alignas(raft::handle_t) std::byte aliased_handle[sizeof(raft::handle_t)];
+
+std::shared_ptr<raft::handle_t> aliasing(
+    std::shared_ptr<raft::handle_t> owner) {
+  return {std::move(owner), reinterpret_cast<raft::handle_t*>(aliased_handle)};
+}
+
+rr_buffer* owned_by(std::shared_ptr<raft::handle_t> owner) {
+  return new rr_buffer{std::move(owner), -1, {}, rmm::device_buffer{}};
+}
+
+
+template <typename Buffer>
+void a_buffer_free_passes_a_stuck_drop(Buffer buffer_dropping) {
+  ASSERT_TRUE(rr::test::releases_settled());
+  auto dropping = std::make_shared<rr::test::gate>();
+  rr_buffer_free(buffer_dropping(rr::test::handle_dropping_with(
+      [dropping] { dropping->enter_and_wait_for(drop_limit); })));
+  ASSERT_TRUE(dropping->await_entry(drop_limit));
+  const uint64_t drops = rr_buffer_drop_count();
+  rr_buffer_free(owned_by(nullptr));
+  EXPECT_TRUE(buffer_dropped_within(drops, buffer_free_limit));
+  dropping->open_now();
+  EXPECT_TRUE(rr::test::releases_settled());
+}
+
+TEST(Release, ABufferFreeDoesNotWaitBehindAnotherBuffersOwnerDrop) {
+  a_buffer_free_passes_a_stuck_drop([](std::shared_ptr<raft::handle_t> owner) {
+    return owned_by(aliasing(std::move(owner)));
+  });
+}
+
+TEST(Release, AnOwnerWithANullHandleStillDropsOnTheHandleLane) {
+  a_buffer_free_passes_a_stuck_drop(owned_by);
 }
 
 }  // namespace
