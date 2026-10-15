@@ -17,8 +17,7 @@
          (only-in "../exn.rkt" raise-raft)
          (only-in "../install-native.rkt" native-library-advice staged?))
 
-(provide abi-version
-         define-raft
+(provide define-raft
          native-library-error
          open-native-library
          _raft-handle/null ;; noqa
