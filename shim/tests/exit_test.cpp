@@ -38,7 +38,6 @@ constexpr double huge_bound = 1e300;
 constexpr int32_t short_sleep_ms = 100;
 constexpr auto lock_settles = std::chrono::milliseconds(20);
 constexpr size_t buffer_bytes = 64;
-constexpr int leaked_blocks = 16;
 
 using rr::test::job_args;
 using rr::test::seconds_since;
@@ -353,22 +352,8 @@ auto with_no_more(Resource resource, Fn call) {
   std::exit(backstop_skipped);
 }
 
-int* volatile last_leaked = nullptr;
-
-void leak() {
-  for (int i = 0; i < leaked_blocks; ++i) {
-    last_leaked = new int(i);
-  }
-  last_leaked = nullptr;
-}
-
-[[noreturn]] void leaks_and_exits() {
-  leak();
-  std::exit(0);
-}
-
 [[noreturn]] void leaks_and_skips() {
-  leak();
+  rr::test::leak();
   stuck(host(), 0);
   require_drained(drain(), 1, 1, 0, quickly);
   std::exit(skipped);
@@ -481,7 +466,7 @@ TEST_F(ExitDeathTest, AQueuedJobCounts) {
 
 #ifdef __SANITIZE_ADDRESS__
 TEST_F(ExitDeathTest, ALeakInAChildIsReportedOffItsStderr) {
-  RR_EXPECT_EXIT(leaks_and_exits(), rr::test::reports_a_leak, "^$");
+  RR_EXPECT_EXIT(rr::test::leak_and_exit(), rr::test::reports_a_leak, "^$");
 }
 
 TEST_F(ExitDeathTest, ALeakInASkippedChildIsNotChecked) {
