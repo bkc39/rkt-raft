@@ -1,11 +1,13 @@
 #lang racket/base
 
-(require (only-in rackunit check-equal? check-exn check-false check-true)
+(require (only-in ffi/unsafe _fun _int _uint64 define-cstruct get-ffi-obj)
+         (only-in rackunit check-equal? check-exn check-false check-true)
          (only-in "../main.rkt" current-device-resources)
          (only-in "../private/deposit.rkt" call-with-deposits-bound)
          (only-in "../private/dtype.rkt" dtype->code)
          (only-in "../private/job.rkt" define-job jobs-in-flight jobs-live)
          (only-in "../private/resource.rkt" with-release)
+         (only-in "../private/resources.rkt" host-resources)
          (only-in "../unsafe.rkt" deposit deposit->list with-deposits)
          (only-in "private/collect.rkt" collect-until drain-finalizers!)
          (only-in "private/deposits.rkt"
@@ -25,6 +27,8 @@
                   probe-deposit-job
                   probe-flags
                   probe-library
+                  probe-sleep-job
+                  test-host-probe
                   test-probe
                   with-hold-timeout)
          (only-in "private/raft-error.rkt" check-raft-error))
@@ -201,4 +205,51 @@
                                            ((gated probe-deposit-after-gate-job d 'float32) g)))))
   (define waited (- (current-inexact-monotonic-milliseconds) start))
   (check-true (< waited 2000) (format "the job waited ~a ms for its gate" waited))
+  (check-deposit-closed d))
+
+(define rlimit-nofile 7)
+(define descriptor-limit 256)
+
+(define-cstruct _rlimit
+  ([cur _uint64]
+   [max _uint64]))
+
+(define getrlimit (get-ffi-obj "getrlimit" #f (_fun _int _rlimit-pointer -> _int)))
+(define setrlimit (get-ffi-obj "setrlimit" #f (_fun _int _rlimit-pointer -> _int)))
+
+(define (open-until-refused)
+  (let loop ([ports '()])
+    (define port
+      (with-handlers ([exn:fail:filesystem? (lambda (_e) #f)])
+        (open-input-file "/dev/null")))
+    (if port
+        (loop (cons port ports))
+        ports)))
+
+(define (call-with-descriptors-exhausted thunk)
+  (define saved (make-rlimit 0 0))
+  (check-equal? (getrlimit rlimit-nofile saved) 0)
+  (define ports '())
+  (dynamic-wind
+   (lambda ()
+     (check-equal? (setrlimit rlimit-nofile (make-rlimit descriptor-limit (rlimit-max saved))) 0)
+     (set! ports (open-until-refused)))
+   thunk
+   (lambda ()
+     (for-each close-input-port ports)
+     (check-equal? (setrlimit rlimit-nofile saved) 0))))
+
+(test-host-probe "a job that cannot be submitted for want of a descriptor raises 'generic"
+  (define r (host-resources))
+  (probe-sleep-job 'warm r 0)
+  (call-with-descriptors-exhausted
+   (lambda ()
+     (check-raft-error 'generic #rx"^demo: eventfd: " (lambda () (probe-sleep-job 'demo r 0))))))
+
+(test-probe "a deposit job that cannot be submitted for want of a descriptor closes its deposit"
+  (probe-sleep-job 'warm (current-device-resources) 0)
+  (define d (deposit))
+  (call-with-descriptors-exhausted
+   (lambda ()
+     (check-raft-error 'generic #rx"^demo: eventfd: " (lambda () (deposit-job d 'float32 3 4)))))
   (check-deposit-closed d))
