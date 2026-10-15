@@ -14,13 +14,17 @@ lint() {
         sub(/\(.*/, "", name)
         pending = name
       }
-      pass == 1 && match($0, /[A-Za-z_0-9]+[ \t]*=[ \t]*\[/) {
-        name = substr($0, RSTART, RLENGTH)
-        sub(/[ \t]*=.*/, "", name)
-        local[scope, name] = 1
+      pass == 1 && FNR != scope {
+        line = $0
+        while (match(line, /[A-Za-z_0-9]+\)?[ \t]*(\(\)[ \t]*)?(=([^=]|$)|\{)/)) {
+          name = substr(line, RSTART, RLENGTH)
+          sub(/[^A-Za-z_0-9].*/, "", name)
+          local[scope, name] = 1
+          line = substr(line, RSTART + RLENGTH)
+        }
       }
       pass == 1 && opened != "" {
-        if ($0 ~ /^[ \t]*alarm\(/ && $0 !~ /^[ \t]*alarm\([ \t]*0*[ \t]*\)/) armed[opened] = 1
+        if ($0 ~ /^[ \t]*alarm\(/ && $0 !~ /^[ \t]*alarm\([ \t]*(0[xXbB])?0*[uUlLzZ]*[ \t]*\)/) armed[opened] = 1
         opened = ""
       }
       pass == 1 && pending != "" && $0 ~ /\{[ \t]*$/ { opened = pending; pending = "" }
@@ -52,9 +56,8 @@ if [ "$got" != "$want" ]; then
   exit 1
 fi
 
-files=$(find shim/tests downstream -name '*.cpp' -path '*tests*' | sort)
-# shellcheck disable=SC2086
-hits=$(lint $files)
+mapfile -t files < <(find shim/tests downstream -name '*.cpp' -path '*tests*' | sort)
+hits=$(lint "${files[@]}")
 
 if [ -n "$hits" ]; then
   while IFS=: read -r file line body; do
