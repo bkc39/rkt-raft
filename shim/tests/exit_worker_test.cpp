@@ -216,7 +216,7 @@ class ExitWorkerDeathTest : public ::testing::Test {
   }
 
  private:
-  rr::test::no_leak_check_in_children no_leak_check_;
+  rr::test::sanitizer_log_on_stdout_in_children sanitizer_log_;
 };
 
 }  // namespace

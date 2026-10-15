@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 #include <sys/resource.h>
+#include <sys/wait.h>
 #include <unistd.h>
 
 #include <array>
@@ -153,7 +154,7 @@ class ExitDeathTest : public ::testing::Test {
   }
 
  private:
-  rr::test::no_leak_check_in_children no_leak_check_;
+  rr::test::sanitizer_log_on_stdout_in_children sanitizer_log_;
 };
 
 class ExitGpuDeathTest : public ExitDeathTest {
@@ -473,6 +474,11 @@ TEST_F(ExitDeathTest, AQueuedJobCounts) {
   EXPECT_EXIT(queued_job_counts(), ::testing::ExitedWithCode(0), "^$");
 }
 
-TEST_F(ExitDeathTest, ALeakInAChildIsNotReported) {
-  EXPECT_EXIT(leaks_and_exits(), ::testing::ExitedWithCode(0), "^$");
+#ifdef __SANITIZE_ADDRESS__
+TEST_F(ExitDeathTest, ALeakInAChildIsReportedOffItsStderr) {
+  EXPECT_EXIT(
+      leaks_and_exits(),
+      [](int status) { return !WIFEXITED(status) || WEXITSTATUS(status) != 0; },
+      "^$");
 }
+#endif

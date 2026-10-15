@@ -688,19 +688,31 @@ a loaded GPU host.
 Every `EXPECT_EXIT`/`EXPECT_DEATH`/`EXPECT_DEBUG_DEATH` body is a named
 function whose first statement is `alarm(...)` with a non-zero argument (a
 suffixed zero such as `0U` counts as zero), or `std::_Exit` itself, and
-nothing in the same test declares or assigns that name (a lambda, a function
-pointer, a `std::function`, initialised with `=`, braces or parentheses, on
-one line or wrapped);
+nothing in the same test declares or assigns that name: initialised with
+`=` or braces after any type, with parentheses holding a lambda after any
+type, or with any parentheses after `auto`, `auto*`, `auto&`, a template's
+`>` or a pointer or reference declarator (`auto child(&unbounded);`,
+`std::function<void()> child(unbounded);`, `void (*child)()(unbounded);`),
+on one line or wrapped;
 `scripts/bounded-death-tests.sh` fails on any other, after checking itself
 against `scripts/fixtures/death-test-bodies.cpp` and checking that a missing
-search root fails it. Known limit: the lint does not see an indented member
+search root fails it. Known limits: the lint does not see an indented member
 such as a `TEST_F` fixture's `static void child()`, so a death test that
-calls it passes when an armed free `child()` exists.
-The exit death-test fixtures hold a `rr::test::no_leak_check_in_children`,
-which appends `detect_leaks=0` to `LSAN_OPTIONS` for the re-executed
-children only; the parent keeps its leak check. Under a load average of 20
-or more, LSan in a child that exits with live threads can print `Unable to
-get registers from thread N` and fail the stderr match.
+calls it passes when an armed free `child()` exists; it does not see a
+parenthesised initialiser after a type spelled as a plain name, such as an
+alias `Fn child(unbounded);`; and it reads a call such as
+`static_cast<T>(child(x))` as a declaration, so it flags that test.
+The exit death-test fixtures hold a
+`rr::test::sanitizer_log_on_stdout_in_children`, which appends
+`log_path=stdout` to `LSAN_OPTIONS` for the re-executed children only, so a
+child's sanitizer reports go to its stdout and the parent's log, not to the
+stderr its death test matches. Under a load average of 20 or more, LSan in a
+child that exits with live threads prints `Unable to get registers from
+thread N`, which is harmless (it scans that thread's whole stack) but failed
+the `"^$"` stderr matches when it went to stderr; `use_registers=0` does not
+stop it. The leak check still runs in every child: a leak, or any other
+sanitizer error, fails the child's exit status instead, and
+`ExitDeathTest.ALeakInAChildIsReportedOffItsStderr` checks that under ASAN.
 `scripts/gpu-suite.sh` runs under a 1800 s `timeout`; SIGINT, SIGTERM or
 SIGHUP to the script stops `timeout` and with it the suite's whole process
 group, and the script then dies by the same signal, so a calling loop stops
@@ -752,7 +764,7 @@ the binding census), `racket-review`, `racket-version` (at least 9.3),
 | compiler warnings | g++: `-Wall -Wextra -Wpedantic -Werror`; nvcc: `-Werror=all-warnings -Xcompiler=-Wall,-Wextra,-Werror` | every shim build | by hand |
 | clang-tidy (`shim/.clang-tidy`, `downstream/kmeans-canary/.clang-tidy`) | every `.cpp` under `shim/src`, `shim/tests` and the canary's `src` and `tests`, warnings as errors: `bugprone-*`, `performance-*`, `readability-*` except `identifier-length` (below), `modernize-use-nullptr`, `modernize-use-override` | flake checks `clang-tidy`, `clang-tidy-canary` | by hand |
 | `c-headers`, `line-count` | the umbrella header as C11; 500 lines per C/C++/CUDA file | flake checks | by hand |
-| ASAN and UBSAN (`-DRAFTRKT_SANITIZE=ON`) | host memory errors, leaks and undefined behaviour in both gtest binaries | flake check `shim-sanitizers` (GPU cases SKIP); the GPU suite (GPU cases run); gate `sanitizers` | by hand |
+| ASAN and UBSAN (`-DRAFTRKT_SANITIZE=ON`) | host memory errors, leaks and undefined behaviour in both gtest binaries, and in every death-test child that returns or calls `exit` (one that ends by `_exit` or `std::_Exit` skips the exit-time leak check); the exit death tests' children report on stdout and fail by exit status | flake check `shim-sanitizers` (GPU cases SKIP); the GPU suite (GPU cases run); gate `sanitizers` | by hand |
 | compute-sanitizer memcheck | device memory errors, device leaks (`--leak-check full`) and failing CUDA calls (`--report-api-errors explicit`) in both gtest binaries and the canary's | the GPU suite (gate `gpu`, `gpu.yml`) | by hand |
 
 - **raco fmt** formats `.rkt` files only. It crashes on Scribble's

@@ -23,6 +23,14 @@ lint() {
           local[scope, name] = 1
           line = substr(line, RSTART + RLENGTH)
         }
+        line = $0
+        while (match(line, /(auto|[>*&])[ \t]*[*&]?[ \t]*\(?[ \t]*\*?[A-Za-z_0-9]+\)?[ \t]*(\(\)[ \t]*)?\([ \t]*[^) \t]/)) {
+          name = substr(line, RSTART, RLENGTH)
+          sub(/^(auto|[>*&])[ \t]*[*&]?[ \t]*\(?[ \t]*\*?/, "", name)
+          sub(/[^A-Za-z_0-9].*/, "", name)
+          local[scope, name] = 1
+          line = substr(line, RSTART + RLENGTH)
+        }
       }
       pass == 1 && opened != "" {
         if ($0 ~ /^[ \t]*alarm\(/ && $0 !~ /^[ \t]*alarm\([ \t]*(0[xXbB])?0*[uUlLzZ]*[ \t]*\)/) armed[opened] = 1
