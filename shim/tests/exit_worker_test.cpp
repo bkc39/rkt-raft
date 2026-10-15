@@ -26,6 +26,7 @@ constexpr double exit_overrun = 1.5;
 constexpr double short_bound = 0.2;
 constexpr auto past_the_grace = std::chrono::milliseconds(1200);
 constexpr auto brief_release = std::chrono::milliseconds(300);
+constexpr double brief_release_seconds = 0.3;
 constexpr auto second_drain_after = std::chrono::milliseconds(500);
 constexpr auto entry_limit = std::chrono::seconds(4);
 constexpr auto both_waiting_limit = std::chrono::seconds(1);
@@ -37,6 +38,7 @@ enum exit_code : uint8_t {
   exited_in_release = 12,
   released_after_a_skip = 9,
   kept_the_skip = 13,
+  released_on_the_caller = 14,
 };
 
 void atexit_marker() {
@@ -203,6 +205,37 @@ void exits_in_job(void* /*args*/, size_t /*args_len*/,
   std::exit(kept_the_skip);
 }
 
+[[noreturn]] void a_release_after_a_clean_verdict() {
+  static rr::test::gate held;
+  rr_resources* r = rr::test::host_resources();
+  rr_job* job = rr::test::submit(r, rr::test::job_args{&held}, finite_bound);
+  if (!held.await_entry(entry_limit)) {
+    fail("the job never started");
+  }
+  drained got;
+  std::thread drainer{
+      [&got] { rr_exit_drain(&got.in_flight, &got.jobs, &got.releases); }};
+  if (!rr::test::eventually([] { return rr_exit_waiters() == 1; })) {
+    fail("the drain never waited");
+  }
+  held.open_now();
+  drainer.join();
+  if (got.in_flight != 1 || got.jobs != 0 || got.releases != 0) {
+    fail("drain gave (" + std::to_string(got.in_flight) + ", " +
+         std::to_string(got.jobs) + ", " + std::to_string(got.releases) + ")");
+  }
+  const auto start = std::chrono::steady_clock::now();
+  rr_resources_free(rr::test::resources_dropping_with(
+      [] { std::this_thread::sleep_for(brief_release); }));
+  const double seconds = rr::test::seconds_since(start);
+  if (seconds < brief_release_seconds) {
+    fail("the release returned in " + std::to_string(seconds) + " s");
+  }
+  rr_job_release(job);
+  rr_resources_free(r);
+  std::exit(released_on_the_caller);
+}
+
 #ifdef __SANITIZE_ADDRESS__
 [[noreturn]] void read_after_free() {
   int* volatile freed = new int(1);
@@ -313,4 +346,9 @@ TEST_F(ExitWorkerDeathTest, AReleaseAfterASkipLeaksInsteadOfHangingTheExit) {
 TEST_F(ExitWorkerDeathTest, ALaterDrainDoesNotTurnASkipIntoATeardown) {
   RR_EXPECT_EXIT(a_later_drain_keeps_the_skip(),
                  ::testing::ExitedWithCode(kept_the_skip), "^$");
+}
+
+TEST_F(ExitWorkerDeathTest, AReleaseAfterACleanVerdictRunsOnItsCaller) {
+  RR_EXPECT_EXIT(a_release_after_a_clean_verdict(),
+                 ::testing::ExitedWithCode(released_on_the_caller), "^$");
 }

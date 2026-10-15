@@ -341,7 +341,11 @@ Instantiating it from a parallel thread of the main place counts as the main
 place. A release still running on the library threads that tear resources and
 arrays down holds the exit the same way, for up to one second after the exit
 begins or the last job in flight finishes, whichever is later: up to the
-largest bound in flight plus one second. A job or a release that itself calls the C
+largest bound in flight plus one second. The wait covers only a release
+already made when the last job finishes: once nothing is running the exit
+goes ahead, and a release made later, such as a place's own teardown after
+its last job returns, is not waited for. It runs on its caller while the
+native static destructors run, or the process ends before it does. A job or a release that itself calls the C
 @tt{exit} skips the teardown, but the C @tt{atexit} handlers and static
 destructors registered after the first job or release run first, on that
 thread, while other jobs and releases keep running.
