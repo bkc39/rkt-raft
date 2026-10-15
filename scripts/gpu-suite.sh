@@ -20,11 +20,11 @@ for t in raftrkt_tests raftrkt_error_tests; do
     "$RAFT_SHIM_SANITIZED_TESTS/$t" --gtest_brief=1 | tee -a "$log"
 done
 
-echo "== shim gtests under compute-sanitizer memcheck"
+echo "== shim gtests under compute-sanitizer memcheck (death tests ran above)"
 deliberate='Buffers.AnImpossibleAllocationIsOutOfMemory:Release.AnUnreachableDeviceLeaksAndIsCounted'
 memcheck=(compute-sanitizer --tool memcheck --leak-check full --error-exitcode 1)
 "${memcheck[@]}" --report-api-errors explicit \
-  "$RAFT_SHIM_TESTS/raftrkt_tests" --gtest_brief=1 --gtest_filter="-$deliberate" | tee -a "$log"
+  "$RAFT_SHIM_TESTS/raftrkt_tests" --gtest_brief=1 --gtest_filter="-$deliberate:*DeathTest.*" | tee -a "$log"
 "${memcheck[@]}" --report-api-errors no \
   "$RAFT_SHIM_TESTS/raftrkt_tests" --gtest_brief=1 --gtest_filter="$deliberate" | tee -a "$log"
 "${memcheck[@]}" --report-api-errors explicit \
@@ -53,7 +53,8 @@ cat "$racket_log" >>"$log"
 echo "== binding census"
 racket scripts/check-bindings.rkt
 
-unexpected=$(grep "^SKIP" "$log" | grep -v "^SKIP: a GPU is present" || true)
+unexpected=$(grep "^SKIP" "$log" | grep -v "^SKIP: a GPU is present" |
+  grep -v "^SKIP: no memory-pool support" || true)
 if [ -n "$unexpected" ]; then
   echo "== cases that should have run here were skipped:" >&2
   echo "$unexpected" >&2

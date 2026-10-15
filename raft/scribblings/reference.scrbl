@@ -9,3 +9,4 @@ built.
 @local-table-of-contents[]
 
 @include-section["reference/raft.scrbl"]
+@include-section["reference/core.scrbl"]

@@ -57,6 +57,14 @@ The pattern names only the fields it needs.
 native binding built on this one, such as cuML's, checks at load that its
 headers match (@racket[raft-abi]).
 
-To see the GPU and the driver, ask the driver:
+Last, @racket[device-count] checks that the driver sees a GPU:
+
+@examples[#:eval ev #:label #f
+(device-count)
+]
+
+If it raises @racket[exn:fail:raft] instead (no driver, too old a driver, or
+no device), nothing else in this manual will run. To name the GPU, ask the
+driver:
 
 @commandline{nvidia-smi --query-gpu=name,driver_version,compute_cap --format=csv}

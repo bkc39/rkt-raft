@@ -65,7 +65,7 @@
         cmakeFlags = [
           "-DBUILD_TESTING=ON"
           "-DCMAKE_CUDA_ARCHITECTURES=${cudaArchitectures}"
-          "-DRAFTRKT_TESTS_DIR=${placeholder "tests"}/bin"
+          "-DRAFTRKT_TESTS_PREFIX=${placeholder "tests"}"
         ];
         preBuild = capJobs;
         doCheck = true;
@@ -410,6 +410,7 @@
         export LD_LIBRARY_PATH="$_drv_farm''${_filtered:+:$_filtered}"
         export RAFT_CUDA_DRIVER_PATH="$_drv_farm"
         export RAFT_SHIM_TESTS="${shim.tests}/bin"
+        export RAFT_SHIM_PROBE="${shim.tests}/lib/libraftrkt_probe.so"
         export RAFT_SHIM_SANITIZED_TESTS="${shimSanitizers.tests}/bin"
         export RAFT_ASAN_OPTIONS="${sanitizerOptions.asan}"
         export RAFT_UBSAN_OPTIONS="${sanitizerOptions.ubsan}"
