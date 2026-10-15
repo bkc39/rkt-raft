@@ -339,8 +339,9 @@ main place, instantiates @racketmodname[raft], the exit still waits, but native
 destructors registered after the first job or release may run first.
 Instantiating it from a parallel thread of the main place counts as the main
 place. A release still running on the library threads that tear resources and
-arrays down holds the exit the same way, for up to the largest bound in flight
-or one second, whichever is longer. A job or a release that itself calls the C
+arrays down holds the exit the same way, for up to one second after the exit
+begins or the last job in flight finishes, whichever is later: up to the
+largest bound in flight plus one second. A job or a release that itself calls the C
 @tt{exit} skips the teardown, but the C @tt{atexit} handlers and static
 destructors registered after the first job or release run first, on that
 thread, while other jobs and releases keep running.

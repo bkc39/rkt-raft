@@ -270,7 +270,8 @@ plans/scoping-plan.md         the approved plan (revision 5), as Markdown
   release runs in atomic mode (a deallocator or a finalizer), so
   `rr_resources_free` and a buffer's last unpin only queue the object and
   return. Two process-wide reaper threads take them: the buffer lane frees
-  a buffer's memory and then queues its handle reference (`owner`) on the
+  a buffer's memory and then queues its handle reference (`owner`, whenever
+  it shares ownership, a null handle with a deleter included) on the
   handle lane, which drops handles and resources. A buffer free never
   waits behind a handle drop that synchronizes the device. A job worker and
   the reapers release in place (`rr::on_native_worker`), except that the
@@ -636,25 +637,38 @@ not in a comment.
 
 `.racket-dev.rktd` declares them for the racket-dev plugin's runner
 (`racket <plugin>/hooks/gate.rkt . all`); the pre-push hook runs `format`,
-`no-syntax-rule`, `no-raw-malloc`, `bounded-death-tests`, `review`,
-`compile`, `test` and `bindings`. Before every push: `nix flake check` green, the GPU suite green
+`no-syntax-rule`, `no-raw-malloc`, `bounded-death-tests`,
+`gpu-suite-signals`, `review`, `compile`, `test` and `bindings`. Before every push: `nix flake check` green, the GPU suite green
 with its counts, the docs rendered with no warnings, and Resyntax clean with
 both rule sets (see Tooling). After pushing, poll `gh pr checks <n>` (it exits
 non-zero while checks are pending) until green.
 
 Every test run is bounded, so a hang fails instead of stalling a gate or
-a runner. ctest fails a shim gtest past 5 s and a canary gtest past 2 s
-(`gtest_discover_tests ... PROPERTIES TIMEOUT`, about three times the
-slowest test; the nix checks run the gtests through ctest). `raco test
---timeout 45` bounds each Racket file, and `test-timeouts` in `raft/info.rkt`
-and the canary's `info.rkt` give the slow exit, memory and twin files their
-own, with room for a loaded GPU host.
-Every `EXPECT_EXIT`/`EXPECT_DEATH` body is a named function whose first
-statement is `alarm(...)`, or `std::_Exit` itself;
-`scripts/bounded-death-tests.sh` fails on any other.
-`scripts/gpu-suite.sh` runs under a 1800 s `timeout`, and every CI job has a
-`timeout-minutes`. A test that legitimately grows past its bound raises the
-bound in the same commit.
+a runner. ctest fails a shim gtest past 5 s, a little over twice the slowest
+(2.2 s under ASAN on CI, 1.8 s on the lab host), and a canary gtest past 2 s,
+against a slowest of 0.12 s (`gtest_discover_tests ... PROPERTIES TIMEOUT`).
+The nix checks run the gtests through ctest one at a time (`ctest -j1`), so
+the timing checks see an unloaded build. `shim-sanitizers` also runs
+`raftrkt_tests` once in a single process under ASAN, inside a coreutils
+`timeout` of 60 s (about seven times its 8.6 s without a GPU), so the tests
+that check the previous test's releases settled bite in CI too.
+`raco test --process --timeout 45` bounds each Racket file: each file runs in
+its own process, killed at the limit, which also bounds a hang inside a native
+call. In `--direct` mode, the default for a single file, the timeout thread
+cannot run during an FFI call; a directory already defaulted to `--process`,
+so the flag costs nothing. `test-timeouts` in `raft/info.rkt` and the canary's
+`info.rkt` give the slow exit, memory and twin files their own, with room for
+a loaded GPU host.
+Every `EXPECT_EXIT`/`EXPECT_DEATH`/`EXPECT_DEBUG_DEATH` body is a named
+function whose first statement is `alarm(...)` with a non-zero argument, or
+`std::_Exit` itself, and no lambda in the same test shadows that name;
+`scripts/bounded-death-tests.sh` fails on any other, after checking itself
+against `scripts/fixtures/death-test-bodies.cpp`.
+`scripts/gpu-suite.sh` runs under a 1800 s `timeout`; SIGINT, SIGTERM or
+SIGHUP to the script stops `timeout` and with it the suite's whole process
+group, which `scripts/gpu-suite-signals.sh` checks with stub binaries.
+Every CI job has a `timeout-minutes`. A test that legitimately grows past its
+bound raises the bound in the same commit.
 
 The `resyntax` gate runs `scripts/resyntax.sh` with no argument, which
 analyzes only what the branch changes: after a `git fetch`, its base is
@@ -668,7 +682,7 @@ recorded prints `resyntax: unchanged since a green run` and exits 0;
 `RESYNTAX_NO_CACHE=1` forces the analysis. An explicit base, as CI passes,
 always runs in full and records nothing.
 
-`nix flake check` runs fourteen checks: `shim` (build plus both gtest
+`nix flake check` runs fifteen checks: `shim` (build plus both gtest
 binaries), `shim-sanitizers` (both gtest binaries under ASAN and UBSAN),
 `c-headers` (the umbrella header compiled as C11 with `-Werror`),
 `clang-tidy`, `kmeans-canary` (the canary's build against `packages.raft-dev`
@@ -677,7 +691,8 @@ and `packages.rapids`, plus its gtests), `clang-tidy-canary`, `line-count`
 (treefmt), `racket` (the package build, `raco setup --check-pkg-deps
 --unused-pkg-deps`, `raco test raft`, the manual compiled but not rendered,
 the binding census), `racket-review`, `racket-version` (at least 9.3),
-`no-syntax-rule`, `no-raw-malloc` and `bounded-death-tests`.
+`no-syntax-rule`, `no-raw-malloc`, `bounded-death-tests` and
+`gpu-suite-signals`.
 
 ## Tooling
 
