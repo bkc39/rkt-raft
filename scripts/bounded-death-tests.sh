@@ -10,7 +10,7 @@ raw='\b(EXPECT|ASSERT)_(EXIT|DEATH|DEBUG_DEATH)(_IF_SUPPORTED)?\b'
 lint() {
   for f in "$@"; do
     if [ "$f" != "$header" ]; then
-      grep -nHE "$raw" "$f" || [ "$?" -eq 1 ]
+      grep -anHE "$raw" "$f" || [ "$?" -eq 1 ]
     fi
   done
 }
@@ -19,14 +19,16 @@ if [ "$#" -gt 0 ]; then
   roots=("$@")
 else
   roots=(shim/tests downstream)
-  fixture=scripts/fixtures/death-tests.cpp
-  want=$(awk '
+  fixtures=scripts/fixtures/death-tests
+  want=$(LC_ALL=C awk '
+    FNR == 1 { suite = "" }
     match($0, /^TEST\([A-Za-z]+,/) { suite = substr($0, 6, RLENGTH - 6) }
-    suite == "Raw" && /^[ \t]*(EXPECT|ASSERT)_[A-Z_]+\(/ { print FNR }
-  ' "$fixture")
-  got=$(lint "$fixture" | cut -d: -f2)
+    suite == "Raw" && /^[ \t]*(EXPECT|ASSERT)_[A-Z_]+\(/ { print FILENAME ":" FNR }
+  ' "$fixtures"/* | LC_ALL=C sort)
+  got=$({ GITHUB_ACTIONS='' LC_ALL=C.UTF-8 "$BASH" "$self" "$fixtures" || true; } |
+    cut -d: -f1,2 | LC_ALL=C sort)
   if [ -z "$want" ] || [ "$got" != "$want" ]; then
-    echo "bounded-death-tests: the self-test on $fixture flagged lines ${got//$'\n'/ }" \
+    echo "bounded-death-tests: the self-test on $fixtures flagged ${got//$'\n'/ }" \
       "instead of ${want//$'\n'/ }" >&2
     exit 1
   fi
@@ -40,7 +42,7 @@ else
   fi
 fi
 
-listing=$(find "${roots[@]}" -type f \( -name '*.c' -o -name '*.cpp' -o -name '*.cu' -o -name '*.cuh' -o -name '*.h' -o -name '*.hpp' \) | sort)
+listing=$(find "${roots[@]}" -type f | sort)
 mapfile -t files <<<"$listing"
 hits=$(lint "${files[@]}")
 

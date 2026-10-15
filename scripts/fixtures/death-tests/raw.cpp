@@ -60,6 +60,10 @@ TEST(Raw, ArmedBody) {
   EXPECT_EXIT(child(), ::testing::ExitedWithCode(0), "");
 }
 
+TEST(Raw, InvalidUtf8) {
+  EXPECT_EXIT(unbounded(), ::testing::ExitedWithCode(0), "café");
+}
+
 TEST(Raw, ExitsAtOnce) {
   EXPECT_EXIT(std::_Exit(0), ::testing::ExitedWithCode(0), "");
 }

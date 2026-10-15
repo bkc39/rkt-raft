@@ -666,9 +666,10 @@ regex)` from `shim/tests/death.hpp`, which runs
 statement; a body that needs longer calls `alarm` again, which replaces the
 first. `scripts/bounded-death-tests.sh` fails on any raw `EXPECT_EXIT`,
 `ASSERT_EXIT`, `EXPECT_DEATH`, `ASSERT_DEATH`, `EXPECT_DEBUG_DEATH` or
-`ASSERT_DEBUG_DEATH` (with or without `_IF_SUPPORTED`) in a C, C++ or CUDA
-file under `shim/tests` or `downstream`, `death.hpp` excepted, after checking
-itself against `scripts/fixtures/death-tests.cpp`, checking that it exempts
+`ASSERT_DEBUG_DEATH` (with or without `_IF_SUPPORTED`) in any file under
+`shim/tests` or `downstream`, whatever its extension or encoding, `death.hpp`
+excepted, after checking itself against `scripts/fixtures/death-tests` under a
+UTF-8 locale, checking that it exempts
 `death.hpp` and checking that a missing search root fails it. Known limit:
 code that calls gtest's internal death-test machinery (`GTEST_DEATH_TEST_`)
 directly, or spells a macro name by token pasting, passes unbounded.

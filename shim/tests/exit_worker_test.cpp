@@ -2,8 +2,10 @@
 #include <unistd.h>
 
 #include <chrono>
+#include <csignal>
 #include <cstdint>
 #include <cstdlib>
+#include <functional>
 #include <limits>
 #include <string>
 #include <thread>
@@ -211,7 +213,24 @@ class ExitWorkerDeathTest : public ::testing::Test {
   rr::test::sanitizer_log_on_stdout_in_children sanitizer_log_;
 };
 
+class DeathMacroDeathTest : public ExitWorkerDeathTest {};
+
 }  // namespace
+
+TEST_F(DeathMacroDeathTest, ArmsTheChildLimitBeforeTheBody) {
+  RR_EXPECT_EXIT(std::_Exit(static_cast<int>(::alarm(0))),
+                 ::testing::ExitedWithCode(
+                     static_cast<int>(rr::test::child_limit_seconds)),
+                 "");
+}
+
+TEST_F(DeathMacroDeathTest, OnlyAnAbortOrLsansExitCodeReportsALeak) {
+  RR_EXPECT_EXIT(std::raise(SIGABRT), rr::test::reports_a_leak, "");
+  RR_EXPECT_EXIT(std::_Exit(rr::test::lsan_exit_code), rr::test::reports_a_leak,
+                 "");
+  RR_EXPECT_EXIT(std::raise(SIGALRM), std::not_fn(rr::test::reports_a_leak),
+                 "");
+}
 
 TEST_F(ExitWorkerDeathTest,
        AJobCallingExitSkipsTeardownWithoutWaitingOnItself) {
