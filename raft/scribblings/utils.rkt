@@ -34,10 +34,6 @@
                     racket/port
                     racket/string
                     racket/vector)
-         (only-in racket/file file->lines)
-         (only-in racket/list drop index-where take)
-         ;; whole-module: define-runtime-path needs bindings only-in strips
-         racket/runtime-path
          (only-in racket/sandbox
                   sandbox-error-output
                   sandbox-eval-limits
@@ -45,7 +41,6 @@
                   sandbox-output
                   sandbox-path-permissions
                   sandbox-security-guard)
-         (only-in racket/string string-join string-prefix?)
          ;; whole-module: both are re-exported to every chapter
          scribble/example
          scribble/manual)
@@ -71,7 +66,6 @@
                                   racket/port
                                   racket/string
                                   racket/vector))
-         excerpt
          listing
          make-downstream-eval
          make-raft-eval)
@@ -100,16 +94,3 @@
 
 (define (listing language . lines)
   (nested #:style 'code-inset (para (italic language)) (apply verbatim lines)))
-
-(define-runtime-path repository "../..")
-
-(define (excerpt language file from to #:before [before 0])
-  (define lines (file->lines (build-path repository file)))
-  (define found (index-where lines (lambda (line) (string-prefix? line from))))
-  (unless found
-    (error 'excerpt "~a has no line starting ~s" file from))
-  (define start (- found before))
-  (define span (index-where (drop lines found) (lambda (line) (string=? line to))))
-  (unless span
-    (error 'excerpt "~a has no line ~s after ~s" file to from))
-  (listing language (string-join (take (drop lines start) (+ before span 1)) "\n")))
