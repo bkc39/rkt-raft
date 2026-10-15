@@ -27,6 +27,7 @@ constexpr double short_bound = 0.2;
 constexpr auto past_the_grace = std::chrono::milliseconds(1200);
 constexpr auto brief_release = std::chrono::milliseconds(300);
 constexpr double brief_release_seconds = 0.3;
+constexpr double queued_release_limit = 0.1;
 constexpr auto second_drain_after = std::chrono::milliseconds(500);
 constexpr auto entry_limit = std::chrono::seconds(4);
 constexpr auto both_waiting_limit = std::chrono::seconds(1);
@@ -39,6 +40,7 @@ enum exit_code : uint8_t {
   released_after_a_skip = 9,
   kept_the_skip = 13,
   released_on_the_caller = 14,
+  waited_for_a_grace_release = 15,
 };
 
 void atexit_marker() {
@@ -236,6 +238,43 @@ void exits_in_job(void* /*args*/, size_t /*args_len*/,
   std::exit(released_on_the_caller);
 }
 
+[[noreturn]] void a_release_during_the_grace_is_waited_for() {
+  auto* dropping = new rr::test::gate;
+  rr_resources_free(rr::test::resources_dropping_with(
+      [dropping] { dropping->enter_and_wait(); }));
+  if (!dropping->await_entry(entry_limit)) {
+    fail("the first release never started");
+  }
+  drained got;
+  std::chrono::steady_clock::time_point drained_at;
+  std::thread drainer{[&got, &drained_at] {
+    rr_exit_drain(&got.in_flight, &got.jobs, &got.releases);
+    drained_at = std::chrono::steady_clock::now();
+  }};
+  if (!rr::test::eventually([] { return rr_exit_waiters() == 1; })) {
+    fail("the drain never waited");
+  }
+  const auto freed_at = std::chrono::steady_clock::now();
+  rr_resources_free(rr::test::resources_dropping_with(
+      [] { std::this_thread::sleep_for(brief_release); }));
+  const double free_seconds = rr::test::seconds_since(freed_at);
+  dropping->open_now();
+  drainer.join();
+  const double drain_seconds =
+      std::chrono::duration<double>(drained_at - freed_at).count();
+  if (free_seconds >= queued_release_limit) {
+    fail("the second release returned in " + std::to_string(free_seconds) +
+         " s");
+  }
+  if (got.in_flight != 0 || got.jobs != 0 || got.releases != 0 ||
+      drain_seconds < brief_release_seconds) {
+    fail("drain gave (" + std::to_string(got.in_flight) + ", " +
+         std::to_string(got.jobs) + ", " + std::to_string(got.releases) + ") " +
+         std::to_string(drain_seconds) + " s after the second release");
+  }
+  std::exit(waited_for_a_grace_release);
+}
+
 #ifdef __SANITIZE_ADDRESS__
 [[noreturn]] void read_after_free() {
   int* volatile freed = new int(1);
@@ -351,4 +390,9 @@ TEST_F(ExitWorkerDeathTest, ALaterDrainDoesNotTurnASkipIntoATeardown) {
 TEST_F(ExitWorkerDeathTest, AReleaseAfterACleanVerdictRunsOnItsCaller) {
   RR_EXPECT_EXIT(a_release_after_a_clean_verdict(),
                  ::testing::ExitedWithCode(released_on_the_caller), "^$");
+}
+
+TEST_F(ExitWorkerDeathTest, AReleaseMadeDuringTheGraceIsWaitedFor) {
+  RR_EXPECT_EXIT(a_release_during_the_grace_is_waited_for(),
+                 ::testing::ExitedWithCode(waited_for_a_grace_release), "^$");
 }

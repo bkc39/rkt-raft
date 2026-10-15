@@ -322,11 +322,11 @@ plans/scoping-plan.md         the approved plan (revision 5), as Markdown
   release is pending; once no job runs, a pending release gets that second
   from the later of the drain's start and the last job's end), and reports
   the jobs in flight and the jobs and releases still running. The grace
-  covers only a release already queued when the last job ends: the drain
-  decides clean once nothing runs, so a place's teardown that begins after
-  the verdict is not waited for; it runs on its caller beside `exit()`'s
-  static destructors, or the process exit cuts it off (the short-call
-  window of S5). Past the bound the drain registers `on_exit(skip_teardown)`,
+  covers any release made before the verdict: the drain decides clean once
+  no job and no release runs, so a place's teardown that begins after the
+  verdict is not waited for; it runs on its caller and can run beside
+  `exit()`'s static destructors, or be cut off by the process exit (the
+  short-call window of S5). Past the bound the drain registers `on_exit(skip_teardown)`,
   which flushes stdout if unlocked and calls `_exit`, so no static
   destructor runs under a job. A release that arrives after a skip verdict
   leaks and is counted as a release failure (releasing it on the caller
