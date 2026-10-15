@@ -214,6 +214,9 @@ class ExitWorkerDeathTest : public ::testing::Test {
   void SetUp() override {
     GTEST_FLAG_SET(death_test_style, "threadsafe");
   }
+
+ private:
+  rr::test::no_leak_check_in_children no_leak_check_;
 };
 
 }  // namespace

@@ -671,6 +671,11 @@ against `scripts/fixtures/death-test-bodies.cpp` and checking that a missing
 search root fails it. Known limit: the lint does not see an indented member
 such as a `TEST_F` fixture's `static void child()`, so a death test that
 calls it passes when an armed free `child()` exists.
+The exit death-test fixtures hold a `rr::test::no_leak_check_in_children`,
+which appends `detect_leaks=0` to `LSAN_OPTIONS` for the re-executed
+children only; the parent keeps its leak check. Under a load average of 20
+or more, LSan in a child that exits with live threads can print `Unable to
+get registers from thread N` and fail the stderr match.
 `scripts/gpu-suite.sh` runs under a 1800 s `timeout`; SIGINT, SIGTERM or
 SIGHUP to the script stops `timeout` and with it the suite's whole process
 group, and the script then dies by the same signal, so a calling loop stops
