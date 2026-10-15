@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-cd "$(dirname "${BASH_SOURCE[0]}")/.."
+self=$(realpath "${BASH_SOURCE[0]}")
+cd "$(dirname "$self")/.."
 
 lint() {
   for f in "$@"; do
@@ -16,7 +17,7 @@ lint() {
       }
       pass == 1 && FNR != scope {
         line = $0
-        while (match(line, /[A-Za-z_0-9]+\)?[ \t]*(\(\)[ \t]*)?(=([^=]|$)|\{)/)) {
+        while (match(line, /[A-Za-z_0-9]+\)?[ \t]*(\(\)[ \t]*)?(=([^=]|$)|\{|\([ \t]*\[)/)) {
           name = substr(line, RSTART, RLENGTH)
           sub(/[^A-Za-z_0-9].*/, "", name)
           local[scope, name] = 1
@@ -44,19 +45,29 @@ lint() {
   done
 }
 
-fixture=scripts/fixtures/death-test-bodies.cpp
-want=$(awk '
-  match($0, /^TEST\([A-Za-z]+,/) { suite = substr($0, 6, RLENGTH - 6) }
-  suite == "Unbounded" && /(EXPECT|ASSERT)_[A-Z_]+\(/ { print FNR }
-' "$fixture")
-got=$(lint "$fixture" | cut -d: -f2)
-if [ "$got" != "$want" ]; then
-  echo "bounded-death-tests: the self-test on $fixture flagged lines ${got//$'\n'/ }" \
-    "instead of ${want//$'\n'/ }" >&2
-  exit 1
+if [ "$#" -gt 0 ]; then
+  roots=("$@")
+else
+  roots=(shim/tests downstream)
+  fixture=scripts/fixtures/death-test-bodies.cpp
+  want=$(awk '
+    match($0, /^TEST\([A-Za-z]+,/) { suite = substr($0, 6, RLENGTH - 6) }
+    suite == "Unbounded" && /(EXPECT|ASSERT)_[A-Z_]+\(/ { print FNR }
+  ' "$fixture")
+  got=$(lint "$fixture" | cut -d: -f2)
+  if [ "$got" != "$want" ]; then
+    echo "bounded-death-tests: the self-test on $fixture flagged lines ${got//$'\n'/ }" \
+      "instead of ${want//$'\n'/ }" >&2
+    exit 1
+  fi
+  if "$BASH" "$self" scripts/fixtures/no-such-root >/dev/null 2>&1; then
+    echo "bounded-death-tests: the self-test passed with a missing root" >&2
+    exit 1
+  fi
 fi
 
-mapfile -t files < <(find shim/tests downstream -name '*.cpp' -path '*tests*' | sort)
+listing=$(find "${roots[@]}" -name '*.cpp' -path '*tests*' | sort)
+mapfile -t files <<<"$listing"
 hits=$(lint "${files[@]}")
 
 if [ -n "$hits" ]; then

@@ -67,6 +67,24 @@ TEST(Unbounded, AStdFunctionShadowsAnArmedFunction) {
   EXPECT_EXIT(child(), ::testing::ExitedWithCode(0), "");
 }
 
+TEST(Unbounded, AParenInitialisedLambdaShadowsAnArmedFunction) {
+  auto child([] {
+    for (;;) {
+      pause();
+    }
+  });
+  EXPECT_EXIT(child(), ::testing::ExitedWithCode(0), "");
+}
+
+TEST(Unbounded, AParenInitialisedStdFunctionShadowsAnArmedFunction) {
+  std::function<void()> child([] {
+    for (;;) {
+      pause();
+    }
+  });
+  EXPECT_EXIT(child(), ::testing::ExitedWithCode(0), "");
+}
+
 TEST(Unbounded, ADebugDeathTest) {
   EXPECT_DEBUG_DEATH(unbounded(), "");
 }

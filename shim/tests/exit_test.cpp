@@ -38,6 +38,7 @@ constexpr double huge_bound = 1e300;
 constexpr int32_t short_sleep_ms = 100;
 constexpr auto lock_settles = std::chrono::milliseconds(20);
 constexpr size_t buffer_bytes = 64;
+constexpr int leaked_blocks = 16;
 
 using rr::test::job_args;
 using rr::test::seconds_since;
@@ -150,6 +151,9 @@ class ExitDeathTest : public ::testing::Test {
   void SetUp() override {
     GTEST_FLAG_SET(death_test_style, "threadsafe");
   }
+
+ private:
+  rr::test::no_leak_check_in_children no_leak_check_;
 };
 
 class ExitGpuDeathTest : public ExitDeathTest {
@@ -363,6 +367,17 @@ auto with_no_more(Resource resource, Fn call) {
   std::exit(backstop_skipped);
 }
 
+int* volatile last_leaked = nullptr;
+
+[[noreturn]] void leaks_and_exits() {
+  alarm(child_limit_seconds);
+  for (int i = 0; i < leaked_blocks; ++i) {
+    last_leaked = new int(i);
+  }
+  last_leaked = nullptr;
+  std::exit(0);
+}
+
 [[noreturn]] void queued_job_counts() {
   alarm(backstop_limit_seconds);
   rr_resources* r = host();
@@ -456,4 +471,8 @@ TEST_F(ExitDeathTest, TheBackstopSkipsTeardownPastTheBound) {
 
 TEST_F(ExitDeathTest, AQueuedJobCounts) {
   EXPECT_EXIT(queued_job_counts(), ::testing::ExitedWithCode(0), "^$");
+}
+
+TEST_F(ExitDeathTest, ALeakInAChildIsNotReported) {
+  EXPECT_EXIT(leaks_and_exits(), ::testing::ExitedWithCode(0), "^$");
 }
