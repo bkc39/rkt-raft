@@ -269,8 +269,8 @@ void exits_in_job(void* /*args*/, size_t /*args_len*/,
   if (got.in_flight != 0 || got.jobs != 0 || got.releases != 0 ||
       drain_seconds < brief_release_seconds) {
     fail("drain gave (" + std::to_string(got.in_flight) + ", " +
-         std::to_string(got.jobs) + ", " + std::to_string(got.releases) +
-         ") " + std::to_string(drain_seconds) + " s after the second release");
+         std::to_string(got.jobs) + ", " + std::to_string(got.releases) + ") " +
+         std::to_string(drain_seconds) + " s after the second release");
   }
   std::exit(waited_for_a_grace_release);
 }
