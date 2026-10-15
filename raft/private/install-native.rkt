@@ -9,8 +9,11 @@
 
 (define library-pattern #rx"^libraftrkt[.]")
 
+(define override-advice
+  "set RAFT_NATIVE_LIB_PATH to the directory whose lib/ holds libraftrkt and run `raco setup raft`")
+
 (define native-library-advice
-  "reinstall raft; to use a libraftrkt built by hand, set RAFT_NATIVE_LIB_PATH to the directory whose lib/ holds it and run `raco setup raft`")
+  (format "reinstall raft; to use a libraftrkt built by hand, ~a" override-advice))
 
 (define (staged? dir)
   (and (directory-exists? dir)
@@ -42,4 +45,7 @@
     [override (stage-native-libs! (build-path override "lib") native-libs-dir)]
     [(staged? native-libs-dir) (void)]
     [else
-     (eprintf "raft: libraftrkt is not staged in ~a; ~a\n" native-libs-dir native-library-advice)]))
+     (eprintf
+      "raft: libraftrkt is not staged in ~a; this raft ships no prebuilt libraftrkt yet, so ~a\n"
+      native-libs-dir
+      override-advice)]))

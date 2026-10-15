@@ -3,7 +3,7 @@
 (require (only-in racket/file delete-directory/files file->bytes make-temporary-directory)
          (only-in rackunit check-equal? check-false check-regexp-match check-true test-case)
          (only-in "../private/foreign/library.rkt" native-library-error)
-         (only-in "../private/install-native.rkt" stage-native-libs! staged?)
+         (only-in "../private/install-native.rkt" pre-installer stage-native-libs! staged?)
          (only-in "../private/resource.rkt" with-release))
 
 (define (call-with-dirs proc)
@@ -51,16 +51,35 @@
 
 (test-case "the two load failures read differently"
   (define absent (native-library-error #f "/x/native-libs" "ignored"))
-  (define broken (native-library-error #t "/x/native-libs" "libcuda.so.1: cannot open"))
+  (define loader-said "libcublas.so.13: cannot open shared object file: No such file or directory")
+  (define broken (native-library-error #t "/x/native-libs" loader-said))
   (check-regexp-match #rx"is not staged" absent)
   (check-regexp-match #rx"looked in: /x/native-libs" absent)
   (check-regexp-match #rx"would not load" broken)
-  (check-regexp-match #rx"libcuda.so.1: cannot open" broken))
+  (check-regexp-match (regexp (regexp-quote (format "the loader said: ~a\n" loader-said))) broken))
 
 (test-case "both load failures advise a reinstall, and the override for a library built by hand"
   (for ([message (in-list (list (native-library-error #f "/x/native-libs" "ignored")
                                 (native-library-error #t "/x/native-libs" "ignored")))])
-    (check-regexp-match
-     #rx"reinstall raft; to use a libraftrkt built by hand, set RAFT_NATIVE_LIB_PATH to the directory whose lib/ holds it and run `raco setup raft`$"
-     message)
+    (check-regexp-match #rx"reinstall raft" message)
+    (check-regexp-match #rx"RAFT_NATIVE_LIB_PATH" message)
     (check-false (regexp-match? #rx"(?i:nix)" message))))
+
+(define (pre-installer-output collection)
+  (define errors (open-output-string))
+  (parameterize ([current-environment-variables
+                  (environment-variables-copy (current-environment-variables))]
+                 [current-error-port errors])
+    (environment-variables-set! (current-environment-variables) #"RAFT_NATIVE_LIB_PATH" #f)
+    (pre-installer #f collection #f))
+  (get-output-string errors))
+
+(test-case "the pre-installer advises the override, never a reinstall of the raft it is installing"
+  (with-release ([collection (make-temporary-directory "raft-collection-~a") delete-directory/files])
+    (define printed (pre-installer-output collection))
+    (check-regexp-match (regexp (regexp-quote (format "is not staged in ~a;"
+                                                      (build-path collection "native-libs"))))
+                        printed)
+    (check-regexp-match #rx"RAFT_NATIVE_LIB_PATH" printed)
+    (check-false (regexp-match? #rx"reinstall" printed))
+    (check-false (regexp-match? #rx"(?i:nix)" printed))))

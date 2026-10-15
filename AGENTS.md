@@ -572,7 +572,9 @@ plans/scoping-plan.md         the approved plan (revision 5), as Markdown
   `lib/` holds `libraftrkt.so`), and `native-library-advice`, the end-user
   advice every load failure ends with: reinstall `raft`, or set
   `RAFT_NATIVE_LIB_PATH` and run `raco setup raft` for a library built by
-  hand. It names no Nix, as the manual does not (#41).
+  hand. The hook itself, which runs while `raft` installs, gives only the
+  override: this raft ships no prebuilt libraftrkt yet. Neither names Nix,
+  as the manual does not (#41).
 - Tests: `tests/private/gpu.rkt` (`gpu-available?`, `test-gpu`),
   `tests/private/probe.rkt` (the probe library, from `RAFT_SHIM_PROBE`,
   its jobs bound with `define-job`, `gate-job`, `test-host-probe`, which
