@@ -39,7 +39,6 @@ constexpr double huge_bound = 1e300;
 constexpr int32_t short_sleep_ms = 100;
 constexpr auto lock_settles = std::chrono::milliseconds(20);
 constexpr size_t buffer_bytes = 64;
-constexpr int leaked_blocks = 16;
 
 using rr::test::job_args;
 using rr::test::seconds_since;
@@ -368,15 +367,9 @@ auto with_no_more(Resource resource, Fn call) {
   std::exit(backstop_skipped);
 }
 
-int* volatile last_leaked = nullptr;
-
 [[noreturn]] void leaks_and_exits() {
   alarm(child_limit_seconds);
-  for (int i = 0; i < leaked_blocks; ++i) {
-    last_leaked = new int(i);
-  }
-  last_leaked = nullptr;
-  std::exit(0);
+  rr::test::leak_and_exit();
 }
 
 [[noreturn]] void queued_job_counts() {

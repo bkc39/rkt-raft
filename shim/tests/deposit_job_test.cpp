@@ -1,4 +1,5 @@
 #include <gtest/gtest.h>
+#include <sys/wait.h>
 
 #include <algorithm>
 #include <array>
@@ -230,18 +231,35 @@ struct exiting_owner {
   }
 }
 
+[[noreturn]] void leaks_and_exits() {
+  alarm(child_limit_seconds);
+  rr::test::leak_and_exit();
+}
+
 class DepositJobDeathTest : public ::testing::Test {
  protected:
   void SetUp() override {
     GTEST_FLAG_SET(death_test_style, "threadsafe");
     RR_REQUIRE_GPU();
   }
+
+ private:
+  rr::test::sanitizer_log_on_stdout_in_children sanitizer_log_;
 };
 
 TEST_F(DepositJobDeathTest, ARefusedJobClosesItsDeposits) {
   EXPECT_EXIT(refused_job_closes_its_deposits(), ::testing::ExitedWithCode(0),
               "^$");
 }
+
+#ifdef __SANITIZE_ADDRESS__
+TEST_F(DepositJobDeathTest, ALeakInAChildIsReportedOffItsStderr) {
+  EXPECT_EXIT(
+      leaks_and_exits(),
+      [](int status) { return !WIFEXITED(status) || WEXITSTATUS(status) != 0; },
+      "^$");
+}
+#endif
 
 TEST_F(DepositJobDeathTest, AnOwnerCallingExitAsItsJobLetsGoSkipsTeardown) {
   EXPECT_EXIT(owner_exits_as_its_job_lets_go(),

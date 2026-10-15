@@ -209,4 +209,15 @@ class sanitizer_log_on_stdout_in_children {
   std::optional<std::string> saved_;
 };
 
+inline int* volatile last_leaked = nullptr;
+
+[[noreturn]] inline void leak_and_exit() {
+  constexpr int blocks = 16;
+  for (int i = 0; i < blocks; ++i) {
+    last_leaked = new int(i);
+  }
+  last_leaked = nullptr;
+  std::exit(0);
+}
+
 }  // namespace rr::test
