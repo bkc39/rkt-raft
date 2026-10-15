@@ -182,8 +182,8 @@ deposit, until it returns, even if the calling thread is killed or the
 arrays, deposits and resources become unreachable. A deposit that cannot be
 bound raises @racket[exn:fail:raft] of kind @racket['logic] before the job
 runs. A job that cannot be submitted raises @racket[exn:fail:raft], of kind
-@racket['generic] when the system refuses what the job needs, such as a file
-descriptor. Either closes the deposits bound before it. Each view is bound once the work queued on its array's
+@racket['generic] when the system refuses a file descriptor or a thread, and
+@racket['out-of-memory] when memory runs out. Either closes the deposits bound before it. Each view is bound once the work queued on its array's
 stream is done. The calling thread waits with breaks disabled: a break that
 arrives meanwhile is raised when the job returns, and its outputs are
 dropped. When the process exits, a running job is waited for as

@@ -39,6 +39,12 @@ constexpr int32_t ordered_jobs = 100;
 constexpr int32_t queued_sleep_ms = 20;
 constexpr double pin_bound = 10.0;
 constexpr size_t pipe_block = 4096;
+constexpr size_t unallocatable_args = size_t{1} << 62;
+#ifdef __SANITIZE_ADDRESS__
+constexpr bool asan_aborts_on_a_refused_new = true;
+#else
+constexpr bool asan_aborts_on_a_refused_new = false;
+#endif
 
 void record_order(int32_t index) {
   const int32_t now = running.fetch_add(1) + 1;
@@ -429,4 +435,19 @@ TEST(Executor, AnUnterminatedMessageIsCutInsideItsBuffer) {
   EXPECT_EQ(ascii, std::string(RR_JOB_MESSAGE_BYTES - 1, 'a'));
   const std::string cut = unterminated_message({'\xc3', '\xa9'});
   EXPECT_EQ(cut, std::string(RR_JOB_MESSAGE_BYTES - 2, 'a'));
+}
+
+TEST(Executor, AJobWhoseArgumentsCannotBeAllocatedFailsOutOfMemory) {
+  if constexpr (asan_aborts_on_a_refused_new) {
+    GTEST_SKIP() << "ASan reports a refused operator new instead of throwing";
+  }
+  rr_resources* r = rr::test::host_resources();
+  const job_args args{};
+  rr_job* job = reinterpret_cast<rr_job*>(&order);
+  EXPECT_EQ(rr_job_submit(r, rr::test::run_test_job, &args, unallocatable_args,
+                          nullptr, 0, nullptr, 0, 1.0, &job),
+            RR_ERROR);
+  EXPECT_EQ(job, nullptr);
+  EXPECT_EQ(rr_last_error_kind(), RR_ERROR_OOM);
+  rr_resources_free(r);
 }

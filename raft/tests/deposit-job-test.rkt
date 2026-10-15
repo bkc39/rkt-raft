@@ -1,7 +1,8 @@
 #lang racket/base
 
 (require (only-in ffi/unsafe _fun _int _uint64 define-cstruct get-ffi-obj)
-         (only-in rackunit check-equal? check-exn check-false check-true)
+         (only-in racket/list make-list)
+         (only-in rackunit check-equal? check-exn check-false check-true test-case)
          (only-in "../main.rkt" current-device-resources)
          (only-in "../private/deposit.rkt" call-with-deposits-bound)
          (only-in "../private/dtype.rkt" dtype->code)
@@ -226,28 +227,47 @@
         (loop (cons port ports))
         ports)))
 
+(define (exhausting-limit saved)
+  (min descriptor-limit (rlimit-cur saved) (rlimit-max saved)))
+
+(test-case "the exhausting limit never raises the soft or the hard limit"
+  (check-equal? (exhausting-limit (make-rlimit 512 200)) 200)
+  (check-equal? (exhausting-limit (make-rlimit 100 4096)) 100)
+  (check-equal? (exhausting-limit (make-rlimit 4096 4096)) descriptor-limit))
+
+(define (warm-job-closed? live)
+  (for/or ([pause (in-list (cons 0 (make-list 500 0.01)))])
+    (sleep pause)
+    (<= (jobs-live) live)))
+
+(define (warm! resources)
+  (define live (jobs-live))
+  (probe-sleep-job 'warm resources 0)
+  (check-true (warm-job-closed? live) "the warm job was never freed"))
+
 (define (call-with-descriptors-exhausted thunk)
   (define saved (make-rlimit 0 0))
   (check-equal? (getrlimit rlimit-nofile saved) 0)
   (define ports '())
-  (dynamic-wind
-   (lambda ()
-     (check-equal? (setrlimit rlimit-nofile (make-rlimit descriptor-limit (rlimit-max saved))) 0)
-     (set! ports (open-until-refused)))
-   thunk
-   (lambda ()
-     (for-each close-input-port ports)
-     (check-equal? (setrlimit rlimit-nofile saved) 0))))
+  (dynamic-wind (lambda ()
+                  (check-equal? (setrlimit rlimit-nofile
+                                           (make-rlimit (exhausting-limit saved) (rlimit-max saved)))
+                                0)
+                  (set! ports (open-until-refused)))
+                thunk
+                (lambda ()
+                  (for-each close-input-port ports)
+                  (check-equal? (setrlimit rlimit-nofile saved) 0))))
 
 (test-host-probe "a job that cannot be submitted for want of a descriptor raises 'generic"
   (define r (host-resources))
-  (probe-sleep-job 'warm r 0)
+  (warm! r)
   (call-with-descriptors-exhausted
    (lambda ()
      (check-raft-error 'generic #rx"^demo: eventfd: " (lambda () (probe-sleep-job 'demo r 0))))))
 
 (test-probe "a deposit job that cannot be submitted for want of a descriptor closes its deposit"
-  (probe-sleep-job 'warm (current-device-resources) 0)
+  (warm! (current-device-resources))
   (define d (deposit))
   (call-with-descriptors-exhausted
    (lambda ()
