@@ -6,6 +6,7 @@
 
 #include "raftrkt/abi.h"
 #include "raftrkt/array.h"
+#include "raftrkt/deposit.h"
 #include "raftrkt/job.h"
 
 #ifdef __GNUC__
@@ -42,11 +43,19 @@ KC_API int kc_make_blobs(void* handle, const rr_view* out,
                          double center_box_min, double center_box_max,
                          uint64_t seed);
 
+KC_API int kc_cluster_members(void* handle, const rr_view* x,
+                              const rr_view* labels, int32_t cluster,
+                              rr_deposit* out);
+KC_API uint64_t kc_owner_drop_count(void);
+KC_API uint64_t kc_owner_stale_count(void);
+
 KC_API void kc_fit_job(void* args, size_t args_len, rr_job_outcome* outcome);
 KC_API void kc_predict_job(void* args, size_t args_len,
                            rr_job_outcome* outcome);
 KC_API void kc_make_blobs_job(void* args, size_t args_len,
                               rr_job_outcome* outcome);
+KC_API void kc_cluster_members_job(void* args, size_t args_len,
+                                   rr_job_outcome* outcome);
 
 KC_API int kc_noop(int32_t value, int32_t* out);
 KC_API void kc_noop_job(void* args, size_t args_len, rr_job_outcome* outcome);

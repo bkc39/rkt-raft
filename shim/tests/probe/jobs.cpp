@@ -1,6 +1,7 @@
 #include <poll.h>
 #include <unistd.h>
 
+#include <atomic>
 #include <cerrno>
 #include <chrono>
 #include <cstdint>
@@ -13,21 +14,27 @@
 #include <thread>
 #include <vector>
 
+#include "probe.hpp"
 #include "raftrkt/array.h"
 #include "raftrkt/core.h"
 #include "raftrkt/error.hpp"
 #include "raftrkt/job.hpp"
 #include "raftrkt/view.hpp"
 
-namespace {
-
-raftrkt::error_slot& probe_slot() noexcept {
+raftrkt::error_slot& probe::slot() noexcept {
   thread_local raftrkt::error_slot slot;
   return slot;
 }
 
+namespace {
+
 constexpr int32_t slice_ms = 10;
-constexpr int32_t hold_timeout_ms = 10000;
+constexpr int32_t default_hold_timeout_ms = 10000;
+
+std::atomic<int32_t>& hold_timeout_ms() noexcept {
+  static std::atomic<int32_t> ms{default_hold_timeout_ms};
+  return ms;
+}
 
 void say(std::string_view text) noexcept {
   [[maybe_unused]] const ssize_t written = write(2, text.data(), text.size());
@@ -54,8 +61,14 @@ bool wait_for_gate(int32_t gate_fd, int32_t timeout_ms) {
   }
 }
 
+void require_gate(int32_t gate_fd) {
+  if (!wait_for_gate(gate_fd, hold_timeout_ms().load())) {
+    throw std::runtime_error("gate timed out");
+  }
+}
+
 int fail_with(int32_t kind, const std::string& message) noexcept {
-  raftrkt::record_error(probe_slot(), message.c_str(),
+  raftrkt::record_error(probe::slot(), message.c_str(),
                         static_cast<raftrkt::error_kind>(kind));
   return RR_ERROR;
 }
@@ -91,11 +104,11 @@ void mark_atexit() {
 extern "C" {
 
 RR_API const char* rr_probe_last_error(void) {
-  return probe_slot().message.data();
+  return probe::slot().message.data();
 }
 
 RR_API int rr_probe_last_error_kind(void) {
-  return static_cast<int>(probe_slot().kind);
+  return static_cast<int>(probe::slot().kind);
 }
 
 // NOLINTBEGIN(bugprone-easily-swappable-parameters) -- the probe C ABI
@@ -103,7 +116,7 @@ RR_API int rr_probe_gate(int32_t entered_fd, int32_t gate_fd,
                          int32_t timeout_ms, int32_t say_outcome,
                          int32_t fail_kind, int32_t* opened) {
   // NOLINTEND(bugprone-easily-swappable-parameters)
-  const int status = raftrkt::translate_exceptions(probe_slot(), [&] {
+  const int status = raftrkt::translate_exceptions(probe::slot(), [&] {
     auto& result = *raftrkt::require(opened, "opened");
     result = 0;
     enter(entered_fd);
@@ -153,7 +166,7 @@ RR_API int rr_probe_fail(int32_t token, int32_t kind, int32_t pad) {
 }
 
 RR_API int rr_probe_token(int32_t token) {
-  return raftrkt::translate_exceptions(probe_slot(), [&] {
+  return raftrkt::translate_exceptions(probe::slot(), [&] {
     const std::lock_guard<std::mutex> held{token_lock()};
     token_log().push_back(token);
   });
@@ -168,7 +181,7 @@ RR_API int rr_probe_sleep(int32_t milliseconds) {
 RR_API int rr_probe_late_static(int32_t entered_fd, int32_t gate_fd,
                                 int32_t timeout_ms) {
   // NOLINTEND(bugprone-easily-swappable-parameters)
-  return raftrkt::translate_exceptions(probe_slot(), [&] {
+  return raftrkt::translate_exceptions(probe::slot(), [&] {
     static const touched_in_job object;
     enter(entered_fd);
     int32_t waited = 0;
@@ -187,7 +200,7 @@ RR_API int rr_probe_late_static(int32_t entered_fd, int32_t gate_fd,
 }
 
 RR_API int rr_probe_thread_id(uint64_t* out) {
-  return raftrkt::translate_exceptions(probe_slot(), [&] {
+  return raftrkt::translate_exceptions(probe::slot(), [&] {
     *raftrkt::require(out, "out") = static_cast<uint64_t>(gettid());
   });
 }
@@ -197,11 +210,11 @@ RR_API int rr_probe_hold_views(int32_t entered_fd, int32_t gate_fd,
                                const rr_view* x, const rr_view* y,
                                int64_t* elements) {
   // NOLINTEND(bugprone-easily-swappable-parameters)
-  return raftrkt::translate_exceptions(probe_slot(), [&] {
+  return raftrkt::translate_exceptions(probe::slot(), [&] {
     auto& result = *raftrkt::require(elements, "elements");
     result = 0;
     enter(entered_fd);
-    wait_for_gate(gate_fd, hold_timeout_ms);
+    wait_for_gate(gate_fd, hold_timeout_ms().load());
     const int64_t xs =
         x == nullptr ? 0
                      : static_cast<int64_t>(
@@ -241,10 +254,47 @@ RR_API void rr_probe_mark_atexit(void) {
   static_cast<void>(registered);
 }
 
-#define RR_PROBE_JOB(name)                                                     \
-  RR_API void rr_probe_##name##_job(void* args, size_t args_len,               \
-                                    rr_job_outcome* outcome) {                 \
-    raftrkt::run_job<&rr_probe_##name>(args, args_len, outcome, probe_slot()); \
+// NOLINTBEGIN(bugprone-easily-swappable-parameters) -- the probe C ABI
+RR_API int rr_probe_deposit_after_gate(int32_t entered_fd, int32_t gate_fd,
+                                       void* handle, rr_deposit* out,
+                                       int32_t dtype, int32_t count,
+                                       int64_t rows, int64_t cols,
+                                       uint32_t flags) {
+  // NOLINTEND(bugprone-easily-swappable-parameters)
+  const int status = raftrkt::translate_exceptions(probe::slot(), [&] {
+    enter(entered_fd);
+    require_gate(gate_fd);
+  });
+  return status != RR_OK
+             ? status
+             : rr_probe_deposit(handle, out, dtype, count, rows, cols, flags);
+}
+
+// NOLINTBEGIN(bugprone-easily-swappable-parameters) -- the probe C ABI
+RR_API int rr_probe_deposit_before_gate(int32_t entered_fd, int32_t gate_fd,
+                                        void* handle, rr_deposit* out,
+                                        int32_t dtype, int32_t count,
+                                        int64_t rows, int64_t cols,
+                                        uint32_t flags) {
+  // NOLINTEND(bugprone-easily-swappable-parameters)
+  const int status =
+      rr_probe_deposit(handle, out, dtype, count, rows, cols, flags);
+  return status != RR_OK ? status
+                         : raftrkt::translate_exceptions(probe::slot(), [&] {
+                             enter(entered_fd);
+                             require_gate(gate_fd);
+                           });
+}
+
+RR_API void rr_probe_set_hold_timeout(int32_t ms) {
+  hold_timeout_ms().store(ms);
+}
+
+#define RR_PROBE_JOB(name)                                       \
+  RR_API void rr_probe_##name##_job(void* args, size_t args_len, \
+                                    rr_job_outcome* outcome) {   \
+    raftrkt::run_job<&rr_probe_##name>(args, args_len, outcome,  \
+                                       probe::slot());           \
   }
 
 RR_PROBE_JOB(gate)
@@ -255,4 +305,7 @@ RR_PROBE_JOB(sleep)
 RR_PROBE_JOB(late_static)
 RR_PROBE_JOB(thread_id)
 RR_PROBE_JOB(hold_views)
+RR_PROBE_JOB(deposit)
+RR_PROBE_JOB(deposit_after_gate)
+RR_PROBE_JOB(deposit_before_gate)
 }

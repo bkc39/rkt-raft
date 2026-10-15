@@ -20,10 +20,12 @@
           '_rr-resources/null 'resources-allocator
           '_rr-buffer 'buffer-allocator
           '_rr-buffer/null 'buffer-allocator
+          '_rr-holder 'holder-allocator
+          '_rr-holder/null 'holder-allocator
           '_rr-job 'job-allocator
           '_rr-job/null 'job-allocator))
 
-(define borrowed-types '(_raft-handle _raft-handle/null _rr-holder _rr-holder/null))
+(define borrowed-types '(_raft-handle _raft-handle/null _rr-deposit _rr-deposit/null))
 
 (define (strip-name part)
   (match part

@@ -13,6 +13,7 @@
          _raft-handle/null ;; noqa
          _rr-buffer
          _rr-buffer/null ;; noqa
+         _rr-deposit/null ;; noqa
          _rr-holder
          _rr-holder/null ;; noqa
          _rr-job
@@ -55,3 +56,4 @@
 (define-cpointer-type _rr-holder #f (refuse-released 'deposit) #f)
 (define-cpointer-type _rr-job #f (refuse-released 'job) #f)
 (define-cpointer-type _raft-handle)
+(define-cpointer-type _rr-deposit)

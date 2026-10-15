@@ -18,7 +18,8 @@
                   ptr-set!)
          (only-in ffi/unsafe/define define-ffi-definer make-not-available)
          (only-in ffi/unsafe/define/conventions convention:hyphen->underscore)
-         (only-in racket/list remove-duplicates)
+         (only-in racket/list first remove-duplicates)
+         (only-in racket/match match-define)
          (only-in racket/string non-empty-string?)
          (only-in rackunit check-equal? check-exn check-true)
          ;; whole-module: its syntax classes come with it
@@ -30,18 +31,23 @@
                   device-resources
                   device-vector
                   device-vector->list
+                  dtype
                   exn:fail:raft
                   list*->device-matrix
                   raft-abi
                   raft-abi-handle-size
                   raft-abi-version
+                  shape
                   with-device-resources)
          (only-in "../unsafe.rkt"
                   define-job
+                  deposit
+                  deposit->list
                   raft-abi-pointer
                   resources->handle-pointer
                   status-checker
-                  with-array-views)
+                  with-array-views
+                  with-deposits)
          (only-in "private/gpu.rkt" gpu-skip test-unless-skipped)
          (only-in "private/raft-error.rkt" check-raft-error))
 
@@ -88,6 +94,10 @@
   (_fun _pointer _pointer _pointer _pointer _int32 _pointer (inertia : (_ptr o _double))
         -> (status : _int)
         -> (values status inertia)))
+(define-kc kc-cluster-members (_fun _pointer _pointer _pointer _int32 _pointer -> _int))
+
+(define (canary-job name)
+  (dynamic-require 'kmeans-canary/private/native name))
 
 (define (no-values thunk)
   (call-with-values thunk list))
@@ -282,4 +292,53 @@
   (check-raft-error 'logic
                     "kmeans-fit: the argument block is 472 bytes; the job expects 520"
                     (lambda ()
-                      (kc-fit-job/short 'kmeans-fit (current-device-resources) X #f fitted 0))))
+                      (kc-fit-job/short 'kmeans-fit (current-device-resources) X #f fitted 0)))
+  (define kc-predict-job (canary-job 'kc-predict-job))
+  (define kc-cluster-members-job (canary-job 'kc-cluster-members-job))
+  (define labels (device-vector 300 #:dtype 'int32))
+  (kc-predict-job 'kmeans-predict (current-device-resources) fitted X #f 1 labels)
+  (define found (deposit))
+  (kc-cluster-members-job 'cluster-members (current-device-resources) X labels 0 found)
+  (match-define (list found-indices found-rows) (deposit->list found))
+  (check-equal? (car (shape found-rows)) (car (shape found-indices)))
+  (check-raft-error
+   'logic
+   "cluster-members: the deposit is closed"
+   (lambda () (kc-cluster-members-job 'cluster-members (current-device-resources) X labels 0 found)))
+  (check-raft-error
+   'logic
+   "cluster-members: expected a deposit for a deposit parameter, given 'not-a-deposit"
+   (lambda ()
+     (kc-cluster-members-job 'cluster-members (current-device-resources) X labels 0 'not-a-deposit))))
+
+(test-canary "unsafe reference: outputs sized by the call"
+  (define check (status-checker kc-last-error kc-last-error-kind))
+  (define handle (resources->handle-pointer (current-device-resources)))
+  (define X (made-blobs check handle))
+  (define fitted (device-matrix 3 2))
+  (fit-with check handle X fitted)
+  (define labels (device-vector 300 #:dtype 'int32))
+  (with-array-views ([c fitted] [x X] [y labels])
+    (check 'kmeans-predict (lambda () (kc-predict handle c x #f 1 y))))
+  (define (members-of d)
+    (with-deposits ([out d])
+                   (with-array-views #:resources [h (current-device-resources)] ([x X] [y labels])
+                     (check 'cluster-members (lambda () (kc-cluster-members h x y 0 out))))))
+  (define members (deposit))
+  (members-of members)
+  (match-define (list indices rows) (deposit->list members))
+  (check-equal? (list (dtype indices) (dtype rows) (= (car (shape rows)) (car (shape indices))))
+                '(int64 float32 #t))
+  (check-true (eq? indices (first (deposit->list members))))
+  (define pending (deposit))
+  (check-raft-error 'logic
+                    "deposit->list: the deposit is still open"
+                    (lambda () (with-deposits ([out pending]) (deposit->list pending))))
+  (check-equal? (deposit->list pending) '())
+  (check-raft-error 'logic
+                    "with-deposits: the deposit is closed"
+                    (lambda () (with-deposits ([out members]) out)))
+  (define elsewhere (deposit #:resources (device-resources)))
+  (check-raft-error 'logic
+                    "cluster-members: out: on resources other than the call's"
+                    (lambda () (members-of elsewhere))))

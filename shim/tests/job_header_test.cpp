@@ -212,6 +212,7 @@ static_assert(raftrkt::job_parameter<void*>);
 static_assert(raftrkt::job_parameter<const rr_view*>);
 static_assert(raftrkt::job_parameter<int32_t>);
 static_assert(raftrkt::job_parameter<double*>);
+static_assert(raftrkt::job_parameter<rr_deposit*>);
 static_assert(!raftrkt::job_parameter<const double*>);
 static_assert(!raftrkt::job_parameter<rr_view*>);
 static_assert(!raftrkt::job_parameter<const void*>);

@@ -12,6 +12,7 @@
 #include <utility>
 
 #include "raftrkt/array.h"
+#include "raftrkt/deposit.h"
 #include "raftrkt/error.hpp"
 #include "raftrkt/job.h"
 
@@ -20,7 +21,7 @@ namespace raftrkt {
 template <typename P>
 concept job_parameter =
     std::same_as<P, void*> || std::same_as<P, const rr_view*> ||
-    std::is_arithmetic_v<P> ||
+    std::same_as<P, rr_deposit*> || std::is_arithmetic_v<P> ||
     (std::is_pointer_v<P> && std::is_arithmetic_v<std::remove_pointer_t<P>> &&
      !std::is_const_v<std::remove_pointer_t<P>>);
 
@@ -97,11 +98,12 @@ struct job_signature<int (*)(Ps...)>
   static int call(std::byte* block, std::index_sequence<I...> /*slots*/) {
     static_cast<void>(block);
     std::tuple<typename job_slot<Ps>::type...> slots{};
-    (std::memcpy(&std::get<I>(slots), block + layout::offsets[I],
-                 layout::sizes[I]),
+    (std::memcpy(static_cast<void*>(&std::get<I>(slots)),
+                 block + layout::offsets[I], layout::sizes[I]),
      ...);
     const int status = Fn(job_slot<Ps>::arg(std::get<I>(slots))...);
-    (std::memcpy(block + layout::offsets[I], &std::get<I>(slots),
+    (std::memcpy(block + layout::offsets[I],
+                 static_cast<const void*>(&std::get<I>(slots)),
                  layout::sizes[I]),
      ...);
     return status;

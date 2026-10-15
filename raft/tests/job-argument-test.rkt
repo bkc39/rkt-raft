@@ -1,13 +1,15 @@
 #lang racket/base
 
 (require (only-in rackunit check-true)
-         (only-in "../main.rkt" device-resources device-vector)
+         (only-in "../main.rkt" current-device-resources device-resources device-vector)
          (only-in "../private/array.rkt" release-array!)
+         (only-in "../private/dtype.rkt" dtype->code)
          (only-in "../private/foreign/memory.rkt" rr-resources-free)
          (only-in "../private/resource.rkt" with-release)
          (only-in "../private/resources.rkt" host-resources resources-handle resources-sync!)
          (only-in "private/gate.rkt" closed-gate gate-entered-fd gate-fd open-gate! release-gate)
          (only-in "private/probe.rkt"
+                  probe-deposit-job
                   probe-hold!
                   probe-hold-views-job
                   probe-release!
@@ -44,6 +46,19 @@
                       "demo: the device resources on device 0 were released"
                       (lambda ()
                         (probe-hold-views-job 'demo r (gate-entered-fd g) (gate-fd g) v #f)))))
+
+(test-probe "a deposit parameter refuses a non-deposit, naming the job"
+  (check-raft-error 'logic
+                    "demo: expected a deposit for a deposit parameter, given 'not-a-deposit"
+                    (lambda ()
+                      (probe-deposit-job 'demo
+                                         (current-device-resources)
+                                         'not-a-deposit
+                                         (dtype->code 'float32)
+                                         2
+                                         4
+                                         -1
+                                         0))))
 
 (test-probe "an array released while another view settles is refused, naming the job"
   (define r (device-resources))

@@ -10,9 +10,15 @@
                   dtype
                   list*->device-matrix
                   shape)
-         (only-in "private/native.rkt" kc-fit-job kc-make-blobs-job kc-predict-job))
+         (only-in raft/unsafe deposit deposit->list)
+         (only-in "private/native.rkt"
+                  kc-cluster-members-job
+                  kc-fit-job
+                  kc-make-blobs-job
+                  kc-predict-job))
 
 (provide blobs
+         cluster-members
          kmeans-fit
          kmeans-predict)
 
@@ -100,3 +106,8 @@
   (define inertia
     (kc-predict-job 'kmeans-predict resources centroids X sample-weight (if normalize? 1 0) labels))
   (values labels inertia))
+
+(define (cluster-members X labels cluster #:resources [resources (current-device-resources)])
+  (define members (deposit #:resources resources))
+  (kc-cluster-members-job 'cluster-members resources X labels cluster members)
+  (apply values (deposit->list members)))

@@ -10,6 +10,7 @@
                   _int32
                   _int64
                   _int8
+                  _pointer
                   _ptr
                   _uint16
                   _uint32
@@ -30,8 +31,13 @@
 (provide call/probe
          gate-job
          probe-current-is-async?
+         probe-deposit
+         probe-deposit-after-gate-job
+         probe-deposit-before-gate-job
+         probe-deposit-job
          probe-echo-job
          probe-fail-job
+         probe-flags
          probe-gate-job
          probe-hold!
          probe-hold-views-job
@@ -39,10 +45,14 @@
          probe-library
          probe-mark-atexit!
          probe-open-after!
+         probe-owner-drops
+         probe-owner-stale
          probe-pool-used
+         probe-refuse-adoption!
          probe-release!
          probe-sleep-job
          probe-stuck-release!
+         with-hold-timeout
          probe-thread-id-job
          probe-token-job
          probe-tokens
@@ -80,8 +90,23 @@
 
 (define-probe probe-release! (_fun -> _void) #:c-id rr_probe_release)
 
+(define-probe probe-refuse-adoption! (_fun _pointer _int32 -> _void) #:c-id rr_probe_refuse_adoption)
+
 (define-probe probe-last-error (_fun -> _bytes/nul-terminated) #:c-id rr_probe_last_error)
 (define-probe probe-last-error-kind (_fun -> _int) #:c-id rr_probe_last_error_kind)
+
+(define-probe probe-deposit
+              (_fun _pointer _pointer _int32 _int32 _int64 _int64 _uint32 -> _int)
+              #:c-id rr_probe_deposit)
+
+(define-probe probe-owner-drops (_fun -> _uint64) #:c-id rr_probe_owner_drops)
+(define-probe probe-owner-stale (_fun -> _uint64) #:c-id rr_probe_owner_stale)
+
+(define flag-bits
+  (hasheq 'col-major 1 'fail-after 2 'twice 8 'overlap 16 'raw 32 'misalign 64 'host 128 'rank3 256))
+
+(define (probe-flags . names)
+  (apply bitwise-ior 0 (map (lambda (name) (hash-ref flag-bits name)) names)))
 
 (define call/probe (status-checker probe-last-error probe-last-error-kind))
 
@@ -93,7 +118,16 @@
 (define-probe probe-tokens-clear! (_fun -> _void) #:c-id rr_probe_tokens_clear)
 (define-probe probe-open-after! (_fun _int32 _int32 -> _void) #:c-id rr_probe_open_after)
 (define-probe probe-mark-atexit! (_fun -> _void) #:c-id rr_probe_mark_atexit)
+(define-probe probe-set-hold-timeout! ;; noqa
+              (_fun _int32 -> _void)
+              #:c-id rr_probe_set_hold_timeout)
 (define-probe probe-stuck-resources (_fun _int32 -> _rr-resources) #:c-id rr_probe_stuck_resources)
+
+(define-syntax-parse-rule (with-hold-timeout ms:expr body:expr ...+)
+  (dynamic-wind (lambda () (probe-set-hold-timeout! ms))
+                (lambda ()
+                  body ...)
+                (lambda () (probe-set-hold-timeout! 10000))))
 
 (define (probe-stuck-release! hold-ms)
   (rr-resources-free (probe-stuck-resources hold-ms)))
@@ -142,6 +176,15 @@
 (define-probe-job probe-hold-views-job
                   "rr_probe_hold_views_job"
                   (_int32 _int32 view view (out _int64)))
+(define-probe-job probe-deposit-job
+                  "rr_probe_deposit_job"
+                  (handle deposit _int32 _int32 _int64 _int64 _uint32))
+(define-probe-job probe-deposit-after-gate-job
+                  "rr_probe_deposit_after_gate_job"
+                  (_int32 _int32 handle deposit _int32 _int32 _int64 _int64 _uint32))
+(define-probe-job probe-deposit-before-gate-job
+                  "rr_probe_deposit_before_gate_job"
+                  (_int32 _int32 handle deposit _int32 _int32 _int64 _int64 _uint32))
 
 (define (gate-job who r g #:timeout-ms [timeout-ms 10000] #:say? [say? #f] #:fail-kind [fail-kind -1])
   (probe-gate-job who r (gate-entered-fd g) (gate-fd g) timeout-ms (if say? 1 0) fail-kind))

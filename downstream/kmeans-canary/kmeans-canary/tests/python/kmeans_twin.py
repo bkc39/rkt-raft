@@ -1,5 +1,6 @@
 """Twin of kmeans-canary/tests/twin-test.rkt: cuml.cluster.KMeans fits the data
-the canary made, with the canary's init and seed, and sklearn scores both."""
+the canary made, with the canary's init and seed, and sklearn scores both;
+NumPy selects the members of a cluster as cluster-members does."""
 
 import json
 import sys
@@ -23,7 +24,16 @@ def matched_centroids(ours, theirs, centroids):
     return [centroids[order[i]].tolist() if i in order else None for i in range(k)]
 
 
+def members(case):
+    X = np.asarray(case["X"], dtype=case["dtype"])
+    labels = np.asarray(case["labels"])
+    idx = np.flatnonzero(labels == case["cluster"])
+    return {"indices": idx.tolist(), "rows": X[idx].tolist()}
+
+
 def run(case):
+    if case.get("op") == "members":
+        return members(case)
     dtype = np.dtype(case["dtype"])
     X = np.asarray(case["X"], dtype=dtype)
     init = case["init"]

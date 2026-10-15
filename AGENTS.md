@@ -45,7 +45,10 @@ Parity, §10 Build and §12 Starting cuML work before changing the design.
   `raftrkt/error.hpp` and `raftrkt/abi.h` in `packages.raft-dev`, cuML in
   `packages.rapids`, and the k-means canary in `downstream/kmeans-canary/`
   that proves them against `cuml.cluster.KMeans`. #21 runs long downstream
-  calls as jobs on a native executor (#32).
+  calls as jobs on a native executor (#32). #22 added outputs sized by the
+  call: `deposit`, `deposit?`, `with-deposits` and `deposit->list` in
+  `raft/unsafe`, `raftrkt/deposit.h` and the header-only
+  `raftrkt/deposit.hpp`, and the canary's `cluster-members` (raft 0.2).
 
 ## Layout
 
@@ -67,14 +70,15 @@ shim/                         libraftrkt: C++20 over RAFT's headers (CMake, g++;
   src/detail/dtypes.def       the dtypes: name, C++ type, code
   src/array/ops.def           what the array module instantiates, per op
   tests/                      gtest; GPU cases print SKIP without a device
-  tests/probe/                libraftrkt_probe, a second RMM user for the tests
+  tests/probe/                libraftrkt_probe, a second RMM user for the tests, and a
+                                downstream that fills deposits (rr_probe_deposit)
 raft/                         the Racket package and collection
   main.rkt core.rkt           the public surface
   private/foreign/*.rkt       FFI bindings, one module per shim header
   array.rkt                   raft/array, re-exported by main.rkt
   compat.rkt                  raft/compat, the only module that requires math-lib
   unsafe.rkt                  raft/unsafe, the frozen interface for native bindings
-  private/{abi,error,resource,resources,install-native}.rkt
+  private/{abi,error,resource,resources,install-native,deposit}.rkt
   private/{array,dtype,pack,print}.rkt   arrays over buffers, the tables, packing, printing
   scribblings/                the manual: guide/ chapters, reference/ sections
   tests/                      raco tests; tests/private/ the harness; tests/python/ the twins
@@ -268,18 +272,23 @@ plans/scoping-plan.md         the approved plan (revision 5), as Markdown
   `shared_ptr<raft::handle_t>` can destroy a cuBLAS handle, and a free
   without memory pools is `cudaFree`; both synchronize the device. A Racket
   release runs in atomic mode (a deallocator or a finalizer), so
-  `rr_resources_free` and a buffer's last unpin only queue the object and
-  return. Two process-wide reaper threads take them: the buffer lane frees
-  a buffer's memory and then queues its handle reference (`owner`, whenever
-  it shares ownership, a null handle with a deleter included) on the
-  handle lane, which drops handles and resources. A buffer free never
-  waits behind a handle drop that synchronizes the device. A job worker and
-  the reapers release in place (`rr::on_native_worker`), except that the
-  buffer lane always passes the handle reference on. Each queued release
-  is counted in the exit registry until it completes, and a buffer's
-  handle reference is admitted before its buffer release retires; after a
-  clean verdict releases run on the caller, after a skip they leak and are
-  counted.
+  `rr_resources_free` and the last unpin of a buffer or a deposit holder
+  only queue the object and return. Two process-wide reaper threads take
+  them: the buffer lane frees a buffer's memory and then queues its handle
+  references (`owner` and `keep`, whenever either shares ownership, a null
+  pointer with a deleter included) on the handle lane, which drops handles,
+  resources and deposit holders (whose owner frees device memory and may
+  hold the last handle reference). A buffer free never waits behind a
+  handle drop that synchronizes the device, except an adopted array's: its
+  memory belongs to the deposit's owner, and the owner's release (`keep`)
+  runs on the handle lane because it may synchronize, so an adopted array's
+  memory is freed there, after the handle drops queued before it. A job
+  worker and the reapers release in place (`rr::on_native_worker`), except
+  that the buffer lane always passes the handle references on. Each queued
+  release is counted in the exit registry until it completes, and a
+  buffer's handle references are admitted before its buffer release
+  retires; after a clean verdict releases run on the caller, after a skip
+  they leak and are counted.
 - `rr_resources` holds its device and a `std::shared_ptr<raft::handle_t>`
   that aliases an owner holding an `rmm::cuda_stream` and the handle. Each
   resources object owns its stream; the per-thread default stream would bind
@@ -415,7 +424,11 @@ plans/scoping-plan.md         the approved plan (revision 5), as Markdown
   on a stream that still exists, even after its resources were released.
   Its native reference count is Racket's reference plus one per pinning
   job; `rr_buffer_free` drops Racket's, and the last drop frees the buffer
-  on its device, counted by `rr_buffer_drop_count`.
+  on its device, counted by `rr_buffer_drop_count`. `rr_holder` (#22)
+  counts the same way: a job that takes a deposit pins its holder, and the
+  worker closes the holder (as `rr_holder_close` does) and drops the pin
+  when the entry returns; `rr_holder_create` refuses resources without a
+  device.
 - Visibility: our code is `-fvisibility=hidden` and exports only `RR_API`
   names. RAFT and RMM declare their namespaces default-visibility on purpose
   and must stay exported: RMM's per-device memory-resource registry is a set
@@ -427,7 +440,12 @@ plans/scoping-plan.md         the approved plan (revision 5), as Markdown
   own and is loaded `RTLD_LOCAL` by the Racket tests, as a cuML binding will
   be. It sees the async pool `libraftrkt` installed, and a buffer
   `libraftrkt` allocates shows in that pool's used bytes. L1d repeats the
-  check with the cuML canary. The
+  check with the cuML canary. #22 makes it a downstream too:
+  `rr_probe_deposit` fills a deposit through `deposit.hpp` (or by hand, to
+  test the shim's re-check) with its own error slot and owner counters, so
+  `deposit-test.rkt` drives a second library through `status-checker`, and
+  `deposit-job-test.rkt` through its job twins `rr_probe_deposit_job` and
+  the pipe-gated `rr_probe_deposit_after_gate_job`. The
   static CUDA runtime that `rmm::rmm` links is hidden with
   `--exclude-libs,ALL`; `--no-undefined` catches a missing library at link
   (except under `RAFTRKT_SANITIZE`, where the sanitizer runtime's symbols
@@ -499,10 +517,15 @@ plans/scoping-plan.md         the approved plan (revision 5), as Markdown
   `with-release` runs; the handle comes from `foreign/core.rkt`'s
   `rr-resources-handle`. `status-checker` takes thunks, so it is independent
   of the FFI a downstream binding uses; it runs the call and both error
-  reads in one `call-as-atomic`.
+  reads in one `call-as-atomic`. `with-deposits` takes its records and
+  closes them through `private/deposit.rkt` (the `deposit` struct over an
+  `_rr-holder`, `deposit->list`), which binds `src/detail/deposit_api.h`
+  through `private/foreign/deposit-api.rkt`; the record is the borrowed
+  `_rr-deposit`.
 - `private/job.rkt`: `define-job` and `job-procedure`, which packs the
   arguments into a block laid out as the C side's `run_job` unpacks it,
-  submits it, and waits on an `unsafe-poller` over the job's eventfd with
+  binds each `deposit` parameter's record and submits it in one
+  `call-as-atomic` (closing the deposits it bound if either raises), and waits on an `unsafe-poller` over the job's eventfd with
   breaks deferred until the job returns; it also provides `jobs-in-flight`,
   `jobs-live` and `executor-threads` for the tests. `private/exit.rkt`:
   `current-exit-wait` and the main place's at-exit hook, which calls
@@ -557,7 +580,9 @@ plans/scoping-plan.md         the approved plan (revision 5), as Markdown
   `tests/private/python-env.rkt` (the twin runner: `PYTHONSAFEPATH` probes,
   a temp directory, JSON in and out, `check-close`, `test-twin`),
   `tests/private/bindings.rkt` (the binding reader shared by the audit and
-  the census).
+  the census), `tests/private/deposits.rkt` (the probe's fill helpers,
+  owner and drop counters and `released-once`, shared by `deposit-test.rkt`
+  and `deposit-job-test.rkt`).
 
 ## Build and test
 
@@ -648,14 +673,14 @@ both rule sets (see Tooling). After pushing, poll `gh pr checks <n>` (it exits
 non-zero while checks are pending) until green.
 
 Every test run is bounded, so a hang fails instead of stalling a gate or
-a runner. ctest fails a shim gtest past 5 s, a little over twice the slowest
-(2.2 s under ASAN on CI, 1.8 s on the lab host), and a canary gtest past 2 s,
-against a slowest of 0.12 s (`gtest_discover_tests ... PROPERTIES TIMEOUT`).
+a runner. ctest fails a shim gtest past 6 s, about three times the slowest (1.8 s
+under ASAN on the lab host, no GPU), and a canary gtest past 2 s, against a
+slowest of 0.1 s (`gtest_discover_tests ... PROPERTIES TIMEOUT`).
 The nix checks run the gtests through ctest one at a time (`ctest -j1`), and
 CI's `nix flake check` builds one derivation at a time (`--max-jobs 1`), so
 no other build or test competes with the timing checks. `shim-sanitizers` also runs
 `raftrkt_tests` once in a single process under ASAN, inside a coreutils
-`timeout` of 60 s (about seven times its 8.6 s without a GPU), so the tests
+`timeout` of 60 s (about seven times its 8.5 s without a GPU), so the tests
 that check the previous test's releases settled bite in CI too.
 `raco test --process --timeout 45` bounds each Racket file: each file runs in
 its own process, killed at the limit, which also bounds a hang inside a native
@@ -677,7 +702,7 @@ UTF-8 locale, checking that it exempts
 `death.hpp` and checking that a missing search root fails it. Known limit:
 code that calls gtest's internal death-test machinery (`GTEST_DEATH_TEST_`)
 directly, or spells a macro name by token pasting, passes unbounded.
-The exit death-test fixtures hold a
+The exit and deposit-job death-test fixtures hold a
 `rr::test::sanitizer_log_on_stdout_in_children`, which appends
 `log_path=stdout:exitcode=23` to `LSAN_OPTIONS` for the re-executed children
 only, so a child's ASan and LSan reports go to its stdout and the parent's
@@ -690,16 +715,18 @@ children; it does not tell a leak from another ASan error, nor an ASan abort
 from any other abort. UBSan's runtime
 reads only `UBSAN_OPTIONS`, so its reports stay on stderr and still exit 1.
 Under a load average of 20 or more, LSan in a child that exits with live
-threads prints `Unable to get registers from thread N`, which is harmless (it scans that thread's whole stack) but failed the
-`"^$"` stderr matches when it went to stderr; `use_registers=0` does not stop
-it. The leak check runs in every child that reaches normal exit; a child whose
+threads prints `Unable to get registers from thread N`, which is harmless (it
+scans that thread's whole stack) but failed the `"^$"` stderr matches when it
+went to stderr; `use_registers=0` does not stop it. The leak check runs in every child that reaches normal exit; a child whose
 drain skipped (its exit ends in `_exit`), or that calls `_exit`/`std::_Exit`,
 skips it. A leak, or any other sanitizer error, fails the child's exit status
 instead. Under ASAN, `ExitDeathTest.ALeakInAChildIsReportedOffItsStderr`,
 `ALeakInASkippedChildIsNotChecked` and
-`UndefinedBehaviourInAChildFailsOnItsStderr` check each of these, and
+`UndefinedBehaviourInAChildFailsOnItsStderr` check each of these,
 `DeathMacroDeathTest.ALeakWithoutAbortOnErrorExitsWithLsansExitCode` and
-`AnyAsanReportInAChildExitsWithLsansExitCode` check the pinned exit code.
+`AnyAsanReportInAChildExitsWithLsansExitCode` check the pinned exit code, and
+on a GPU `DepositJobDeathTest.ALeakInAChildIsReportedOffItsStderr` checks the
+first.
 `scripts/gpu-suite.sh` runs under a 1800 s `timeout`; SIGINT, SIGTERM or
 SIGHUP to the script stops `timeout` and with it the suite's whole process
 group, and the script then dies by the same signal, so a calling loop stops
@@ -751,7 +778,7 @@ the binding census), `racket-review`, `racket-version` (at least 9.3),
 | compiler warnings | g++: `-Wall -Wextra -Wpedantic -Werror`; nvcc: `-Werror=all-warnings -Xcompiler=-Wall,-Wextra,-Werror` | every shim build | by hand |
 | clang-tidy (`shim/.clang-tidy`, `downstream/kmeans-canary/.clang-tidy`) | every `.cpp` under `shim/src`, `shim/tests` and the canary's `src` and `tests`, warnings as errors: `bugprone-*`, `performance-*`, `readability-*` except `identifier-length` (below), `modernize-use-nullptr`, `modernize-use-override` | flake checks `clang-tidy`, `clang-tidy-canary` | by hand |
 | `c-headers`, `line-count` | the umbrella header as C11; 500 lines per C/C++/CUDA file | flake checks | by hand |
-| ASAN and UBSAN (`-DRAFTRKT_SANITIZE=ON`) | host memory errors, leaks and undefined behaviour in both gtest binaries (not signed overflow: the nix stdenv's `strictoverflow` hardening builds with `-fno-strict-overflow`), and in every death-test child; the leak check runs only in a child that reaches normal exit, not one whose drain skipped (its exit ends in `_exit`) or that calls `_exit`/`std::_Exit`; the exit death tests' children send ASan and LSan reports to stdout, UBSan's to stderr, and fail by exit status | flake check `shim-sanitizers` (GPU cases SKIP); the GPU suite (GPU cases run); gate `sanitizers` | by hand |
+| ASAN and UBSAN (`-DRAFTRKT_SANITIZE=ON`) | host memory errors, leaks and undefined behaviour in both gtest binaries (not signed overflow: the nix stdenv's `strictoverflow` hardening builds with `-fno-strict-overflow`), and in every death-test child; the leak check runs only in a child that reaches normal exit, not one whose drain skipped (its exit ends in `_exit`) or that calls `_exit`/`std::_Exit`; the exit and deposit-job death tests' children send ASan and LSan reports to stdout, UBSan's to stderr, and fail by exit status | flake check `shim-sanitizers` (GPU cases SKIP); the GPU suite (GPU cases run); gate `sanitizers` | by hand |
 | compute-sanitizer memcheck | device memory errors, device leaks (`--leak-check full`) and failing CUDA calls (`--report-api-errors explicit`) in both gtest binaries and the canary's | the GPU suite (gate `gpu`, `gpu.yml`) | by hand |
 
 - **raco fmt** formats `.rkt` files only. It crashes on Scribble's
@@ -782,7 +809,9 @@ the binding census), `racket-review`, `racket-version` (at least 9.3),
   clash with another's. It also treats `define-syntax-parse-rule` as review
   treats `define-syntax-rule`, recording the name and skipping the template;
   without it review reads the header as a function's and reports every
-  `x:expr` as an unused argument. `;; noqa` is allowed only where review cannot see a
+  `x:expr` as an unused argument. It skips quoted data and reads quasiquoted
+  data (lists, vectors, boxes, hash values, prefab fields) only at its
+  unquotes. `;; noqa` is allowed only where review cannot see a
   binding's definition or use: names that `define-cpointer-type` and
   `define-cstruct` generate, a struct re-exported with `struct-out`, a value
   used only inside a macro template, and a name that `struct` leaves free
@@ -1140,10 +1169,19 @@ canary changes with it in the same pull request:
 - **Racket** (`raft/unsafe`): `resources->handle-pointer`,
   `with-array-views` (with its `#:resources [handle r]` clause),
   `status-checker`, `raft-abi-pointer`; `core-test.rkt` pins the export set.
+- **Additions at version 1 (#22):** `rr_deposit` (1256 bytes, offsets pinned
+  by `c_api_compile_test.c`), `RR_MAX_REGIONS`, `RR_DEPOSIT_*` (OPEN 0,
+  FILLED 1, CLOSED 2, FILLING 3), `rr_release_fn`, `raftrkt/deposit.hpp`
+  (`region`, `deposit`), and `deposit`, `deposit?`, `with-deposits`,
+  `deposit->list`. A downstream
+  detects them by requiring `("raft" #:version "0.2")` or with
+  `__has_include(<raftrkt/deposit.hpp>)`; a later change to `rr_deposit`'s
+  layout is version 2.
 - **Additions at version 1 (#32):** `raftrkt/job.h` (`rr_job_outcome`, 4104
   bytes, its offsets pinned by `tests/c_api_compile_test.c`;
   `RR_JOB_MESSAGE_BYTES`; `rr_job_fn`), `raftrkt/job.hpp` (`run_job`,
-  `job_args_size`, the `job_parameter` concept) and `define-job` in
+  `job_args_size`, the `job_parameter` concept, which admits #22's
+  `rr_deposit*`) and `define-job` in
   `raft/unsafe`. A downstream detects them with
   `__has_include(<raftrkt/job.hpp>)`.
 
@@ -1155,7 +1193,9 @@ reachable for the call; run each entry point inside
 `raftrkt::translate_exceptions` over its own thread-local `error_slot`;
 select the handle's device (`device_scope`) and refuse arrays on another one
 (`require_on_device`); read arrays only through `view.hpp`; allocate outputs
-with raft's constructors on the resources the call runs on; and synchronise
+with raft's constructors on the resources the call runs on, or deposit
+outputs sized by the call (`raftrkt::deposit` into a record from
+`with-deposits`, on the call's handle); and synchronise
 the handle's stream on every exit, a throw included (`sync_guard`), until
 the stream API (#13) gives it events; and run each call that can run long
 as a job: an `extern "C"` entry over `raftrkt::run_job`, bound with
@@ -1324,9 +1364,10 @@ since cuSPARSE's error string for it is only "out of memory"). The frozen rule i
   `parameterize-break #f` does not raise a queued break, so the job
   re-enters the caller's break setting. A job called in atomic mode raises
   `'logic` (the spike's process died there).
-- **Native pins replace the owner table.** A job pins each buffer through
-  its native reference count and keeps the handle's `shared_ptr`, so a
-  killed caller's arrays and resources live until the job returns; the
+- **Native pins replace the owner table.** A job pins each buffer and each
+  deposit's holder through its native reference count and keeps the
+  handle's `shared_ptr`, so a killed caller's arrays, deposits and resources
+  live until the job returns; the
   worker drops them before the job leaves the registry. `hold-owner!` and
   its ephemeron table are gone.
 - **A job leaves the registry before it is done** (#32 preflight, a
@@ -1337,7 +1378,8 @@ since cuSPARSE's error string for it is only "out of memory"). The frozen rule i
   to pin the order). The worker drops its own reference only after the
   signal, so a gtest reads its `rr_jobs_live` baseline settled
   (`settled_jobs_live`). A submit asks for admission before it prepares the
-  job, so a refused submit copies, opens and pins nothing; a preparation
+  job, so a refused submit copies, opens and pins nothing (it closes the
+  deposits it was given, as the worker would have); a preparation
   that throws erases the bound again.
 - **Two further departures from the spec's letter** (#32 review). The
   exit hook's `register-custodian-shutdown` result is discarded, not held
@@ -1365,7 +1407,7 @@ since cuSPARSE's error string for it is only "out of memory"). The frozen rule i
   main place's at-exit hook, with a C backstop (R1); a submit during exit
   answers a refused job, not NULL (R2); outputs are copied back with
   `rr_job_read` (R3); the spike's timing and tracing knobs are dropped (R4);
-  [30] a job pins its deposits' holders (R5); `run_job` catches escaping
+  a job pins its deposits' holders and closes them on the worker (R5); `run_job` catches escaping
   exceptions, refuses a wrong block size without allocating, and constrains
   its parameters with a concept (R6); a job in atomic mode raises (R7); CI
   runs the executor on host resources (R8); `define-job` takes only listed
@@ -1417,3 +1459,89 @@ since cuSPARSE's error string for it is only "out of memory"). The frozen rule i
   1 MiB charge brought the live workers of 2,000 sequential short-lived
   threads from a peak of 391 to 11–14; `worker-growth-test.rkt` asserts
   fewer than 100 over the baseline for 500 threads.
+
+## Decisions recorded in #22
+
+- **A deposit record, not `rr_buffer_adopt(device_buffer&&)`.** A
+  downstream cannot call `libraftrkt` (it does not link it, and `ffi-lib`
+  loads raft locally), cuML keeps HDBSCAN's call-sized outputs in private
+  `device_uvector` members, and an RMM buffer cannot cross a C boundary
+  (its `any_resource` vtable belongs to the allocating library). So raft
+  makes an `rr_deposit` inside an `rr_holder`, and the downstream's header
+  code writes an owner, a release function and up to 8 region views into it,
+  as cuML's Python does with `UnownedMemory(ptr, size, owner)`.
+- **The ABI version stays 1**; the additions are listed as such and raft's
+  package version is 0.2.
+- **`with-deposits` is its own form**, so `with-array-views` stays frozen.
+  A job pins the holder natively and closes it on the worker (or at a
+  refused submit, which pins nothing); `define-job` binds a job's deposits
+  through `call-with-deposits-bound` (`deposit.rkt`, over `with-release`),
+  which closes those it bound when a later binding or the submit raises and
+  otherwise leaves them to the worker. `with-deposits` (short calls) closes
+  on every exit. A closed record
+  refuses a fill.
+  `rr_holder_record` hands the record out once (every exit closes, so no
+  legitimate second binding exists). `deposit.hpp` first claims the record
+  with a compare-and-swap from OPEN to `RR_DEPOSIT_FILLING` (3, an addition
+  at version 1); a refused claim touches nothing, so a second filler cannot
+  disturb the first. Only the claimant writes the other fields, and it
+  publishes with a compare-and-swap from FILLING to FILLED, taking the owner
+  only after it succeeds; a close in between wins, the claimant clears what
+  it wrote and refuses with "closed", and the caller's `unique_ptr` frees the
+  owner. A refused claim says "being filled" for FILLING, "already
+  filled" for FILLED and "closed" otherwise: a claimant can still unclaim or
+  lose to a close. Readers treat FILLING as OPEN. `rr_holder_count` and
+  `rr_holder_adopt` refuse a deposit with "still open" while it is open,
+  while it is being filled, and while a job that filled it still runs (#30,
+  a departure from #22's spec, which refused only OPEN and FILLING): a job
+  publishes FILLED while its entry still runs and the worker closes the
+  deposit after the entry returns, so `queued_job` sets the holder's
+  `job_bound` before the submit and adoption of a job's deposit waits for
+  the close (law 104). A FILLED deposit no job holds adopts unclosed: a
+  `with-deposits` caller killed after the fill never runs the close (law 8).
+  The shim's refusals: "the deposit is
+  closed", "the deposit is already filled", "the deposit is already bound",
+  "the deposit is still open", "the deposit has no region 3; it holds 2",
+  "region 0 is already adopted".
+- **`deposit.hpp` checks a region's byte size before its layout**, unlike
+  the spec's order: canonical strides of overflowing extents overflow too,
+  so the layout check would report a misleading "neither row-major nor
+  col-major".
+- **Adoption is all or nothing.** `deposit->list` adopts regions in order;
+  a failure after the index checks clears every adopted flag, and Racket
+  frees the arrays it already made, so a retry starts again instead of
+  failing "region 0 is already adopted".
+- **Ownership.** The holder and every adopted `rr_buffer` share one
+  `shared_ptr<void>(owner, release)`, made on the first adopt or at holder
+  free; the handle `shared_ptr` is declared before it, so the owner is
+  released, once, with its handle alive, in every order of freeing (the
+  ASAN gtest runs all 6). `rr_owner_release_count` counts releases;
+  `release_on_device` covers holders, so `rr_release_failure_count` counts
+  a holder that could not select its device.
+- **The shim checks a filled record again** at `rr_holder_count` and
+  `rr_holder_adopt` with `deposit.hpp`'s own checks, so a record filled by
+  hand raises `'logic` instead of crashing. Messages name the region, never
+  an `rr_` function.
+- **A count reads the deposit's state once** and decides from that one
+  load whether the deposit adopts and whether it was filled. The two loads
+  it replaced let a close between them hide a fill. No deterministic test
+  can reach that window without a test-only hook in production code, so
+  `StressCountAgainstCloseAlwaysSeesTheFill` keeps two threads counting
+  while it fills and closes up to 80000 deposits (2 s at most), each close
+  once a counter has picked that deposit up, and fails on any count that
+  succeeds with a value other than 2. Against the two-load shape on the
+  3090 Ti at a load average of 11 to 24 it failed 50 runs of 50, the fewest
+  with 1 wrong count; 40000 rounds missed 2 of 50 at 11 to 14. With the
+  fix, a run takes 1.8 to 2.2 s. It needs a GPU, so the `gpu` gate runs it
+  and CI does not.
+- **`deposit->list` adopts every region in one `call-as-atomic`** and caches
+  the list, so two threads get `eq?` arrays. Phantom bytes cover the regions
+  only.
+- **`deposit->owner-pointer`** for opaque state (HDBSCAN's `PredictionData`)
+  waits for rkt-cuml's HDBSCAN prediction leg; it is additive.
+- **The canary's `cluster-members`** gathers on the host side of the copy
+  engine (labels to host, one device-to-device copy per run of rows), since
+  the canary has no CUDA language; its owner holds two `device_uvector`s and
+  the handle, like cuML's outputs. It runs as a job
+  (`kc_cluster_members_job`, a `deposit` parameter, a 328-byte block);
+  `with-deposits` stays for short calls.

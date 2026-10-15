@@ -13,9 +13,12 @@ extern "C" {
    on any OS thread. */
 RR_API void rr_resources_free(rr_resources* resources);
 RR_API void rr_buffer_free(rr_buffer* buffer);
+RR_API void rr_holder_free(rr_holder* holder);
 
 RR_API uint64_t rr_resources_drop_count(void);
 RR_API uint64_t rr_buffer_drop_count(void);
+RR_API uint64_t rr_holder_drop_count(void);
+RR_API uint64_t rr_owner_release_count(void);
 RR_API uint64_t rr_release_failure_count(void);
 RR_API int64_t rr_releases_pending(void);
 

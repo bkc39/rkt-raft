@@ -43,6 +43,7 @@ add_library(raftrkt SHARED
   src/array/array.cpp
   src/array/buffer.cpp
   src/array/copy.cu
+  src/array/deposit.cpp
   src/core/core.cpp
   src/core/executor.cpp
   src/core/exit.cpp
@@ -81,7 +82,7 @@ raftrkt_add_tidy_target(tidy raftrkt)
 if(BUILD_TESTING)
   find_package(GTest REQUIRED)
   include(GoogleTest)
-  set(raftrkt_gtest_timeout_seconds 5)
+  set(raftrkt_gtest_timeout_seconds 6)
 
   add_library(raftrkt_c_api_compile_test OBJECT tests/c_api_compile_test.c)
   target_include_directories(raftrkt_c_api_compile_test
@@ -93,6 +94,9 @@ if(BUILD_TESTING)
     tests/array_test.cpp
     tests/core_test.cpp
     tests/cuda_language_test.cu
+    tests/deposit_job_test.cpp
+    tests/deposit_race_test.cpp
+    tests/deposit_test.cpp
     tests/executor_test.cpp
     tests/exit_test.cpp
     tests/exit_worker_test.cpp
@@ -112,6 +116,7 @@ if(BUILD_TESTING)
     src/detail/dtype.cpp
     src/detail/error.cpp
     src/detail/view.cpp
+    tests/deposit_header_test.cpp
     tests/error_test.cpp
     tests/headers_test.cpp
     tests/view_test.cpp

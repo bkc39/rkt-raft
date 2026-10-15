@@ -4,6 +4,7 @@
 #include "raftrkt/abi.h"
 #include "raftrkt/array.h"
 #include "raftrkt/core.h"
+#include "raftrkt/deposit.h"
 #include "raftrkt/job.h"
 #include "raftrkt/memory.h"
 

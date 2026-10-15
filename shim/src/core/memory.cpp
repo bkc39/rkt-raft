@@ -10,6 +10,7 @@
 #include <new>
 #include <optional>
 #include <thread>
+#include <utility>
 
 #include "detail/executor.hpp"
 #include "detail/handles.hpp"
@@ -22,6 +23,16 @@ std::atomic<uint64_t>& resources_drops() noexcept {
 }
 
 std::atomic<uint64_t>& buffer_drops() noexcept {
+  static std::atomic<uint64_t> count{0};
+  return count;
+}
+
+std::atomic<uint64_t>& holder_drops() noexcept {
+  static std::atomic<uint64_t> count{0};
+  return count;
+}
+
+std::atomic<uint64_t>& owner_releases() noexcept {
   static std::atomic<uint64_t> count{0};
   return count;
 }
@@ -48,7 +59,7 @@ void release_on_device(T* object, std::atomic<uint64_t>& drops) noexcept {
     delete object;
     drops.fetch_add(1, std::memory_order_relaxed);
   } catch (...) {
-    release_failures().fetch_add(1, std::memory_order_relaxed);
+    count_release_failure();
   }
 }
 
@@ -146,13 +157,15 @@ std::atomic<uint64_t>& owner_drops() noexcept {
 struct owner_ref {
   int32_t device;
   std::shared_ptr<raft::handle_t> handle;
+  std::shared_ptr<void> keep;
 };
 
 void drop_buffer(void* object) noexcept {
   auto* buffer = static_cast<rr_buffer*>(object);
   owner_ref* owner = nullptr;
-  if (buffer->owner.use_count() != 0) {
-    owner = new (std::nothrow) owner_ref{buffer->device, buffer->owner};
+  if (buffer->owner.use_count() != 0 || buffer->keep.use_count() != 0) {
+    owner = new (std::nothrow)
+        owner_ref{buffer->device, buffer->owner, std::move(buffer->keep)};
   }
   release_on_device(buffer, buffer_drops());
   if (owner != nullptr) {
@@ -186,6 +199,17 @@ void unpin(rr_buffer* buffer) noexcept {
   }
 }
 
+void pin(rr_holder& holder) noexcept {
+  holder.refs.fetch_add(1, std::memory_order_relaxed);
+}
+
+void unpin(rr_holder* holder) noexcept {
+  if (holder != nullptr &&
+      holder->refs.fetch_sub(1, std::memory_order_acq_rel) == 1) {
+    release<rr_holder, holder_drops>(holder);
+  }
+}
+
 }  // namespace rr
 
 extern "C" {
@@ -198,12 +222,24 @@ void rr_buffer_free(rr_buffer* buffer) {
   rr::unpin(buffer);
 }
 
+void rr_holder_free(rr_holder* holder) {
+  rr::unpin(holder);
+}
+
 uint64_t rr_resources_drop_count(void) {
   return rr::resources_drops().load(std::memory_order_relaxed);
 }
 
 uint64_t rr_buffer_drop_count(void) {
   return rr::buffer_drops().load(std::memory_order_relaxed);
+}
+
+uint64_t rr_holder_drop_count(void) {
+  return rr::holder_drops().load(std::memory_order_relaxed);
+}
+
+uint64_t rr_owner_release_count(void) {
+  return rr::owner_releases().load(std::memory_order_relaxed);
 }
 
 uint64_t rr_release_failure_count(void) {

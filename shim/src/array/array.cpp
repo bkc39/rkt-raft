@@ -22,7 +22,7 @@ std::unique_ptr<rr_buffer> allocate(
   const device_guard guard{device};
   auto stream = raft::resource::get_cuda_stream(*owner);
   return std::unique_ptr<rr_buffer>(new rr_buffer{
-      owner, device, rmm::device_buffer{byte_size(desc), stream}, 1});
+      owner, device, {}, rmm::device_buffer{byte_size(desc), stream}});
 }
 
 void require_matrix(const rr_view& view) {

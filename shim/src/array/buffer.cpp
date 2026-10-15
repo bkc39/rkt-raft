@@ -22,7 +22,7 @@ void require_fits(std::size_t bytes, std::size_t capacity) {
 void copy_sync(void* dst, const void* src, std::size_t bytes,
                cudaMemcpyKind kind, const rr_buffer& buffer) {
   const rr::device_guard guard{buffer.device};
-  cudaStream_t stream = buffer.data.stream().value();
+  cudaStream_t stream = rr::stream_of(buffer).value();
   rr::cuda_check(cudaMemcpyAsync(dst, src, bytes, kind, stream),
                  "cudaMemcpyAsync");
   rr::cuda_check(cudaStreamSynchronize(stream), "cudaStreamSynchronize");
@@ -41,7 +41,7 @@ int rr_buffer_alloc(rr_resources* resources, size_t bytes, rr_buffer** out) {
     const rr::device_guard guard{r.device};
     auto stream = raft::resource::get_cuda_stream(*handle);
     result =
-        new rr_buffer{handle, r.device, rmm::device_buffer{bytes, stream}, 1};
+        new rr_buffer{handle, r.device, {}, rmm::device_buffer{bytes, stream}};
   });
 }
 
@@ -52,8 +52,8 @@ int rr_copy_h2d(rr_buffer* dst, const void* src, size_t bytes) {
       return;
     }
     rr::require(src, "src");
-    require_fits(bytes, buffer.data.size());
-    copy_sync(buffer.data.data(), src, bytes, cudaMemcpyHostToDevice, buffer);
+    require_fits(bytes, rr::size_of(buffer));
+    copy_sync(rr::data_of(buffer), src, bytes, cudaMemcpyHostToDevice, buffer);
   });
 }
 
@@ -64,8 +64,8 @@ int rr_copy_d2h(void* dst, const rr_buffer* src, size_t bytes) {
       return;
     }
     rr::require(dst, "dst");
-    require_fits(bytes, buffer.data.size());
-    copy_sync(dst, buffer.data.data(), bytes, cudaMemcpyDeviceToHost, buffer);
+    require_fits(bytes, rr::size_of(buffer));
+    copy_sync(dst, rr::data_of(buffer), bytes, cudaMemcpyDeviceToHost, buffer);
   });
 }
 
@@ -87,7 +87,7 @@ int rr_buffer_ready(const rr_buffer* buffer, int32_t* out) {
     ready = 0;
     const auto& b = *rr::require(buffer, "buffer");
     const rr::device_guard guard{b.device};
-    const cudaError_t status = cudaStreamQuery(b.data.stream().value());
+    const cudaError_t status = cudaStreamQuery(rr::stream_of(b).value());
     if (status == cudaErrorNotReady) {
       static_cast<void>(cudaGetLastError());
       return;
@@ -101,12 +101,12 @@ int rr_buffer_read(const rr_buffer* src, uint64_t offset, void* dst,
                    size_t bytes) {
   return rr::translate_exceptions([&] {
     const auto& buffer = *rr::require(src, "src");
-    rr::require_range(offset, bytes, buffer.data.size());
+    rr::require_range(offset, bytes, rr::size_of(buffer));
     if (bytes == 0) {
       return;
     }
     copy_sync(rr::require(dst, "dst"),
-              static_cast<const char*>(buffer.data.data()) + offset, bytes,
+              static_cast<const char*>(rr::data_of(buffer)) + offset, bytes,
               cudaMemcpyDeviceToHost, buffer);
   });
 }
@@ -115,11 +115,11 @@ int rr_buffer_write(rr_buffer* dst, uint64_t offset, const void* src,
                     size_t bytes) {
   return rr::translate_exceptions([&] {
     auto& buffer = *rr::require(dst, "dst");
-    rr::require_range(offset, bytes, buffer.data.size());
+    rr::require_range(offset, bytes, rr::size_of(buffer));
     if (bytes == 0) {
       return;
     }
-    copy_sync(static_cast<char*>(buffer.data.data()) + offset,
+    copy_sync(static_cast<char*>(rr::data_of(buffer)) + offset,
               rr::require(src, "src"), bytes, cudaMemcpyHostToDevice, buffer);
   });
 }

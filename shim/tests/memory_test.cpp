@@ -100,7 +100,7 @@ TEST(Release, ABufferFreeDoesNotWaitBehindAStuckHandleDrop) {
   const stuck_release s = free_a_stuck_release({});
   ASSERT_TRUE(s.entered);
   const uint64_t drops = rr_buffer_drop_count();
-  rr_buffer_free(new rr_buffer{nullptr, -1, rmm::device_buffer{}, 1});
+  rr_buffer_free(new rr_buffer{nullptr, -1, {}, rmm::device_buffer{}});
   EXPECT_TRUE(buffer_dropped_within(drops, buffer_free_limit));
   s.dropping->open_now();
   EXPECT_TRUE(rr::test::releases_settled());
@@ -114,7 +114,11 @@ std::shared_ptr<raft::handle_t> aliasing(
 }
 
 rr_buffer* owned_by(std::shared_ptr<raft::handle_t> owner) {
-  return new rr_buffer{std::move(owner), -1, rmm::device_buffer{}, 1};
+  return new rr_buffer{std::move(owner), -1, {}, rmm::device_buffer{}};
+}
+
+rr_buffer* kept_by(std::shared_ptr<void> keep) {
+  return new rr_buffer{nullptr, -1, std::move(keep), rmm::device_buffer{}};
 }
 
 template <typename Buffer>
@@ -139,6 +143,10 @@ TEST(Release, ABufferFreeDoesNotWaitBehindAnotherBuffersOwnerDrop) {
 
 TEST(Release, AnOwnerWithANullHandleStillDropsOnTheHandleLane) {
   a_buffer_free_passes_a_stuck_drop(owned_by);
+}
+
+TEST(Release, ABufferFreeDoesNotWaitBehindAnAdoptedArraysOwnerRelease) {
+  a_buffer_free_passes_a_stuck_drop(kept_by);
 }
 
 }  // namespace

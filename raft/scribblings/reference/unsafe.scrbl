@@ -41,6 +41,8 @@ The examples call the canary's library: set @tt{RAFT_KMEANS_CANARY} to
 (define-kc kc-predict
   (_fun _pointer _pointer _pointer _pointer _int32 _pointer (inertia : (_ptr o _double))
         -> (status : _int) -> (values status inertia)))
+(define-kc kc-cluster-members
+  (_fun _pointer _pointer _pointer _int32 _pointer -> _int))
 (define-job kc-make-blobs-job canary "kc_make_blobs_job"
   (handle view view _int32 _double _int32 _double _double _uint64))
 (define-job kc-fit-job canary "kc_fit_job"
@@ -139,7 +141,7 @@ extern "C" KC_API void kc_fit_job(void* args, size_t args_len, rr_job_outcome* o
 On the Racket side, @racket[define-job] declares the entry point's parameters in order.
 
 @defform[(define-job id library-expr c-id-expr (param ...) maybe-exn)
-         #:grammar ([param handle view (code:line (out out-type)) in-type]
+         #:grammar ([param handle view deposit (code:line (out out-type)) in-type]
                     [in-type _int8 _uint8 _int16 _uint16 _int32 _uint32 _int64 _uint64
                              _float _double _double*]
                     [out-type _int8 _uint8 _int16 _uint16 _int32 _uint32 _int64 _uint64
@@ -154,10 +156,13 @@ runs the job entry @racket[c-id-expr] of @racket[library-expr] on the worker
 of @racket[resources] and returns the entry point's outputs, in order, as
 values. Each @racket[param] is one parameter of the C entry point:
 @racket[handle] its @tt{void*} handle, taken from @racket[resources];
-@racket[view] a @tt{const rr_view*}; @racket[(out type)] a pointer to an
-output; an @racket[in-type] a number. An @racket[arg] is given for each
-@racket[view] (a device array, or @racket[#f] for @tt{NULL}) and each
-@racket[in-type] (converted as by the type), in order. The three expressions
+@racket[view] a @tt{const rr_view*}; @racket[deposit] an @tt{rr_deposit*},
+for which the @racket[arg] is a deposit, bound once as by
+@racket[with-deposits] and closed when the job returns; @racket[(out type)]
+a pointer to an output; an @racket[in-type] a number. An @racket[arg] is
+given for each @racket[view] (a device array, or @racket[#f] for @tt{NULL}),
+each @racket[deposit] and each @racket[in-type] (converted as by the type),
+in order. The three expressions
 are evaluated once, when @racket[id] is defined; a missing entry raises then.
 Two @racket[handle]s are a syntax error.
 
@@ -167,13 +172,18 @@ kind; @racket[exn] is @racket[exn:fail:raft] unless @racket[#:exn] says
 otherwise. Released resources or arrays raise @racket[exn:fail:raft] of kind
 @racket['logic] before the job is made, as does a call in atomic mode,
 where the calling thread cannot wait. A @racket[view] argument that is
-neither a device array nor @racket[#f] raises @racket[exn:fail:raft] of kind
-@racket['logic] naming @racket[who], also before the job is made. A number
+neither a device array nor @racket[#f], or a @racket[deposit] argument that is
+not a deposit, raises @racket[exn:fail:raft] of kind @racket['logic] naming
+@racket[who], also before the job is made. A number
 its type refuses raises @racket[exn:fail:contract] naming @racket[who].
 
-The job holds what it uses, the handle and each array's memory, until it
-returns, even if the calling thread is killed or the arrays and resources
-become unreachable. Each view is bound once the work queued on its array's
+The job holds what it uses, the handle, each array's memory and each
+deposit, until it returns, even if the calling thread is killed or the
+arrays, deposits and resources become unreachable. A deposit that cannot be
+bound raises @racket[exn:fail:raft] of kind @racket['logic] before the job
+runs. A job that cannot be submitted raises @racket[exn:fail:raft], of kind
+@racket['generic] when the system refuses a file descriptor or a thread, and
+@racket['out-of-memory] when memory runs out. Either closes the deposits bound before it. Each view is bound once the work queued on its array's
 stream is done. The calling thread waits with breaks disabled: a break that
 arrives meanwhile is raised when the job returns, and its outputs are
 dropped. When the process exits, a running job is waited for as
@@ -231,6 +241,19 @@ A declaration of the wrong size is refused:
 @examples[#:eval ev #:label #f
 (define-job kc-fit-job/short canary "kc_fit_job" (handle view view view _int32))
 (eval:error (kc-fit-job/short 'kmeans-fit (current-device-resources) X #f fitted 0))
+]
+
+A deposit parameter takes outputs sized by the call (@racket[deposit]):
+
+@examples[#:eval ev #:label #f
+(define labels (device-vector 300 #:dtype 'int32))
+(kc-predict-job 'kmeans-predict (current-device-resources) fitted X #f 1 labels)
+(define-job kc-cluster-members-job canary "kc_cluster_members_job" (handle view view _int32 deposit))
+(define found (deposit))
+(kc-cluster-members-job 'cluster-members (current-device-resources) X labels 0 found)
+(deposit->list found)
+(eval:error (kc-cluster-members-job 'cluster-members (current-device-resources) X labels 0 found))
+(eval:error (kc-cluster-members-job 'cluster-members (current-device-resources) X labels 0 'not-a-deposit))
 ]}
 
 @section[#:tag "ref-unsafe-abi"]{The ABI tag}
@@ -354,7 +377,6 @@ returns with work still queued must run on the arrays' own resources or
 synchronise before it returns.
 
 @examples[#:eval ev
-(define labels (device-vector 300 #:dtype 'int32))
 (define score
   (with-array-views #:resources [handle (current-device-resources)]
                     ([c fitted] [x X] [w #f] [y labels])
@@ -387,6 +409,71 @@ is refused:
  (with-array-views ([c fitted] [y labels])
    (check 'kmeans-predict (lambda () (kc-predict handle c stale #f 1 y)))))
 ]}
+
+@section[#:tag "ref-unsafe-deposits"]{Outputs sized by the call}
+
+Some native calls allocate outputs whose size only the call knows, such as
+HDBSCAN's condensed tree. A deposit is a record the call fills with that
+memory and with the owner that frees it; raft then turns each region into an
+array.
+
+@defproc[(deposit [#:resources resources device-resources? (current-device-resources)]) deposit?]{
+
+Returns an empty deposit on @racket[resources]: a record into which a native
+call puts device memory it allocated, with the owner that frees it. Its
+arrays come from @racket[deposit->list].}
+
+@defproc[(deposit? [v any/c]) boolean?]{
+
+Recognises deposits.}
+
+@defform[(with-deposits ([id deposit-expr] ...) body ...+)
+         #:contracts ([deposit-expr deposit?])]{
+
+Binds each @racket[id] to a pointer to the deposit's @tt{rr_deposit}
+(@secref["ref-unsafe-c"]) for the extent of the @racket[body]s. Every exit
+closes the deposit: a native call can no longer fill it, and a deposit left
+empty holds no arrays. A deposit is bound once: binding it again, even while
+a @tech{job} is still filling it, raises @racket[exn:fail:raft] of
+kind @racket['logic]: ``the deposit is already bound'', ``already filled''
+or ``closed'', whichever it is. Make the deposit on the
+resources the call runs on. Two identical @racket[id]s are a syntax error.}
+
+@defproc[(deposit->list [d deposit?]) (listof (or/c device-vector? device-matrix?))]{
+
+Returns the arrays of @racket[d]'s regions, in order, with the shapes,
+layouts and dtypes the native call recorded: the same arrays on every call.
+Each holds the native owner: it is freed, exactly once, when the deposit and
+all its arrays are gone, on the deposit's stream, and it outlives the
+resources object it was made from. While @racket[d] is open, while it is
+being filled, and while a @tech{job} that filled it still runs, raises
+@racket[exn:fail:raft] of kind @racket['logic]: ``the deposit is still
+open''.}
+
+@examples[#:eval ev
+(define members (deposit))
+(with-deposits ([out members])
+  (with-array-views #:resources [handle (current-device-resources)] ([x X] [y labels])
+    (check 'cluster-members (lambda () (kc-cluster-members handle x y 0 out)))))
+(match-define (list indices rows) (deposit->list members))
+(list (dtype indices) (dtype rows) (= (car (shape rows)) (car (shape indices))))
+(eq? indices (first (deposit->list members)))
+]
+
+A deposit can be converted once it is filled, it is filled only once, and it
+belongs to the resources it was made on:
+
+@examples[#:eval ev #:label #f
+(define pending (deposit))
+(eval:error (with-deposits ([out pending]) (deposit->list pending)))
+(deposit->list pending)
+(eval:error (with-deposits ([out members]) out))
+(define elsewhere (deposit #:resources other))
+(eval:error
+ (with-deposits ([out elsewhere])
+   (with-array-views #:resources [handle (current-device-resources)] ([x X] [y labels])
+     (check 'cluster-members (lambda () (kc-cluster-members handle x y 0 out))))))
+]
 
 @section[#:tag "ref-unsafe-c"]{The C interface}
 
@@ -507,6 +594,64 @@ T* centers = raftrkt::matrix_data<T, int>(centroids, "centroids", raftrkt::layou
 auto m = raftrkt::matrix_view<const float, raft::col_major, int64_t>(a, "A");
 }|
 
+@bold{@tt{raftrkt/deposit.h}.} An @tt{rr_deposit} is 1256 bytes. raft
+fills the first three fields when it makes the deposit; the native call fills
+the rest:
+
+@tabular[#:sep @hspace[2]
+         #:style 'boxed
+         #:row-properties '(bottom-border ())
+ (list (list @bold{Field} @bold{Offset} @bold{Meaning})
+       (list @tt{const void* handle} "0" @elem{the @tt{raft::handle_t*} of the deposit's resources})
+       (list @tt{int32_t device} "8" "the CUDA device")
+       (list @tt{int32_t state} "12" @elem{@tt{RR_DEPOSIT_OPEN} 0, @tt{FILLED} 1, @tt{CLOSED} 2, @tt{FILLING} 3})
+       (list @tt{void* owner} "16" "what frees the regions' memory")
+       (list @tt{rr_release_fn release} "24" @elem{@tt{void (*)(void* owner)}})
+       (list @tt{int32_t count} "32" @elem{0 to @tt{RR_MAX_REGIONS} (8)})
+       (list @tt{rr_view regions[8]} "40" "each a device view of rank 1 or 2"))]
+
+Once the record is filled, it owns the owner, and @tt{libraftrkt} calls
+@tt{release(owner)} exactly once. @tt{release} runs on any OS thread, with
+the deposit's device current and its @tt{raft::handle_t} still alive, and may
+run concurrently with the library's other calls; it must not throw or call
+Racket. Every region lies in memory the owner frees, on the handle's stream,
+and its contents are complete when the call returns.
+
+@bold{@tt{raftrkt/deposit.hpp}.} Header-only, like @tt{view.hpp}:
+
+@itemlist[
+ @item{@tt{rr_view raftrkt::region(rmm::device_uvector<T>& v)},
+       @tt{region(T* data, int64_t n)} and @tt{region(T* data, int64_t rows,
+       int64_t cols, raftrkt::layout l)}: a vector or a matrix with
+       canonical strides, for @tt{T} one of the four element types.}
+ @item{@tt{void raftrkt::deposit(rr_deposit* into, const char* name, const
+       raft::handle_t& handle, std::unique_ptr<Owner>&& owner,
+       std::initializer_list<rr_view> regions)}: refuses, in order, a
+       @tt{NULL} record, a record that is not open (@tt{"out: being filled"}
+       while another filler holds it, @tt{"out: already filled"},
+       @tt{"out: closed"}), a record on other resources than
+       @tt{handle}'s, no owner, more than 8 regions, a region of another
+       rank or element type, with a negative extent, a byte size that
+       overflows, another layout, no data or misaligned data, overlapping
+       regions, and memory that is not on the record's device. A refusal
+       throws @tt{raftrkt::logic_error} and leaves the owner to the caller's
+       @tt{unique_ptr}. After the @tt{NULL} check it claims an open record by
+       moving it to @tt{FILLING}; a record that cannot be claimed is refused with
+       nothing touched, so a second filler cannot disturb the first. A
+       later refusal touches nothing but @tt{state}: the record is open
+       again, or closed if it was closed meanwhile, and its other fields are
+       as they were. Otherwise it fills the record, moves it to
+       @tt{FILLED} and takes the owner; a record closed during the fill is
+       refused with @tt{"out: closed"}, as above.}]
+
+@listing["C++"]|{
+auto owner = std::make_unique<members<T>>(handle, m, d);
+// The regions read owner before deposit takes it: std::move is only a cast.
+raftrkt::deposit(out, "out", handle, std::move(owner),
+                 {raftrkt::region(owner->indices),
+                  raftrkt::region(owner->rows.data(), m, d, raftrkt::layout::row_major)});
+}|
+
 @bold{@tt{raftrkt/job.h}.} An @tt{rr_job_outcome} is 4104 bytes:
 @tt{int32_t status} at 0, @tt{int32_t kind} at 4 and
 @tt{char message[RR_JOB_MESSAGE_BYTES]} (4096) at 8. A job entry is an
@@ -520,9 +665,9 @@ same resources returned, and must not throw or call Racket.
 records its status and, on failure, the kind and message from @tt{slot}, the
 library's error slot, read on the worker right after @tt{f} returns. @tt{f}
 returns @tt{int} and takes only @tt{void*} (the handle), @tt{const rr_view*},
-numbers, and pointers to non-const numbers (its outputs); anything else does
-not compile (@tt{raftrkt::job_parameter}). @tt{raftrkt::job_args_size<&f>}
-is the block's size.
+@tt{rr_deposit*}, numbers, and pointers to non-const numbers (its outputs);
+anything else does not compile (@tt{raftrkt::job_parameter}).
+@tt{raftrkt::job_args_size<&f>} is the block's size.
 
 @bold{What is frozen.} @tt{rr_view}, @tt{RR_MAX_RANK} and the dtype and memory
 codes; @tt{rr_buffer_view}; @tt{rr_resources_handle}; @tt{rr_abi_tag},
@@ -533,6 +678,10 @@ this module; and the rules a downstream entry point keeps: run inside
 another device, read arrays only through @tt{view.hpp}, and synchronise the
 handle's stream on every exit. A change to any of them is a new ABI version,
 with the canary changed in the same pull request. Additions at version 1
-(#32): @tt{rr_job_outcome}, @tt{RR_JOB_MESSAGE_BYTES}, @tt{rr_job_fn},
+(#22, #32): @tt{rr_deposit}, @tt{RR_MAX_REGIONS}, the @tt{RR_DEPOSIT_*}
+states, @tt{rr_release_fn}, @tt{deposit.hpp}, @racket[deposit],
+@racket[deposit?], @racket[with-deposits], @racket[deposit->list],
+@tt{rr_job_outcome}, @tt{RR_JOB_MESSAGE_BYTES}, @tt{rr_job_fn},
 @tt{job.hpp}, @racket[define-job], and the rule that a call that can run long
-is a job; a downstream detects them with @tt{__has_include(<raftrkt/job.hpp>)}.
+is a job; a downstream detects them by requiring @racketmodname[raft] version
+0.2, or with @tt{__has_include}.

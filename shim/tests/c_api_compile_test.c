@@ -11,6 +11,19 @@ _Static_assert(RR_MAX_RANK == 8, "RR_MAX_RANK is 8");
 _Static_assert(sizeof(rr_abi_tag) == 56, "rr_abi_tag is 56 bytes");
 _Static_assert(offsetof(rr_abi_tag, handle_size) == 48, "handle_size last");
 _Static_assert(RR_ABI_VERSION == 1, "the frozen interface is ABI version 1");
+_Static_assert(sizeof(rr_deposit) == 1256, "rr_deposit is 1256 bytes");
+_Static_assert(offsetof(rr_deposit, device) == 8, "device follows handle");
+_Static_assert(offsetof(rr_deposit, state) == 12, "state follows device");
+_Static_assert(offsetof(rr_deposit, owner) == 16, "owner follows state");
+_Static_assert(offsetof(rr_deposit, release) == 24, "release follows owner");
+_Static_assert(offsetof(rr_deposit, count) == 32, "count follows release");
+_Static_assert(offsetof(rr_deposit, regions) == 40, "regions follow count");
+_Static_assert(RR_MAX_REGIONS == 8, "RR_MAX_REGIONS is 8");
+_Static_assert(RR_DEPOSIT_OPEN == 0, "RR_DEPOSIT_OPEN is 0");
+_Static_assert(RR_DEPOSIT_FILLED == 1, "RR_DEPOSIT_FILLED is 1");
+_Static_assert(RR_DEPOSIT_CLOSED == 2, "RR_DEPOSIT_CLOSED is 2");
+_Static_assert(RR_DEPOSIT_FILLING == 3, "RR_DEPOSIT_FILLING is 3");
+
 _Static_assert(sizeof(rr_job_outcome) == 4104, "rr_job_outcome is 4104 bytes");
 _Static_assert(offsetof(rr_job_outcome, status) == 0, "status first");
 _Static_assert(offsetof(rr_job_outcome, kind) == 4, "kind follows status");
@@ -42,6 +55,9 @@ void raftrkt_c_api_compile_check(void) {
   uint64_t (*resources_drop_count)(void) = rr_resources_drop_count;
   uint64_t (*buffer_drop_count)(void) = rr_buffer_drop_count;
   uint64_t (*release_failure_count)(void) = rr_release_failure_count;
+  void (*holder_free)(rr_holder*) = rr_holder_free;
+  uint64_t (*holder_drop_count)(void) = rr_holder_drop_count;
+  uint64_t (*owner_release_count)(void) = rr_owner_release_count;
   int (*buffer_alloc)(rr_resources*, size_t, rr_buffer**) = rr_buffer_alloc;
   int (*copy_h2d)(rr_buffer*, const void*, size_t) = rr_copy_h2d;
   int (*buffer_view)(const rr_buffer*, uint64_t, rr_view*) = rr_buffer_view;
@@ -49,6 +65,8 @@ void raftrkt_c_api_compile_check(void) {
   rr_job_fn job_entry = compile_job_entry;
   rr_abi_tag tag = {0};
   rr_view view = {0};
+  rr_deposit deposit = {0};
+  rr_release_fn release = 0;
   (void)last_error;
   (void)last_error_kind;
   (void)version;
@@ -63,6 +81,9 @@ void raftrkt_c_api_compile_check(void) {
   (void)resources_drop_count;
   (void)buffer_drop_count;
   (void)release_failure_count;
+  (void)holder_free;
+  (void)holder_drop_count;
+  (void)owner_release_count;
   (void)buffer_alloc;
   (void)copy_h2d;
   (void)buffer_view;
@@ -70,4 +91,6 @@ void raftrkt_c_api_compile_check(void) {
   (void)job_entry;
   (void)tag;
   (void)view;
+  (void)deposit;
+  (void)release;
 }

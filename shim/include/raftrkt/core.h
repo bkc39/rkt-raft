@@ -24,6 +24,7 @@ extern "C" {
 
 typedef struct rr_resources rr_resources;
 typedef struct rr_buffer rr_buffer;
+typedef struct rr_holder rr_holder;
 
 typedef struct rr_abi_tag rr_abi_tag;
 

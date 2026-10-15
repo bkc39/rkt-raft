@@ -19,12 +19,15 @@
 (provide call/kc
          canary-path
          kc-check-abi
+         kc-cluster-members-job
          kc-current-is-async
          kc-device-memory
          kc-fit-job
          kc-make-blobs-job
          kc-noop
          kc-noop-job
+         kc-owner-drop-count
+         kc-owner-stale-count
          kc-pool-bytes
          kc-pool-reset-high
          kc-predict-job
@@ -67,6 +70,14 @@
             (handle view view view _int32 view (out _double)))
 (define-job kc-noop-job canary-library "kc_noop_job" (_int32 (out _int32)))
 (define-job kc-sleep-job canary-library "kc_sleep_job" (_int32))
+
+(define-job kc-cluster-members-job
+            canary-library
+            "kc_cluster_members_job"
+            (handle view view _int32 deposit))
+
+(define-kc kc-owner-drop-count (_fun -> _uint64))
+(define-kc kc-owner-stale-count (_fun -> _uint64))
 
 (define-kc kc-current-is-async
   (_fun _int32 (out : (_ptr o _int32)) -> (status : _int) -> (values status (= out 1))))

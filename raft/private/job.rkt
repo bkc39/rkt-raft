@@ -22,13 +22,14 @@
                   make-cstruct-type
                   ptr-ref
                   ptr-set!)
-         (only-in ffi/unsafe/atomic in-atomic-mode?)
+         (only-in ffi/unsafe/atomic call-as-atomic in-atomic-mode?)
          (only-in ffi/unsafe/schedule unsafe-poll-ctx-fd-wakeup unsafe-poller)
-         (only-in racket/list count)
-         (only-in racket/match match-define)
+         (only-in racket/list count partition)
+         (only-in racket/match match match-define)
          ;; whole-module: it also provides syntax/parse at phase 1
          syntax/parse/define
          (only-in "array.rkt" array-buffer-handle device-array? settled-view)
+         (only-in "deposit.rkt" call-with-deposits-bound deposit?)
          (only-in "error.rkt" call/raft)
          (only-in "exit.rkt" current-exit-wait)
          (only-in "exn.rkt" exn:fail:raft raise-native raise-raft)
@@ -89,36 +90,66 @@
                              (exn-continuation-marks e))))])
     (ptr-set! block type 'abs offset v)))
 
-(define (pack-handle who block offset native args pins) ;; noqa
+(define (pack-handle who block offset native _arg) ;; noqa
   (ptr-set! block _pointer 'abs offset (call/raft who (lambda () (rr-resources-handle native))))
-  (values args pins))
+  #f)
 
-(define (pack-nothing _who _block _offset _native args pins) ;; noqa
-  (values args pins))
+(define (pack-nothing _who _block _offset _native _arg) ;; noqa
+  #f)
 
-(define (pack-view who block offset _native args pins) ;; noqa
-  (match-define (cons a rest) args)
+(define (pack-view who block offset _native a) ;; noqa
   (cond
     [(device-array? a)
      (ptr-set! block _rr-view 'abs offset (settled-view who a))
-     (values rest (cons (array-buffer-handle a) pins))]
+     (array-buffer-handle a)]
     [(not a)
      (ptr-set! block _rr-view 'abs offset (blank-view))
-     (values rest pins)]
+     #f]
     [else (raise-raft who 'logic "expected a device array or #f for a view, given ~e" a)]))
 
-(define ((pack-number type) who block offset _native args pins) ;; noqa
-  (match-define (cons v rest) args)
+(define (pack-deposit who _block offset _native d) ;; noqa
+  (cond
+    [(deposit? d) (cons offset d)]
+    [else (raise-raft who 'logic "expected a deposit for a deposit parameter, given ~e" d)]))
+
+(define ((pack-number type) who block offset _native v) ;; noqa
   (set-number! who block type offset v)
-  (values rest pins))
+  #f)
 
 (define (pack! who block native slots offsets args)
-  (for/fold ([args args]
-             [pins '()]
-             #:result pins)
-            ([s (in-list slots)]
-             [offset (in-list offsets)])
-    ((slot-pack s) who block offset native args pins)))
+  (partition pair?
+             (for/fold ([args args]
+                        [added '()]
+                        #:result (filter values (reverse added)))
+                       ([s (in-list slots)]
+                        [offset (in-list offsets)])
+               (match-define (cons arg rest)
+                 (if (slot-takes? s)
+                     args
+                     (cons #f args)))
+               (values rest (cons ((slot-pack s) who block offset native arg) added)))))
+
+(define (bind-deposits! who block deposits proc)
+  (call-with-deposits-bound who
+                            (map cdr deposits)
+                            (lambda (records holders)
+                              (for ([record (in-list records)]
+                                    [offset (in-list (map car deposits))])
+                                (ptr-set! block _pointer 'abs offset record))
+                              (proc holders))))
+
+(define (submit who resources entry block pins deposits seconds)
+  (call-as-atomic
+   (lambda ()
+     (bind-deposits!
+      who
+      block
+      deposits
+      (lambda (holders)
+        (call/raft
+         who
+         (lambda ()
+           (rr-job-submit (live-handle who resources pins) entry block pins holders seconds))))))))
 
 (define (waited-status job)
   (sync (job-evt job))
@@ -146,22 +177,19 @@
     [(ormap released? pins) (raise-raft who 'logic "a device array passed to the job was released")]
     [else handle]))
 
-(define (submit who resources entry block pins seconds)
-  (call/raft who
-             (lambda ()
-               (rr-job-submit (live-handle who resources pins) entry block pins '() seconds))))
-
 (define (run-job who resources entry slots offsets size outputs exn args)
   (when (in-atomic-mode?)
     (raise-raft who 'logic "cannot wait for a job in atomic mode"))
   (define seconds (real->double-flonum (current-exit-wait)))
   (define native (resources-handle who resources))
   (define block (make-bytes size 0))
-  (define pins (pack! who block native slots offsets args))
+  (define-values (deposits pins) (pack! who block native slots offsets args))
   (define finish
     (parameterize-break
      #f
-     (with-release #:who who ([job (submit who resources entry block pins seconds) rr-job-release])
+     (with-release #:who
+                   who
+                   ([job (submit who resources entry block pins deposits seconds) rr-job-release])
        (job-finish who job block outputs exn))))
   (keep-reachable (list resources args))
   (parameterize-break (break-enabled) (void))
@@ -184,7 +212,7 @@
 
 (begin-for-syntax
   (define job-param-description ;; noqa
-    "a job parameter: handle, view, (out type) or a number type")
+    "a job parameter: handle, view, deposit, (out type) or a number type")
 
   (define-syntax-class in-type
     #:description "a number type: _int8 … _double*"
@@ -206,13 +234,16 @@
 
   (define-syntax-class job-param
     #:description job-param-description
-    #:datum-literals (handle out view)
+    #:datum-literals (deposit handle out view)
     (pattern handle
       #:attr kind 'handle
       #:with spec #'(slot _pointer pack-handle #f #f))
     (pattern view
       #:attr kind 'view
       #:with spec #'(slot _rr-view pack-view #t #f))
+    (pattern deposit
+      #:attr kind 'deposit
+      #:with spec #'(slot _pointer pack-deposit #t #f))
     (pattern ((~describe #:opaque job-param-description out) type:out-type)
       #:attr kind 'out
       #:with spec #'(slot type pack-nothing #f #t))
