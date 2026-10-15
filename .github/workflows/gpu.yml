@@ -1,0 +1,23 @@
+name: GPU suite
+
+# The `if:` keeps this job to the maintainer's pull requests, but a fork's PR
+# runs workflow files it controls: keeping forks off the self-hosted runner is
+# the runner's registration (#9), not this file.
+on:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  gpu:
+    name: GPU suite, twin parity and docs
+    if: >-
+      vars.GPU_RUNNER == 'true' &&
+      (github.event_name == 'workflow_dispatch' ||
+       github.event.pull_request.user.login == 'bkc39')
+    runs-on: [self-hosted, linux, gpu]
+    steps:
+      - uses: actions/checkout@v7
+      - name: Shim gtests, LD_BIND_NOW load, Racket tests, twin parity, census
+        run: nix develop --max-jobs 1 --cores 4 --command scripts/gpu-suite.sh
+      - name: Manual, with every example evaluated
+        run: nix develop --max-jobs 1 --cores 4 --command scripts/render-docs.sh "$RUNNER_TEMP/rkt-raft-docs"

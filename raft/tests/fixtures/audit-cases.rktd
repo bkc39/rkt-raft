@@ -1,0 +1,33 @@
+#hasheq((bindings
+         . (((define-raft f (_fun -> _pointer))
+             ("f returns a bare _pointer"))
+            ((define-raft g (_fun (out : (_ptr o _pointer)) -> _int))
+             ("g returns a bare _pointer"))
+            ((define-raft h (_fun _size -> _rr-buffer/null))
+             ("h returns _rr-buffer/null without #:wrap buffer-allocator"))
+            ((define-raft i (_fun (out : (_ptr io _rr-buffer/null)) -> _int))
+             ("i returns _rr-buffer/null without #:wrap buffer-allocator"))
+            ((define-raft j (_fun (_box _rr-resources/null) -> _int))
+             ("j returns _rr-resources/null without #:wrap resources-allocator"))
+            ((define-raft k
+               (_fun (out : (_ptr o _rr-resources/null)) -> (status : _int) -> (and (zero? status) out))
+               #:wrap buffer-allocator)
+             ("k returns _rr-resources/null without #:wrap resources-allocator"))
+            ((define-raft m some-ctype)
+             ("m: the signature is not a literal _fun"))
+            ((define-raft n (_fun _rr-buffer _pointer _size -> _int))
+             ("n takes a bare _pointer"))
+            ((define-raft ok
+               (_fun (out : (_ptr o _rr-buffer/null)) -> (status : _int) -> (and (zero? status) out))
+               #:wrap buffer-allocator)
+             ())))
+        (release-bindings
+         . ((define-raft free-r (_fun _rr-resources -> _void) #:wrap release-once)
+            (define-raft free-b (_fun _rr-buffer -> _void) #:wrap (deallocator))))
+        (releases
+         . ((((resources-allocator . free-r)) ())
+            (((buffer-allocator . free-r))
+             ("buffer-allocator releases through free-r, which takes (_rr-resources)"))
+            (((buffer-allocator . free-b)) ("free-b is not wrapped by release-once"))
+            (((buffer-allocator . gone))
+             ("buffer-allocator releases through gone, which is not a binding")))))
