@@ -647,8 +647,9 @@ Every test run is bounded, so a hang fails instead of stalling a gate or
 a runner. ctest fails a shim gtest past 5 s, a little over twice the slowest
 (2.2 s under ASAN on CI, 1.8 s on the lab host), and a canary gtest past 2 s,
 against a slowest of 0.12 s (`gtest_discover_tests ... PROPERTIES TIMEOUT`).
-The nix checks run the gtests through ctest one at a time (`ctest -j1`), so
-the timing checks see an unloaded build. `shim-sanitizers` also runs
+The nix checks run the gtests through ctest one at a time (`ctest -j1`), and
+CI's `nix flake check` builds one derivation at a time (`--max-jobs 1`), so
+no other build or test competes with the timing checks. `shim-sanitizers` also runs
 `raftrkt_tests` once in a single process under ASAN, inside a coreutils
 `timeout` of 60 s (about seven times its 8.6 s without a GPU), so the tests
 that check the previous test's releases settled bite in CI too.
@@ -660,13 +661,16 @@ so the flag costs nothing. `test-timeouts` in `raft/info.rkt` and the canary's
 `info.rkt` give the slow exit, memory and twin files their own, with room for
 a loaded GPU host.
 Every `EXPECT_EXIT`/`EXPECT_DEATH`/`EXPECT_DEBUG_DEATH` body is a named
-function whose first statement is `alarm(...)` with a non-zero argument, or
-`std::_Exit` itself, and no lambda in the same test shadows that name;
+function whose first statement is `alarm(...)` with a non-zero argument (a
+suffixed zero such as `0U` counts as zero), or `std::_Exit` itself, and
+nothing in the same test declares or assigns that name (a lambda, a function
+pointer, a `std::function`, on one line or wrapped);
 `scripts/bounded-death-tests.sh` fails on any other, after checking itself
 against `scripts/fixtures/death-test-bodies.cpp`.
 `scripts/gpu-suite.sh` runs under a 1800 s `timeout`; SIGINT, SIGTERM or
 SIGHUP to the script stops `timeout` and with it the suite's whole process
-group, which `scripts/gpu-suite-signals.sh` checks with stub binaries.
+group, and the script then dies by the same signal, so a calling loop stops
+too; `scripts/gpu-suite-signals.sh` checks both with stub binaries.
 Every CI job has a `timeout-minutes`. A test that legitimately grows past its
 bound raises the bound in the same commit.
 

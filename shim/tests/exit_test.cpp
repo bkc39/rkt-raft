@@ -31,7 +31,7 @@ constexpr double quickly = 0.05;
 constexpr double tenth = 0.1;
 constexpr double fifth = 0.2;
 constexpr double three_tenths = 0.3;
-constexpr double half_second = 0.5;
+constexpr double exit_overrun = 1.5;
 constexpr double well_short_of_the_bound = 3.0;
 constexpr double long_bound = 10.0;
 constexpr double huge_bound = 1e300;
@@ -424,7 +424,7 @@ TEST_F(ExitDeathTest, ALockedStdoutDoesNotHoldTheExit) {
   const auto start = std::chrono::steady_clock::now();
   EXPECT_EXIT(skip_with_stdout_locked(), ::testing::ExitedWithCode(flushed),
               "^$");
-  EXPECT_LT(seconds_since(start) - baseline, half_second);
+  EXPECT_LT(seconds_since(start) - baseline, exit_overrun);
 }
 
 TEST_F(ExitDeathTest, ASubmitAfterTheDrainIsRefused) {

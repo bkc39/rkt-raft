@@ -3,14 +3,23 @@ set -euo pipefail
 
 suite_seconds=1800
 if [ -z "${RAFT_GPU_SUITE_BOUNDED:-}" ]; then
+  suite=
+  sig=
+  trap 'sig=INT; kill -TERM "${suite:-}" 2>/dev/null || true' INT
+  trap 'sig=TERM; kill -TERM "${suite:-}" 2>/dev/null || true' TERM
+  trap 'sig=HUP; kill -TERM "${suite:-}" 2>/dev/null || true' HUP
   RAFT_GPU_SUITE_BOUNDED=1 timeout --kill-after=30 "$suite_seconds" "$BASH" "$0" "$@" &
   suite=$!
-  trap 'kill -TERM "$suite" 2>/dev/null || true' INT TERM HUP
+  [ -z "$sig" ] || kill -TERM "$suite" 2>/dev/null || true
   while :; do
     rc=0
     wait "$suite" || rc=$?
     kill -0 "$suite" 2>/dev/null || break
   done
+  [ -z "$sig" ] || {
+    trap - "$sig"
+    kill -"$sig" $$
+  }
   [ "$rc" -ne 124 ] || echo "gpu-suite: timed out after $suite_seconds s" >&2
   exit "$rc"
 fi

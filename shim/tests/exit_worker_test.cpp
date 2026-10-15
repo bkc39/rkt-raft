@@ -26,6 +26,7 @@ constexpr auto past_the_grace = std::chrono::milliseconds(1200);
 constexpr auto brief_release = std::chrono::milliseconds(300);
 constexpr auto second_drain_after = std::chrono::milliseconds(500);
 constexpr auto entry_limit = std::chrono::seconds(4);
+constexpr auto both_waiting_limit = std::chrono::seconds(1);
 
 enum exit_code : uint8_t {
   torn_down = 5,
@@ -194,6 +195,10 @@ void exits_in_job(void* /*args*/, size_t /*args_len*/,
   std::thread first{[] { rr_exit_drain(nullptr, nullptr, nullptr); }};
   std::this_thread::sleep_for(second_drain_after);
   std::thread second{[] { rr_exit_drain(nullptr, nullptr, nullptr); }};
+  if (!rr::test::eventually([] { return rr_exit_waiters() == 2; },
+                            both_waiting_limit)) {
+    fail("the second drain never waited beside the first");
+  }
   first.join();
   second.join();
   rr_resources_free(rr::test::resources_dropping_with([] {

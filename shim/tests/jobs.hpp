@@ -117,12 +117,15 @@ inline bool wait_done(const rr_job* job, std::chrono::milliseconds limit =
 }
 
 template <typename Pred>
-bool eventually(Pred done) {
-  for (int i = 0; i < 1000; ++i) {
+bool eventually(Pred done,
+                std::chrono::milliseconds limit = std::chrono::seconds(10)) {
+  constexpr auto tick = std::chrono::milliseconds(10);
+  for (auto waited = std::chrono::milliseconds(0); waited < limit;
+       waited += tick) {
     if (done()) {
       return true;
     }
-    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    std::this_thread::sleep_for(tick);
   }
   return false;
 }
