@@ -177,23 +177,26 @@ inline void say(std::string_view text) {
   [[maybe_unused]] const ssize_t w = write(2, text.data(), text.size());
 }
 
-class no_leak_check_in_children {
+class sanitizer_log_on_stdout_in_children {
  public:
-  no_leak_check_in_children() {
+  sanitizer_log_on_stdout_in_children() {
     const char* options = std::getenv(variable);
     if (options != nullptr) {
       saved_ = options;
     }
-    const std::string off =
-        saved_ ? *saved_ + ":detect_leaks=0" : std::string("detect_leaks=0");
-    setenv(variable, off.c_str(), 1);
+    const std::string rerouted =
+        saved_ ? *saved_ + ":log_path=stdout" : std::string("log_path=stdout");
+    setenv(variable, rerouted.c_str(), 1);
   }
-  no_leak_check_in_children(const no_leak_check_in_children&) = delete;
-  no_leak_check_in_children& operator=(const no_leak_check_in_children&) =
+  sanitizer_log_on_stdout_in_children(
+      const sanitizer_log_on_stdout_in_children&) = delete;
+  sanitizer_log_on_stdout_in_children& operator=(
+      const sanitizer_log_on_stdout_in_children&) = delete;
+  sanitizer_log_on_stdout_in_children(sanitizer_log_on_stdout_in_children&&) =
       delete;
-  no_leak_check_in_children(no_leak_check_in_children&&) = delete;
-  no_leak_check_in_children& operator=(no_leak_check_in_children&&) = delete;
-  ~no_leak_check_in_children() {
+  sanitizer_log_on_stdout_in_children& operator=(
+      sanitizer_log_on_stdout_in_children&&) = delete;
+  ~sanitizer_log_on_stdout_in_children() {
     if (saved_) {
       setenv(variable, saved_->c_str(), 1);
     } else {
