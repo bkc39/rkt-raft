@@ -15,7 +15,9 @@ constexpr int major_scale = 1000;
 constexpr int minor_scale = 10;
 constexpr int cuda_major = CUDART_VERSION / major_scale;
 constexpr int minimum_driver = 580;
-static_assert(cuda_major == 13, "minimum_driver is the floor for CUDA 13");
+constexpr int minimum_driver_cuda_major = 13;
+static_assert(cuda_major == minimum_driver_cuda_major,
+              "minimum_driver is the floor for CUDA 13");
 
 std::string cuda_release(int code) {
   return std::to_string(code / major_scale) + "." +
