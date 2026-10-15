@@ -1,6 +1,5 @@
 #include <gtest/gtest.h>
 #include <sys/resource.h>
-#include <sys/wait.h>
 #include <unistd.h>
 
 #include <array>
@@ -467,10 +466,7 @@ TEST_F(ExitDeathTest, AQueuedJobCounts) {
 
 #ifdef __SANITIZE_ADDRESS__
 TEST_F(ExitDeathTest, ALeakInAChildIsReportedOffItsStderr) {
-  RR_EXPECT_EXIT(
-      rr::test::leak_and_exit(),
-      [](int status) { return !WIFEXITED(status) || WEXITSTATUS(status) != 0; },
-      "^$");
+  RR_EXPECT_EXIT(rr::test::leak_and_exit(), rr::test::reports_a_leak, "^$");
 }
 
 TEST_F(ExitDeathTest, ALeakInASkippedChildIsNotChecked) {
