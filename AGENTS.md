@@ -677,12 +677,14 @@ The exit death-test fixtures hold a
 `rr::test::sanitizer_log_on_stdout_in_children`, which appends
 `log_path=stdout:exitcode=23` to `LSAN_OPTIONS` for the re-executed children
 only, so a child's ASan and LSan reports go to its stdout and the parent's
-log, not to the stderr its death test matches, and a leak exits 23 (LSan's own
-code) rather than ASan's 1 when `abort_on_error` is off; with it on (CI's
-options) the leak aborts, and `rr::test::reports_a_leak` accepts either. UBSan's runtime reads only `UBSAN_OPTIONS`,
-so its reports stay on stderr. Under a load average of 20 or more, LSan in a
-child that exits with live threads prints `Unable to get registers from thread
-N`, which is harmless (it scans that thread's whole stack) but failed the
+log, not to the stderr its death test matches. ASan reads `exitcode`, a common
+flag, from `LSAN_OPTIONS` too, so with `abort_on_error` off any ASan report in
+those children, a leak or not, exits 23 (LSan's own code) rather than ASan's 1;
+with it on (CI's options) the report aborts. `rr::test::reports_a_leak` accepts
+either, so it means "ASan reported something", not "a leak". UBSan's runtime
+reads only `UBSAN_OPTIONS`, so its reports stay on stderr and still exit 1.
+Under a load average of 20 or more, LSan in a child that exits with live
+threads prints `Unable to get registers from thread N`, which is harmless (it scans that thread's whole stack) but failed the
 `"^$"` stderr matches when it went to stderr; `use_registers=0` does not stop
 it. The leak check runs in every child that reaches normal exit; a child whose
 drain skipped (its exit ends in `_exit`), or that calls `_exit`/`std::_Exit`,
@@ -690,8 +692,8 @@ skips it. A leak, or any other sanitizer error, fails the child's exit status
 instead. Under ASAN, `ExitDeathTest.ALeakInAChildIsReportedOffItsStderr`,
 `ALeakInASkippedChildIsNotChecked` and
 `UndefinedBehaviourInAChildFailsOnItsStderr` check each of these, and
-`DeathMacroDeathTest.ALeakWithoutAbortOnErrorExitsWithLsansExitCode` checks
-the pinned exit code.
+`DeathMacroDeathTest.ALeakWithoutAbortOnErrorExitsWithLsansExitCode` and
+`AnyAsanReportInAChildExitsWithLsansExitCode` check the pinned exit code.
 `scripts/gpu-suite.sh` runs under a 1800 s `timeout`; SIGINT, SIGTERM or
 SIGHUP to the script stops `timeout` and with it the suite's whole process
 group, and the script then dies by the same signal, so a calling loop stops
