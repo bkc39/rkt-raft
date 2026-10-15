@@ -60,8 +60,6 @@ struct rr_holder {
   std::array<bool, RR_MAX_REGIONS> adopted{};
   // Set only by the test probe: adopting this region fails, once.
   int32_t refused_adoption = -1;
-  // Set only by tests: runs in a count between its loads of the state.
-  void (*between_loads)(const rr_holder&) = nullptr;
   std::atomic<int32_t> refs{1};
 };
 

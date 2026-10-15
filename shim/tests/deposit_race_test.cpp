@@ -10,7 +10,6 @@
 
 #include "deposit_fixture.hpp"
 #include "detail/deposit_api.h"
-#include "detail/handles.hpp"
 #include "gpu.hpp"
 #include "raftrkt/c_api.h"
 #include "raftrkt/deposit.hpp"
@@ -119,25 +118,6 @@ TEST(Deposit, StressFillAgainstCloseFillsOrLeavesTheOwnerToTheCaller) {
   EXPECT_EQ(t.drops, closing_rounds);
   EXPECT_EQ(t.stale, 0);
   expect_released(before, {closing_rounds, static_cast<uint64_t>(filled), 0});
-}
-
-void closes(const rr_holder& holder) {
-  EXPECT_EQ(rr_holder_close(const_cast<rr_holder*>(&holder)), RR_OK);
-}
-
-TEST(Deposit, ACountThatACloseInterruptsStillSeesTheFill) {
-  RR_REQUIRE_GPU();
-  const counters before;
-  tally t;
-  session s = open_session();
-  fill(s, t);
-  s.holder->between_loads = closes;
-  expect_count(s.holder, 2);
-  s.holder->between_loads = nullptr;
-  EXPECT_EQ(s.record->state, RR_DEPOSIT_CLOSED);
-  rr_holder_free(s.holder);
-  rr_resources_free(s.resources);
-  expect_released(before, {1, 1, 0});
 }
 
 TEST(Deposit, AFailedAdoptionForgetsEveryAdoptionSoARetryStartsAgain) {

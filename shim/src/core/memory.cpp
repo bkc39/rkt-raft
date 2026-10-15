@@ -154,8 +154,6 @@ std::atomic<uint64_t>& owner_drops() noexcept {
   return count;
 }
 
-// handle is declared before keep, as in rr_buffer: the deposit's owner is
-// released while the handle lives.
 struct owner_ref {
   int32_t device;
   std::shared_ptr<raft::handle_t> handle;
@@ -165,7 +163,7 @@ struct owner_ref {
 void drop_buffer(void* object) noexcept {
   auto* buffer = static_cast<rr_buffer*>(object);
   owner_ref* owner = nullptr;
-  if (buffer->owner.use_count() != 0 || buffer->keep) {
+  if (buffer->owner.use_count() != 0 || buffer->keep.use_count() != 0) {
     owner = new (std::nothrow)
         owner_ref{buffer->device, buffer->owner, std::move(buffer->keep)};
   }

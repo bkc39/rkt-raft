@@ -117,6 +117,9 @@ rr_buffer* owned_by(std::shared_ptr<raft::handle_t> owner) {
   return new rr_buffer{std::move(owner), -1, {}, rmm::device_buffer{}};
 }
 
+rr_buffer* kept_by(std::shared_ptr<void> keep) {
+  return new rr_buffer{nullptr, -1, std::move(keep), rmm::device_buffer{}};
+}
 
 template <typename Buffer>
 void a_buffer_free_passes_a_stuck_drop(Buffer buffer_dropping) {
@@ -140,6 +143,10 @@ TEST(Release, ABufferFreeDoesNotWaitBehindAnotherBuffersOwnerDrop) {
 
 TEST(Release, AnOwnerWithANullHandleStillDropsOnTheHandleLane) {
   a_buffer_free_passes_a_stuck_drop(owned_by);
+}
+
+TEST(Release, ABufferFreeDoesNotWaitBehindAnAdoptedArraysOwnerRelease) {
+  a_buffer_free_passes_a_stuck_drop(kept_by);
 }
 
 }  // namespace

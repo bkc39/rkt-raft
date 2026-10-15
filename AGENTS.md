@@ -275,15 +275,20 @@ plans/scoping-plan.md         the approved plan (revision 5), as Markdown
   `rr_resources_free` and the last unpin of a buffer or a deposit holder
   only queue the object and return. Two process-wide reaper threads take
   them: the buffer lane frees a buffer's memory and then queues its handle
-  references (`owner`, `keep`) on the handle lane, which drops handles,
+  references (`owner` and `keep`, whenever either shares ownership, a null
+  pointer with a deleter included) on the handle lane, which drops handles,
   resources and deposit holders (whose owner frees device memory and may
   hold the last handle reference). A buffer free never waits behind a
-  handle drop that synchronizes the device. A job worker and the reapers
-  release in place (`rr::on_native_worker`), except that the buffer lane
-  always passes the handle references on. Each queued release is counted
-  in the exit registry until it completes, and a buffer's handle references
-  are admitted before its buffer release retires; after a clean verdict
-  releases run on the caller, after a skip they leak and are counted.
+  handle drop that synchronizes the device, except an adopted array's: its
+  memory belongs to the deposit's owner, and the owner's release (`keep`)
+  runs on the handle lane because it may synchronize, so an adopted array's
+  memory is freed there, after the handle drops queued before it. A job
+  worker and the reapers release in place (`rr::on_native_worker`), except
+  that the buffer lane always passes the handle references on. Each queued
+  release is counted in the exit registry until it completes, and a
+  buffer's handle references are admitted before its buffer release
+  retires; after a clean verdict releases run on the caller, after a skip
+  they leak and are counted.
 - `rr_resources` holds its device and a `std::shared_ptr<raft::handle_t>`
   that aliases an owner holding an `rmm::cuda_stream` and the handle. Each
   resources object owns its stream; the per-thread default stream would bind
@@ -664,12 +669,13 @@ both rule sets (see Tooling). After pushing, poll `gh pr checks <n>` (it exits
 non-zero while checks are pending) until green.
 
 Every test run is bounded, so a hang fails instead of stalling a gate or
-a runner. ctest fails a shim gtest past 6 s and a canary gtest past 2 s, against
-a slowest of 0.12 s (`gtest_discover_tests ... PROPERTIES TIMEOUT`).
+a runner. ctest fails a shim gtest past 6 s, about three times the slowest (1.8 s
+under ASAN on the lab host, no GPU), and a canary gtest past 2 s, against a
+slowest of 0.1 s (`gtest_discover_tests ... PROPERTIES TIMEOUT`).
 The nix checks run the gtests through ctest one at a time (`ctest -j1`), so
 the timing checks see an unloaded build. `shim-sanitizers` also runs
 `raftrkt_tests` once in a single process under ASAN, inside a coreutils
-`timeout` of 60 s (about seven times its 8.6 s without a GPU), so the tests
+`timeout` of 60 s (about seven times its 8.5 s without a GPU), so the tests
 that check the previous test's releases settled bite in CI too.
 `raco test --process --timeout 45` bounds each Racket file: each file runs in
 its own process, killed at the limit, which also bounds a hang inside a native
@@ -1475,6 +1481,13 @@ since cuSPARSE's error string for it is only "out of memory"). The frozen rule i
   `rr_holder_adopt` with `deposit.hpp`'s own checks, so a record filled by
   hand raises `'logic` instead of crashing. Messages name the region, never
   an `rr_` function.
+- **A count reads the deposit's state once** and decides from that one
+  load whether the deposit adopts and whether it was filled. The two loads
+  it replaced let a close between them hide a fill. No deterministic test
+  can reach that window, since the fixed code has no second load to stop
+  between; `StressFillAgainstCloseFillsOrLeavesTheOwnerToTheCaller` (64
+  rounds of a fill against a close) is the regression, and the test-only
+  hook production code carried for it was removed.
 - **`deposit->list` adopts every region in one `call-as-atomic`** and caches
   the list, so two threads get `eq?` arrays. Phantom bytes cover the regions
   only.
