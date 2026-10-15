@@ -19,7 +19,6 @@
 
 (provide define-raft
          native-library-error
-         open-native-library
          _raft-handle/null ;; noqa
          _rr-buffer
          _rr-buffer/null ;; noqa
@@ -48,34 +47,47 @@
 
 (define (library-abi-version library)
   (define tag (get-ffi-obj "rr_abi" library (_fun -> _pointer) (lambda () #f)))
-  (and tag (ptr-ref (tag) _int32)))
+  (define tag-pointer (and tag (tag)))
+  (and tag-pointer (ptr-ref tag-pointer _int32)))
 
 (define (abi-mismatch-error where found)
   (format "libraftrkt ~a, but this raft needs ABI version ~a\n  found in: ~a\n  ~a"
           (if found
               (format "has ABI version ~a" found)
-              "has no ABI version (it exports no rr_abi)")
+              "has no ABI version")
           abi-version
           where
           native-library-advice))
 
-;; The handshake runs before any define-raft resolves a symbol, so a stale
-;; library is named as stale rather than by the first export it lacks.
+(define (raise-load-failure message)
+  (raise-raft 'raft 'generic "~a" message))
+
 (define (open-native-library dir)
   (define where (simplify-path dir))
   (define library
-    (with-handlers
-        ([exn:fail? (lambda (e)
-                      (error 'raft "~a" (native-library-error (staged? dir) where (exn-message e))))])
+    (with-handlers ([exn:fail? (lambda (e)
+                                 (raise-load-failure
+                                  (native-library-error (staged? dir) where (exn-message e))))])
       (ffi-lib (build-path dir "libraftrkt"))))
   (define found (library-abi-version library))
   (cond
     [(eqv? found abi-version) library]
-    [else (error 'raft "~a" (abi-mismatch-error where found))]))
+    [else (raise-load-failure (abi-mismatch-error where found))]))
+
+(define ((missing-export where) name)
+  (lambda ()
+    (raise-load-failure
+     (format "libraftrkt lacks the export for ~a, so it is older than this raft\n  found in: ~a\n  ~a"
+             name
+             where
+             native-library-advice))))
 
 (define native-library (open-native-library native-libs-dir))
 
-(define-ffi-definer define-raft native-library #:make-c-id convention:hyphen->underscore)
+(define-ffi-definer define-raft
+                    native-library
+                    #:make-c-id convention:hyphen->underscore
+                    #:default-make-fail (missing-export (simplify-path native-libs-dir)))
 
 (define released-tag 'rr-released)
 

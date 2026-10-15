@@ -72,7 +72,9 @@ shim/                         libraftrkt: C++20 over RAFT's headers (CMake, g++;
   tests/                      gtest; GPU cases print SKIP without a device
   tests/probe/                libraftrkt_probe, a second RMM user for the tests, and a
                                 downstream that fills deposits (rr_probe_deposit);
-                                libraftrkt_stale_abi, an rr_abi of the next ABI version
+                                and the loader fixtures: libraftrkt_stale_abi (the next
+                                ABI version), libraftrkt_abi_only (this ABI version and
+                                no other export), libraftrkt_null_abi (rr_abi is NULL)
 raft/                         the Racket package and collection
   main.rkt core.rkt           the public surface
   private/foreign/*.rkt       FFI bindings, one module per shim header
@@ -556,10 +558,16 @@ plans/scoping-plan.md         the approved plan (revision 5), as Markdown
   (default local binding: only one copy of each RAPIDS library can load per
   process), then the ABI handshake: `open-native-library` reads `rr_abi`'s
   first field and refuses anything but `abi-version` (the Racket side's one
-  copy of `RR_ABI_VERSION`; the load itself ties the two) or a library with no
-  `rr_abi`, before any `define-raft` resolves a symbol (#41). Then
-  `define-raft`, and the cpointer types `_rr-resources`,
-  `_rr-buffer`. `core.rkt`, `memory.rkt`, `array.rkt` bind `core.h`,
+  copy of `RR_ABI_VERSION`; the load itself ties the two), a library with no
+  `rr_abi`, or one whose `rr_abi` returns NULL, before any `define-raft`
+  resolves a symbol. Every library built so far reports ABI 1, so the
+  handshake alone cannot catch a stale one: `define-raft`'s default
+  `#:make-fail` refuses a missing export at once, naming the binding as one a
+  libraftrkt older than this raft lacks. Every load failure (not staged,
+  would not load, ABI mismatch, missing export) is `exn:fail:raft` of kind
+  `'generic` and ends with `native-library-advice` (#41; `load-test.rkt`
+  loads copies of the loader modules against fixture libraries in a fresh
+  namespace). Then the cpointer types `_rr-resources`, `_rr-buffer`. `core.rkt`, `memory.rkt`, `array.rkt` bind `core.h`,
   `memory.h`, `array.h`.
 - `private/exn.rkt`: `exn:fail:raft`, with no dependencies, so the loader can
   raise it. `private/error.rkt`: `call/raft`, re-exporting the exception. A

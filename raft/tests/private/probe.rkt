@@ -38,6 +38,7 @@
          probe-deposit-job
          probe-echo-job
          probe-fail-job
+         probe-fixture
          probe-flags
          probe-gate-job
          probe-hold!
@@ -53,7 +54,6 @@
          probe-refuse-adoption!
          probe-release!
          probe-sleep-job
-         probe-stale-abi-path
          probe-stuck-release!
          with-hold-timeout
          probe-thread-id-job
@@ -69,8 +69,8 @@
 
 (define probe-library (and probe-path (ffi-lib probe-path)))
 
-(define probe-stale-abi-path ;; noqa
-  (and probe-path (build-path (path-only probe-path) "libraftrkt_stale_abi.so")))
+(define (probe-fixture name) ;; noqa
+  (and probe-path (build-path (path-only probe-path) name)))
 
 (define probe-skip ;; noqa
   (and (not probe-path) "no probe library (RAFT_SHIM_PROBE is not set; run inside nix develop)"))
