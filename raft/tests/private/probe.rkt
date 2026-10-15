@@ -19,6 +19,7 @@
                   _void
                   ffi-lib)
          (only-in ffi/unsafe/define define-ffi-definer make-not-available)
+         (only-in racket/path path-only)
          ;; whole-module: its syntax classes come with it
          syntax/parse/define
          (only-in "../../private/foreign/library.rkt" _rr-resources)
@@ -47,10 +48,12 @@
          probe-open-after!
          probe-owner-drops
          probe-owner-stale
+         probe-path
          probe-pool-used
          probe-refuse-adoption!
          probe-release!
          probe-sleep-job
+         probe-stale-abi-path
          probe-stuck-release!
          with-hold-timeout
          probe-thread-id-job
@@ -65,6 +68,9 @@
 (define probe-path (getenv "RAFT_SHIM_PROBE"))
 
 (define probe-library (and probe-path (ffi-lib probe-path)))
+
+(define probe-stale-abi-path ;; noqa
+  (and probe-path (build-path (path-only probe-path) "libraftrkt_stale_abi.so")))
 
 (define probe-skip ;; noqa
   (and (not probe-path) "no probe library (RAFT_SHIM_PROBE is not set; run inside nix develop)"))

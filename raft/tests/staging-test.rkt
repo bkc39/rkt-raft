@@ -54,6 +54,12 @@
   (define broken (native-library-error #t "/x/native-libs" "libcuda.so.1: cannot open"))
   (check-regexp-match #rx"is not staged" absent)
   (check-regexp-match #rx"looked in: /x/native-libs" absent)
-  (check-regexp-match #rx"RAFT_NATIVE_LIB_PATH" absent)
   (check-regexp-match #rx"would not load" broken)
   (check-regexp-match #rx"libcuda.so.1: cannot open" broken))
+
+(test-case "both load failures advise a reinstall, and the override for a library built by hand"
+  (for ([message (in-list (list (native-library-error #f "/x/native-libs" "ignored")
+                                (native-library-error #t "/x/native-libs" "ignored")))])
+    (check-regexp-match #rx"reinstall raft; to use a libraftrkt built by hand, set RAFT_NATIVE_LIB_PATH to the directory whose lib/ holds it and run `raco setup raft`$"
+                        message)
+    (check-false (regexp-match? #rx"(?i:nix)" message))))
