@@ -86,7 +86,9 @@ What an array answers, and how its values come back:
 ]
 
 @secref["ref-array"] documents every operation, and @secref["arrays"]
-prepares a dataset with them.
+prepares a dataset with them. @racketmodname[raft/compat] converts vectors, nested
+vectors, @racket[f32vector]s, @racket[f64vector]s, byte strings and
+@racketmodname[math/array] arrays by the same rules (@secref["moving-data"]).
 
 @section[#:tag "concepts-using-resources"]{Resources}
 

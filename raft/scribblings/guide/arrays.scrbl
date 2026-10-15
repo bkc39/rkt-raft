@@ -6,8 +6,8 @@
 @title[#:tag "arrays"]{Device arrays}
 
 A @tech{device array} is a matrix or a vector in GPU memory. This chapter
-loads a dataset, puts it on the GPU, inspects it, changes its layout, brings
-values back and lets it go.
+loads a dataset, puts it on the GPU, inspects it, changes its layout, moves
+other forms of Racket data, brings values back and lets it go.
 
 @section[#:tag "arrays-upload"]{A dataset on the GPU}
 
@@ -87,6 +87,67 @@ Data from Racket can be packed column-major on the host instead:
 (equal? (device-matrix->list* F*) (device-matrix->list* F))
 ]
 
+@section[#:tag "moving-data"]{Other forms of Racket data}
+
+@racketmodname[raft/compat] converts the other forms Racket keeps numbers in,
+by the same dtype and layout rules:
+
+@examples[#:eval ev #:label #f
+(require raft/compat
+         ffi/vector
+         math/array
+         math/matrix
+         racket/file)
+]
+
+@racket[list*->device-array] reads the rank from the nesting:
+
+@examples[#:eval ev #:label #f
+(shape (list*->device-array rows))
+(shape (list*->device-array (first rows)))
+]
+
+A vector: the species, numbered in order of appearance, as
+@racket['int32] labels:
+
+@examples[#:eval ev #:label #f
+(define species
+  (for/first ([column (in-dataframe-columns iris #:columns '("species"))])
+    (series->list column)))
+(define names (remove-duplicates species))
+(define labels
+  (vector->device-vector (for/vector ([s (in-list species)])
+                           (index-of names s))
+                         #:dtype 'int32))
+labels
+]
+
+A @racketmodname[math/matrix] matrix: the measurements' covariance, computed on
+the host:
+
+@examples[#:eval ev #:label #f
+(define M (list*->matrix rows))
+(define n (matrix-num-rows M))
+(define means (matrix-scale (matrix* (make-matrix 1 n 1) M) (/ 1.0 n)))
+(define centered (matrix- M (matrix* (make-matrix n 1 1) means)))
+(define covariance
+  (matrix-scale (matrix* (matrix-transpose centered) centered) (/ 1.0 (sub1 n))))
+(define C (matrix->device-matrix covariance #:dtype 'float32))
+C
+]
+
+An @racket[f64vector], as foreign code fills one; a loop stands in for it:
+
+@examples[#:eval ev #:label #f
+(define weights (make-f64vector n 1.0))
+(f64vector-set! weights 0 2.0)
+(define w (f64vector->device-vector weights #:dtype 'float32))
+w
+]
+
+Narrowing to @racket['float32] raises on a value too large rather than giving
+an infinity.
+
 @section[#:tag "arrays-back"]{Bringing values back}
 
 The petal widths, from an @racket[flvector]:
@@ -108,6 +169,28 @@ inferred for @racket[rows]:
 @examples[#:eval ev #:label #f
 (first (device-matrix->list* X))
 (first (device-matrix->list* (list*->device-matrix rows)))
+]
+
+Each conversion names the Racket form it makes. The covariance comes back as
+a @racketmodname[math/array] flonum array, off only by the @racket['float32]
+rounding; column means through @racketmodname[math/array]; species counts from
+a vector; the weights as raw bytes, through a file:
+
+@examples[#:eval ev #:label #f
+(< (array-all-max (array-abs (array- (device-matrix->matrix C) covariance))) 1e-6)
+(array-scale (array-axis-sum (device-array->array X) 0) (/ 1.0 n))
+(define counts (make-vector (length names) 0))
+(for ([label (in-vector (device-vector->vector labels))])
+  (vector-set! counts label (add1 (vector-ref counts label))))
+counts
+(define saved (make-temporary-file))
+(display-to-file (device-vector->bytes w) saved #:exists 'truncate)
+(file-size saved)
+(take (device-vector->list (bytes->device-vector (file->bytes saved) #:dtype 'float32)) 3)
+]
+
+@examples[#:eval ev #:hidden
+(delete-file saved)
 ]
 
 @section[#:tag "arrays-memory"]{Letting go}
