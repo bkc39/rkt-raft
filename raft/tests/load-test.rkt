@@ -44,19 +44,19 @@
       (check-equal? ((dynamic-require exn-module 'exn:fail:raft-kind) raised) 'generic)
       (values (exn-message raised) (path->string native-libs)))))
 
-(define (names where label)
+(define (path-line label where)
   (regexp (regexp-quote (format "\n  ~a: ~a\n" label where))))
 
 (test-case "an unstaged library is refused with where it looked"
   (define-values (message where) (load-failure void))
   (check-regexp-match #rx"^raft: libraftrkt is not staged\n" message)
-  (check-regexp-match (names where "looked in") message)
+  (check-regexp-match (path-line "looked in" where) message)
   (check-regexp-match #rx"reinstall raft" message))
 
 (test-case "a staged file that will not load is refused with the loader's message"
   (define-values (message where) (load-failure write-garbage))
   (check-regexp-match #rx"^raft: libraftrkt is staged but would not load\n" message)
-  (check-regexp-match (names where "found in") message)
+  (check-regexp-match (path-line "found in" where) message)
   (check-regexp-match #rx"the loader said: .*libraftrkt[.]so" message))
 
 (test-host-probe "a library of another ABI version is refused with both versions and its path"
@@ -64,7 +64,7 @@
     (load-failure (link-library (probe-fixture "libraftrkt_stale_abi.so"))))
   (check-regexp-match #rx"^raft: libraftrkt has ABI version 2, but this raft needs ABI version 1\n"
                       message)
-  (check-regexp-match (names where "found in") message)
+  (check-regexp-match (path-line "found in" where) message)
   (check-regexp-match #rx"reinstall raft" message))
 
 (test-host-probe "a library with no rr_abi is refused before define-raft resolves a symbol"
@@ -84,5 +84,5 @@
   (check-regexp-match
    #rx"^raft: libraftrkt lacks the export for rr-holder-create, so it is older than this raft\n"
    message)
-  (check-regexp-match (names where "found in") message)
+  (check-regexp-match (path-line "found in" where) message)
   (check-regexp-match #rx"reinstall raft" message))
