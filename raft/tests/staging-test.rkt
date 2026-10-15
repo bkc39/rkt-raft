@@ -1,6 +1,7 @@
 #lang racket/base
 
 (require (only-in racket/file delete-directory/files file->bytes make-temporary-directory)
+         (only-in racket/string string-replace)
          (only-in rackunit check-equal? check-false check-regexp-match check-true test-case)
          (only-in "../private/foreign/library.rkt" native-library-error)
          (only-in "../private/install-native.rkt" pre-installer stage-native-libs! staged?)
@@ -81,5 +82,6 @@
                                                       (build-path collection "native-libs"))))
                         printed)
     (check-regexp-match #rx"RAFT_NATIVE_LIB_PATH" printed)
-    (check-false (regexp-match? #rx"reinstall" printed))
-    (check-false (regexp-match? #rx"(?i:nix)" printed))))
+    (define advice (string-replace printed (path->string collection) ""))
+    (check-false (regexp-match? #rx"reinstall" advice))
+    (check-false (regexp-match? #rx"(?i:nix)" advice))))

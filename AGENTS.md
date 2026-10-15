@@ -561,9 +561,10 @@ plans/scoping-plan.md         the approved plan (revision 5), as Markdown
   copy of `RR_ABI_VERSION`; the load itself ties the two), a library with no
   `rr_abi`, or one whose `rr_abi` returns NULL, before any `define-raft`
   resolves a symbol. Every library built so far reports ABI 1, so the
-  handshake alone cannot catch a stale one: `define-raft`'s default
-  `#:make-fail` refuses a missing export at once, naming the binding as one a
-  libraftrkt older than this raft lacks. Every load failure (not staged,
+  handshake alone cannot catch a stale one: `define-raft`'s
+  `#:default-make-fail` refuses a missing export at once, naming the binding
+  as one a libraftrkt older than this raft lacks (a per-binding `#:make-fail`
+  or `#:fail` would opt that binding out, so none has one). Every load failure (not staged,
   would not load, ABI mismatch, missing export) is `exn:fail:raft` of kind
   `'generic` and ends with `native-library-advice` (#41; `load-test.rkt`
   loads copies of the loader modules against fixture libraries in a fresh
