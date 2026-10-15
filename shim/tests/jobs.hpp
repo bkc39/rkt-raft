@@ -17,6 +17,7 @@
 #include <string_view>
 #include <thread>
 
+#include "death.hpp"
 #include "detail/executor_api.h"
 #include "raftrkt/c_api.h"
 
@@ -177,51 +178,40 @@ inline void say(std::string_view text) {
   [[maybe_unused]] const ssize_t w = write(2, text.data(), text.size());
 }
 
-class sanitizer_log_on_stdout_in_children {
+class options_appended {
  public:
-  sanitizer_log_on_stdout_in_children() {
-    const char* options = std::getenv(variable);
-    if (options != nullptr) {
-      saved_ = options;
+  options_appended(const char* variable, std::string_view options)
+      : variable_(variable) {
+    const char* current = std::getenv(variable_);
+    if (current != nullptr) {
+      saved_ = current;
     }
-    const std::string rerouted =
-        saved_ ? *saved_ + ":log_path=stdout" : std::string("log_path=stdout");
-    setenv(variable, rerouted.c_str(), 1);
+    const std::string appended =
+        saved_ ? *saved_ + ":" + std::string(options) : std::string(options);
+    setenv(variable_, appended.c_str(), 1);
   }
-  sanitizer_log_on_stdout_in_children(
-      const sanitizer_log_on_stdout_in_children&) = delete;
-  sanitizer_log_on_stdout_in_children& operator=(
-      const sanitizer_log_on_stdout_in_children&) = delete;
-  sanitizer_log_on_stdout_in_children(sanitizer_log_on_stdout_in_children&&) =
-      delete;
-  sanitizer_log_on_stdout_in_children& operator=(
-      sanitizer_log_on_stdout_in_children&&) = delete;
-  ~sanitizer_log_on_stdout_in_children() {
+  options_appended(const options_appended&) = delete;
+  options_appended& operator=(const options_appended&) = delete;
+  options_appended(options_appended&&) = delete;
+  options_appended& operator=(options_appended&&) = delete;
+  ~options_appended() {
     if (saved_) {
-      setenv(variable, saved_->c_str(), 1);
+      setenv(variable_, saved_->c_str(), 1);
     } else {
-      unsetenv(variable);
+      unsetenv(variable_);
     }
   }
 
  private:
-  static constexpr const char* variable = "LSAN_OPTIONS";
+  const char* variable_;
   std::optional<std::string> saved_;
 };
 
-inline int* volatile last_leaked = nullptr;
-
-inline void leak() {
-  constexpr int blocks = 16;
-  for (int i = 0; i < blocks; ++i) {
-    last_leaked = new int(i);
-  }
-  last_leaked = nullptr;
-}
-
-[[noreturn]] inline void leak_and_exit() {
-  leak();
-  std::exit(0);
-}
+class sanitizer_log_on_stdout_in_children {
+ private:
+  options_appended lsan_options_{
+      "LSAN_OPTIONS",
+      "log_path=stdout:exitcode=" + std::to_string(lsan_exit_code)};
+};
 
 }  // namespace rr::test

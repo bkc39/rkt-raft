@@ -226,11 +226,17 @@ TEST_F(DeathMacroDeathTest, ArmsTheChildLimitBeforeTheBody) {
 
 TEST_F(DeathMacroDeathTest, OnlyAnAbortOrLsansExitCodeReportsALeak) {
   RR_EXPECT_EXIT(std::raise(SIGABRT), rr::test::reports_a_leak, "");
-  RR_EXPECT_EXIT(std::_Exit(rr::test::lsan_exit_code), rr::test::reports_a_leak,
-                 "");
   RR_EXPECT_EXIT(std::raise(SIGALRM), std::not_fn(rr::test::reports_a_leak),
                  "");
 }
+
+#ifdef __SANITIZE_ADDRESS__
+TEST_F(DeathMacroDeathTest, ALeakWithoutAbortOnErrorExitsWithLsansExitCode) {
+  const rr::test::options_appended no_abort("ASAN_OPTIONS", "abort_on_error=0");
+  RR_EXPECT_EXIT(rr::test::leak_and_exit(),
+                 ::testing::ExitedWithCode(rr::test::lsan_exit_code), "^$");
+}
+#endif
 
 TEST_F(ExitWorkerDeathTest,
        AJobCallingExitSkipsTeardownWithoutWaitingOnItself) {
