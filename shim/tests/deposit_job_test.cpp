@@ -11,6 +11,7 @@
 #include <memory>
 #include <string>
 
+#include "death.hpp"
 #include "deposit_fixture.hpp"
 #include "detail/executor_api.h"
 #include "gpu.hpp"
@@ -25,7 +26,7 @@ using rr::test::deposit::session;
 using rr::test::deposit::tally;
 
 constexpr double pin_bound = 10.0;
-constexpr unsigned child_limit_seconds = 10;
+constexpr unsigned device_child_limit_seconds = 10;
 constexpr int exited_in_release = 13;
 
 enum class step : uint8_t { free_holder, release_job, finish };
@@ -133,7 +134,7 @@ void pin_holder_in_order(const std::array<step, 3>& steps, bool filled) {
 }
 
 [[noreturn]] void refused_job_closes_its_deposits() {
-  alarm(child_limit_seconds);
+  alarm(device_child_limit_seconds);
   const counters before;
   tally t;
   session d = rr::test::deposit::open_session();
@@ -208,7 +209,7 @@ struct exiting_owner {
 };
 
 [[noreturn]] void owner_exits_as_its_job_lets_go() {
-  alarm(child_limit_seconds);
+  alarm(device_child_limit_seconds);
   session d = rr::test::deposit::open_session();
   auto o = std::make_unique<exiting_owner>(*d.handle);
   const std::initializer_list<rr_view> regions{raftrkt::region(o->matrix)};
@@ -221,7 +222,7 @@ struct exiting_owner {
   if (rr_job_submit(d.resources, rr::test::run_test_job, &args, sizeof args,
                     nullptr, 0, holders.data(), 1,
                     std::numeric_limits<double>::infinity(), &job) != RR_OK ||
-      !g.await_entry(std::chrono::seconds(child_limit_seconds))) {
+      !g.await_entry(std::chrono::seconds(device_child_limit_seconds))) {
     fail("the job never started");
   }
   rr_holder_free(d.holder);
@@ -229,11 +230,6 @@ struct exiting_owner {
   for (;;) {
     pause();
   }
-}
-
-[[noreturn]] void leaks_and_exits() {
-  alarm(child_limit_seconds);
-  rr::test::leak_and_exit();
 }
 
 class DepositJobDeathTest : public ::testing::Test {
@@ -248,22 +244,22 @@ class DepositJobDeathTest : public ::testing::Test {
 };
 
 TEST_F(DepositJobDeathTest, ARefusedJobClosesItsDeposits) {
-  EXPECT_EXIT(refused_job_closes_its_deposits(), ::testing::ExitedWithCode(0),
-              "^$");
+  RR_EXPECT_EXIT(refused_job_closes_its_deposits(),
+                 ::testing::ExitedWithCode(0), "^$");
 }
 
 #ifdef __SANITIZE_ADDRESS__
 TEST_F(DepositJobDeathTest, ALeakInAChildIsReportedOffItsStderr) {
-  EXPECT_EXIT(
-      leaks_and_exits(),
+  RR_EXPECT_EXIT(
+      rr::test::leak_and_exit(),
       [](int status) { return !WIFEXITED(status) || WEXITSTATUS(status) != 0; },
       "^$");
 }
 #endif
 
 TEST_F(DepositJobDeathTest, AnOwnerCallingExitAsItsJobLetsGoSkipsTeardown) {
-  EXPECT_EXIT(owner_exits_as_its_job_lets_go(),
-              ::testing::ExitedWithCode(exited_in_release), "^$");
+  RR_EXPECT_EXIT(owner_exits_as_its_job_lets_go(),
+                 ::testing::ExitedWithCode(exited_in_release), "^$");
 }
 
 TEST(DepositJob, AJobPinsAndClosesItsHoldersUntilItIsDone) {

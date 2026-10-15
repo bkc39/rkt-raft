@@ -16,6 +16,7 @@
 #include <thread>
 #include <vector>
 
+#include "death.hpp"
 #include "detail/executor_api.h"
 #include "gpu.hpp"
 #include "jobs.hpp"
@@ -24,7 +25,6 @@
 namespace {
 
 constexpr int failed_child = 99;
-constexpr unsigned child_limit_seconds = 5;
 constexpr unsigned backstop_limit_seconds = 13;
 constexpr double at_once = 0.001;
 constexpr double promptly = 0.01;
@@ -174,14 +174,12 @@ enum exit_code : uint8_t {
 };
 
 [[noreturn]] void nothing_in_flight() {
-  alarm(child_limit_seconds);
   mark_exit();
   require_drained(drain(), 0, 0, 0, at_once);
   std::exit(torn_down);
 }
 
 [[noreturn]] void past_its_bound() {
-  alarm(child_limit_seconds);
   mark_exit();
   stuck(host(), fifth);
   require_drained(drain(), 1, 1, fifth, three_tenths);
@@ -189,7 +187,6 @@ enum exit_code : uint8_t {
 }
 
 [[noreturn]] void every_waiter_wakes() {
-  alarm(child_limit_seconds);
   rr::test::gate& held = gated(host(), std::numeric_limits<double>::infinity());
   std::thread opener = open_once_waiting(held, 2);
   drained other;
@@ -203,7 +200,6 @@ enum exit_code : uint8_t {
 }
 
 [[noreturn]] void deadline_recomputed() {
-  alarm(child_limit_seconds);
   stuck(host(), tenth);
   std::thread opener = open_once_waiting(gated(host(), long_bound), 1);
   require_drained(drain(), 2, 1, tenth, well_short_of_the_bound);
@@ -212,7 +208,6 @@ enum exit_code : uint8_t {
 }
 
 [[noreturn]] void waits_for(double bound) {
-  alarm(child_limit_seconds);
   std::thread opener = open_once_waiting(gated(host(), bound), 1);
   require_drained(drain(), 1, 0);
   opener.join();
@@ -220,14 +215,12 @@ enum exit_code : uint8_t {
 }
 
 [[noreturn]] void does_not_wait_for(double bound) {
-  alarm(child_limit_seconds);
   stuck(host(), bound);
   require_drained(drain(), 1, 1, 0, quickly);
   std::exit(0);
 }
 
 [[noreturn]] void second_drain() {
-  alarm(child_limit_seconds);
   mark_exit();
   rr_resources* r = host();
   stuck(r, tenth);
@@ -238,7 +231,6 @@ enum exit_code : uint8_t {
 }
 
 [[noreturn]] void flush_on_skip(const std::string& path) {
-  alarm(child_limit_seconds);
   if (std::freopen(path.c_str(), "w", stdout) == nullptr) {
     fail("freopen failed");
   }
@@ -250,7 +242,6 @@ enum exit_code : uint8_t {
 }
 
 [[noreturn]] void skip_with_stdout_locked() {
-  alarm(child_limit_seconds);
   std::thread{[] {
     flockfile(stdout);
     std::this_thread::sleep_for(std::chrono::hours(1));
@@ -262,7 +253,6 @@ enum exit_code : uint8_t {
 }
 
 [[noreturn]] void submit_after_drain() {
-  alarm(child_limit_seconds);
   rr_resources* r = rr::test::host_resources();
   require_drained(drain(), 0, 0, 0, quickly);
   const int64_t live = rr_jobs_live();
@@ -299,7 +289,6 @@ auto with_no_more(Resource resource, Fn call) {
 }
 
 [[noreturn]] void failed_submit_retires() {
-  alarm(child_limit_seconds);
   rr_resources* r = host();
   const int64_t live = rr_jobs_live();
   const int64_t threads = rr_executor_threads();
@@ -320,7 +309,6 @@ auto with_no_more(Resource resource, Fn call) {
 }
 
 [[noreturn]] void refused_submit_opens_nothing() {
-  alarm(child_limit_seconds);
   rr_resources* r = host();
   require_drained(drain(), 0, 0, 0, quickly);
   rr_job* job = with_no_more(RLIMIT_NOFILE, [&] { return sleeper(r, 0, 1.0); });
@@ -331,7 +319,6 @@ auto with_no_more(Resource resource, Fn call) {
 }
 
 [[noreturn]] void refused_job_pins_nothing() {
-  alarm(child_limit_seconds);
   rr_resources* r = nullptr;
   rr_buffer* buffer = nullptr;
   if (rr_resources_create(0, &r) != RR_OK ||
@@ -361,15 +348,24 @@ auto with_no_more(Resource resource, Fn call) {
 }
 
 [[noreturn]] void backstop_skips() {
-  alarm(child_limit_seconds);
   static_cast<void>(std::atexit(atexit_marker));
   stuck(host(), fifth);
   std::exit(backstop_skipped);
 }
 
-[[noreturn]] void leaks_and_exits() {
-  alarm(child_limit_seconds);
-  rr::test::leak_and_exit();
+[[noreturn]] void leaks_and_skips() {
+  rr::test::leak();
+  stuck(host(), 0);
+  require_drained(drain(), 1, 1, 0, quickly);
+  std::exit(skipped);
+}
+
+volatile int shifted = 0;
+
+[[noreturn]] void shifts_too_far_and_exits() {
+  volatile int bits = std::numeric_limits<int>::digits + 1;
+  shifted = 1 << bits;
+  std::exit(0);
 }
 
 [[noreturn]] void queued_job_counts() {
@@ -385,41 +381,42 @@ auto with_no_more(Resource resource, Fn call) {
 }  // namespace
 
 TEST_F(ExitDeathTest, NothingInFlightDrainsAtOnceAndTearsDown) {
-  EXPECT_EXIT(nothing_in_flight(), ::testing::ExitedWithCode(torn_down),
-              "^atexit\nstatic\n$");
+  RR_EXPECT_EXIT(nothing_in_flight(), ::testing::ExitedWithCode(torn_down),
+                 "^atexit\nstatic\n$");
 }
 
 TEST_F(ExitDeathTest, AJobPastItsBoundSkipsTeardown) {
-  EXPECT_EXIT(past_its_bound(), ::testing::ExitedWithCode(skipped), "^$");
+  RR_EXPECT_EXIT(past_its_bound(), ::testing::ExitedWithCode(skipped), "^$");
 }
 
 TEST_F(ExitDeathTest, EveryWaiterWakes) {
-  EXPECT_EXIT(every_waiter_wakes(), ::testing::ExitedWithCode(0), "^$");
+  RR_EXPECT_EXIT(every_waiter_wakes(), ::testing::ExitedWithCode(0), "^$");
 }
 
 TEST_F(ExitDeathTest, TheDeadlineIsRecomputed) {
-  EXPECT_EXIT(deadline_recomputed(), ::testing::ExitedWithCode(0), "^$");
+  RR_EXPECT_EXIT(deadline_recomputed(), ::testing::ExitedWithCode(0), "^$");
 }
 
 TEST_F(ExitDeathTest, HugeAndInfiniteBoundsWait) {
-  EXPECT_EXIT(waits_for(huge_bound), ::testing::ExitedWithCode(0), "^$");
-  EXPECT_EXIT(waits_for(std::numeric_limits<double>::infinity()),
-              ::testing::ExitedWithCode(0), "^$");
+  RR_EXPECT_EXIT(waits_for(huge_bound), ::testing::ExitedWithCode(0), "^$");
+  RR_EXPECT_EXIT(waits_for(std::numeric_limits<double>::infinity()),
+                 ::testing::ExitedWithCode(0), "^$");
 }
 
 TEST_F(ExitDeathTest, NanAndNegativeBoundsDoNotWait) {
-  EXPECT_EXIT(does_not_wait_for(std::numeric_limits<double>::quiet_NaN()),
-              ::testing::ExitedWithCode(0), "^$");
-  EXPECT_EXIT(does_not_wait_for(-1.0), ::testing::ExitedWithCode(0), "^$");
+  RR_EXPECT_EXIT(does_not_wait_for(std::numeric_limits<double>::quiet_NaN()),
+                 ::testing::ExitedWithCode(0), "^$");
+  RR_EXPECT_EXIT(does_not_wait_for(-1.0), ::testing::ExitedWithCode(0), "^$");
 }
 
 TEST_F(ExitDeathTest, ASecondDrainAfterASkipAnswersAtOnce) {
-  EXPECT_EXIT(second_drain(), ::testing::ExitedWithCode(drained_twice), "^$");
+  RR_EXPECT_EXIT(second_drain(), ::testing::ExitedWithCode(drained_twice),
+                 "^$");
 }
 
 TEST_F(ExitDeathTest, StdoutIsFlushedOnTheSkipPath) {
   const std::string path = ::testing::TempDir() + "raftrkt-exit-stdout";
-  EXPECT_EXIT(flush_on_skip(path), ::testing::ExitedWithCode(flushed), "^$");
+  RR_EXPECT_EXIT(flush_on_skip(path), ::testing::ExitedWithCode(flushed), "^$");
   std::ifstream written{path};
   EXPECT_EQ(std::string(std::istreambuf_iterator<char>(written), {}),
             "flushed");
@@ -428,50 +425,60 @@ TEST_F(ExitDeathTest, StdoutIsFlushedOnTheSkipPath) {
 
 TEST_F(ExitDeathTest, ALockedStdoutDoesNotHoldTheExit) {
   const auto baseline_start = std::chrono::steady_clock::now();
-  EXPECT_EXIT(std::_Exit(flushed), ::testing::ExitedWithCode(flushed), "");
+  RR_EXPECT_EXIT(std::_Exit(flushed), ::testing::ExitedWithCode(flushed), "");
   const double baseline = seconds_since(baseline_start);
   const auto start = std::chrono::steady_clock::now();
-  EXPECT_EXIT(skip_with_stdout_locked(), ::testing::ExitedWithCode(flushed),
-              "^$");
+  RR_EXPECT_EXIT(skip_with_stdout_locked(), ::testing::ExitedWithCode(flushed),
+                 "^$");
   EXPECT_LT(seconds_since(start) - baseline, exit_overrun);
 }
 
 TEST_F(ExitDeathTest, ASubmitAfterTheDrainIsRefused) {
-  EXPECT_EXIT(submit_after_drain(), ::testing::ExitedWithCode(0), "^$");
+  RR_EXPECT_EXIT(submit_after_drain(), ::testing::ExitedWithCode(0), "^$");
 }
 
 TEST_F(ExitDeathTest, AFailedSubmitLeavesTheRegistry) {
-  EXPECT_EXIT(failed_submit_retires(), ::testing::ExitedWithCode(0), "^$");
+  RR_EXPECT_EXIT(failed_submit_retires(), ::testing::ExitedWithCode(0), "^$");
 }
 
 TEST_F(ExitDeathTest, ARefusedSubmitPreparesNothing) {
-  EXPECT_EXIT(refused_submit_opens_nothing(), ::testing::ExitedWithCode(0),
-              "^$");
+  RR_EXPECT_EXIT(refused_submit_opens_nothing(), ::testing::ExitedWithCode(0),
+                 "^$");
 }
 
 TEST_F(ExitGpuDeathTest, ARefusedJobPinsNothing) {
-  EXPECT_EXIT(refused_job_pins_nothing(), ::testing::ExitedWithCode(0), "^$");
+  RR_EXPECT_EXIT(refused_job_pins_nothing(), ::testing::ExitedWithCode(0),
+                 "^$");
 }
 
 TEST_F(ExitDeathTest, TheBackstopWaitsWithoutADrain) {
-  EXPECT_EXIT(backstop_waits(), ::testing::ExitedWithCode(backstop_waited),
-              "^job done\natexit\n$");
+  RR_EXPECT_EXIT(backstop_waits(), ::testing::ExitedWithCode(backstop_waited),
+                 "^job done\natexit\n$");
 }
 
 TEST_F(ExitDeathTest, TheBackstopSkipsTeardownPastTheBound) {
-  EXPECT_EXIT(backstop_skips(), ::testing::ExitedWithCode(backstop_skipped),
-              "^$");
+  RR_EXPECT_EXIT(backstop_skips(), ::testing::ExitedWithCode(backstop_skipped),
+                 "^$");
 }
 
 TEST_F(ExitDeathTest, AQueuedJobCounts) {
-  EXPECT_EXIT(queued_job_counts(), ::testing::ExitedWithCode(0), "^$");
+  RR_EXPECT_EXIT(queued_job_counts(), ::testing::ExitedWithCode(0), "^$");
 }
 
 #ifdef __SANITIZE_ADDRESS__
 TEST_F(ExitDeathTest, ALeakInAChildIsReportedOffItsStderr) {
-  EXPECT_EXIT(
-      leaks_and_exits(),
+  RR_EXPECT_EXIT(
+      rr::test::leak_and_exit(),
       [](int status) { return !WIFEXITED(status) || WEXITSTATUS(status) != 0; },
       "^$");
+}
+
+TEST_F(ExitDeathTest, ALeakInASkippedChildIsNotChecked) {
+  RR_EXPECT_EXIT(leaks_and_skips(), ::testing::ExitedWithCode(skipped), "^$");
+}
+
+TEST_F(ExitDeathTest, UndefinedBehaviourInAChildFailsOnItsStderr) {
+  RR_EXPECT_EXIT(shifts_too_far_and_exits(), ::testing::ExitedWithCode(1),
+                 "shift exponent 32 is too large");
 }
 #endif

@@ -211,12 +211,16 @@ class sanitizer_log_on_stdout_in_children {
 
 inline int* volatile last_leaked = nullptr;
 
-[[noreturn]] inline void leak_and_exit() {
+inline void leak() {
   constexpr int blocks = 16;
   for (int i = 0; i < blocks; ++i) {
     last_leaked = new int(i);
   }
   last_leaked = nullptr;
+}
+
+[[noreturn]] inline void leak_and_exit() {
+  leak();
   std::exit(0);
 }
 
