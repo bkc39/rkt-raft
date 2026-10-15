@@ -23,6 +23,7 @@
 
 (test-host-probe "a library with no rr_abi is refused before any other symbol is looked up"
   (define message (cdr (load-failure probe-path)))
-  (check-regexp-match #rx"^raft: libraftrkt has no ABI version [(]it exports no rr_abi[)], but this raft needs ABI version 1\n"
-                      message)
+  (check-regexp-match
+   #rx"^raft: libraftrkt has no ABI version [(]it exports no rr_abi[)], but this raft needs ABI version 1\n"
+   message)
   (check-regexp-match #rx"reinstall raft" message))

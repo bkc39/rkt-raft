@@ -41,4 +41,5 @@
   (cond
     [override (stage-native-libs! (build-path override "lib") native-libs-dir)]
     [(staged? native-libs-dir) (void)]
-    [else (eprintf "raft: libraftrkt is not staged in ~a; ~a\n" native-libs-dir native-library-advice)]))
+    [else
+     (eprintf "raft: libraftrkt is not staged in ~a; ~a\n" native-libs-dir native-library-advice)]))

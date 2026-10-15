@@ -53,7 +53,9 @@
 
 (define (abi-mismatch-error where found)
   (format "libraftrkt ~a, but this raft needs ABI version ~a\n  found in: ~a\n  ~a"
-          (if found (format "has ABI version ~a" found) "has no ABI version (it exports no rr_abi)")
+          (if found
+              (format "has ABI version ~a" found)
+              "has no ABI version (it exports no rr_abi)")
           abi-version
           where
           native-library-advice))
@@ -63,10 +65,9 @@
 (define (open-native-library dir)
   (define where (simplify-path dir))
   (define library
-    (with-handlers ([exn:fail? (lambda (e)
-                                 (error 'raft
-                                        "~a"
-                                        (native-library-error (staged? dir) where (exn-message e))))])
+    (with-handlers
+        ([exn:fail? (lambda (e)
+                      (error 'raft "~a" (native-library-error (staged? dir) where (exn-message e))))])
       (ffi-lib (build-path dir "libraftrkt"))))
   (define found (library-abi-version library))
   (cond

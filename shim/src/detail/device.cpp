@@ -25,7 +25,8 @@ std::string cuda_release(int code) {
 }  // namespace
 
 void driver_check(cudaError_t status, const char* call, int driver_version) {
-  if (status != cudaErrorInsufficientDriver || driver_version >= cuda_major * major_scale) {
+  if (status != cudaErrorInsufficientDriver ||
+      driver_version >= cuda_major * major_scale) {
     cuda_check(status, call);
     return;
   }
