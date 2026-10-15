@@ -123,7 +123,7 @@ TEST(Deposit, StressFillAgainstCloseFillsOrLeavesTheOwnerToTheCaller) {
   expect_released(before, {closing_rounds, static_cast<uint64_t>(filled), 0});
 }
 
-constexpr std::size_t counting_rounds = 8000;
+constexpr std::size_t counting_rounds = 80000;
 constexpr int counters_per_race = 2;
 constexpr auto counting_budget = std::chrono::seconds(2);
 

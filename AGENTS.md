@@ -1499,11 +1499,13 @@ since cuSPARSE's error string for it is only "out of memory"). The frozen rule i
   it replaced let a close between them hide a fill. No deterministic test
   can reach that window without a test-only hook in production code, so
   `StressCountAgainstCloseAlwaysSeesTheFill` keeps two threads counting
-  while it fills and closes up to 8000 deposits (2 s at most), each close
-  once a counter has picked that deposit up, and fails on any count that is
-  not 2. Against the two-load shape it failed 40 runs of 40,
-  each with at least 6 short counts. It needs a GPU, so the `gpu` gate runs
-  it and CI does not.
+  while it fills and closes up to 80000 deposits (2 s at most), each close
+  once a counter has picked that deposit up, and fails on any count that
+  succeeds with a value other than 2. Against the two-load shape on the
+  3090 Ti at a load average of 11 to 24 it failed 50 runs of 50, the fewest
+  with 1 wrong count; 40000 rounds missed 2 of 50 at 11 to 14. With the
+  fix, a run takes 1.8 to 2.2 s. It needs a GPU, so the `gpu` gate runs it
+  and CI does not.
 - **`deposit->list` adopts every region in one `call-as-atomic`** and caches
   the list, so two threads get `eq?` arrays. Phantom bytes cover the regions
   only.
