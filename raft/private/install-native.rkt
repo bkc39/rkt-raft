@@ -2,15 +2,18 @@
 
 (require (only-in racket/file call-with-atomic-output-file file->bytes make-directory*))
 
-(provide not-staged-advice
+(provide native-library-advice
          pre-installer
          stage-native-libs!
          staged?)
 
 (define library-pattern #rx"^libraftrkt[.]")
 
-(define not-staged-advice
-  "build it with nix (`nix develop` stages it), or set RAFT_NATIVE_LIB_PATH to a directory whose lib/ holds it and reinstall")
+(define override-advice
+  "set RAFT_NATIVE_LIB_PATH to the directory whose lib/ holds libraftrkt and run `raco setup raft`")
+
+(define native-library-advice
+  (format "reinstall raft; to use a libraftrkt built by hand, ~a" override-advice))
 
 (define (staged? dir)
   (and (directory-exists? dir)
@@ -41,4 +44,8 @@
   (cond
     [override (stage-native-libs! (build-path override "lib") native-libs-dir)]
     [(staged? native-libs-dir) (void)]
-    [else (eprintf "raft: libraftrkt is not staged in ~a; ~a\n" native-libs-dir not-staged-advice)]))
+    [else
+     (eprintf
+      "raft: libraftrkt is not staged in ~a; this raft ships no prebuilt libraftrkt yet, so ~a\n"
+      native-libs-dir
+      override-advice)]))

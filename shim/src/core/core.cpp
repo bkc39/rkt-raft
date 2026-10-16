@@ -45,9 +45,7 @@ int rr_device_count(int32_t* out) {
   return rr::translate_exceptions([&] {
     auto& count = *rr::require(out, "out");
     count = 0;
-    int n = 0;
-    rr::cuda_check(cudaGetDeviceCount(&n), "cudaGetDeviceCount");
-    count = n;
+    count = rr::device_count();
   });
 }
 

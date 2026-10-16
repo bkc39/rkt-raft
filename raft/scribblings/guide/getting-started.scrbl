@@ -23,6 +23,9 @@ checked the GPU stack under it.
 
 @commandline{raco pkg install raft}
 
+If @racket[(require raft)] then fails, the message says what is wrong with the
+native library and where it looked.
+
 @section[#:tag "gs-first-program"]{A first program}
 
 Put this in @filepath{hello.rkt} and run it with @exec{racket hello.rkt}:
@@ -64,7 +67,7 @@ Last, @racket[device-count] checks that the driver sees a GPU:
 ]
 
 If it raises @racket[exn:fail:raft] instead (no driver, too old a driver, or
-no device), nothing else in this manual will run. To name the GPU, ask the
-driver:
+no device; the message says which), nothing else in this manual will run. To
+name the GPU, ask the driver:
 
 @commandline{nvidia-smi --query-gpu=name,driver_version,compute_cap --format=csv}

@@ -71,7 +71,10 @@ shim/                         libraftrkt: C++20 over RAFT's headers (CMake, g++;
   src/array/ops.def           what the array module instantiates, per op
   tests/                      gtest; GPU cases print SKIP without a device
   tests/probe/                libraftrkt_probe, a second RMM user for the tests, and a
-                                downstream that fills deposits (rr_probe_deposit)
+                                downstream that fills deposits (rr_probe_deposit);
+                                and the loader fixtures: libraftrkt_stale_abi (the next
+                                ABI version), libraftrkt_abi_only (this ABI version and
+                                no other export), libraftrkt_null_abi (rr_abi is NULL)
 raft/                         the Racket package and collection
   main.rkt core.rkt           the public surface
   private/foreign/*.rkt       FFI bindings, one module per shim header
@@ -409,8 +412,14 @@ plans/scoping-plan.md         the approved plan (revision 5), as Markdown
   unsafe, because every allocation holds its resource by value.
   `rr_memory_resource_kind` reads the registry back (`cuda`, `cuda-async`,
   `other`) for the tests.
-- `src/detail/device.{hpp,cpp}`: `device_guard` and `require_device`, host
-  code that needs no RAFT header.
+- `src/detail/device.{hpp,cpp}`: `device_guard`, `device_count` and
+  `require_device`, host code that needs no RAFT header. `device_count` is the
+  first device call of every path in; on `cudaErrorInsufficientDriver` it
+  reads `cudaDriverGetVersion` and says which failure it is: no driver
+  (version 0, `libcuda.so.1` would not load) or a driver for CUDA X.Y where
+  CUDA 13.0 (driver 580 or newer) is needed. A failed version query keeps the
+  plain CUDA error. Both queries come in as `driver_queries`, defaulting to
+  the CUDA calls, so `driver_test.cpp` stubs them (#41).
 - **The public C++ headers are the shim's own.** `core.cpp` builds the tag
   `rr_abi` returns with `raftrkt::compiled_abi()` (`abi.h`), `view.cpp`
   decides layouts with `raftrkt::canonical_strides` and `raftrkt::has_layout`
@@ -547,8 +556,19 @@ plans/scoping-plan.md         the approved plan (revision 5), as Markdown
   `memory-resource-kind`, the tests' view of the default memory resource.
 - `private/foreign/library.rkt`: the runtime path to `native-libs/`, `ffi-lib`
   (default local binding: only one copy of each RAPIDS library can load per
-  process), `define-raft`, and the cpointer types `_rr-resources`,
-  `_rr-buffer`. `core.rkt`, `memory.rkt`, `array.rkt` bind `core.h`,
+  process), then the ABI handshake: `open-native-library` reads `rr_abi`'s
+  first field and refuses anything but `abi-version` (the Racket side's one
+  copy of `RR_ABI_VERSION`; the load itself ties the two), a library with no
+  `rr_abi`, or one whose `rr_abi` returns NULL, before any `define-raft`
+  resolves a symbol. Every library built so far reports ABI 1, so the
+  handshake alone cannot catch a stale one: `define-raft`'s
+  `#:default-make-fail` refuses a missing export at once, naming the binding
+  as one a libraftrkt older than this raft lacks (a per-binding `#:make-fail`
+  or `#:fail` would opt that binding out, so none has one). Every load failure (not staged,
+  would not load, ABI mismatch, missing export) is `exn:fail:raft` of kind
+  `'generic` and ends with `native-library-advice` (#41; `load-test.rkt`
+  loads copies of the loader modules against fixture libraries in a fresh
+  namespace). Then the cpointer types `_rr-resources`, `_rr-buffer`. `core.rkt`, `memory.rkt`, `array.rkt` bind `core.h`,
   `memory.h`, `array.h`.
 - `private/exn.rkt`: `exn:fail:raft`, with no dependencies, so the loader can
   raise it. `private/error.rkt`: `call/raft`, re-exporting the exception. A
@@ -558,7 +578,12 @@ plans/scoping-plan.md         the approved plan (revision 5), as Markdown
   `device-array: used after its release` (#16).
   `private/resource.rkt`: `with-release`. `private/install-native.rkt`: the
   pre-install hook, honouring `RAFT_NATIVE_LIB_PATH` (a directory whose
-  `lib/` holds `libraftrkt.so`).
+  `lib/` holds `libraftrkt.so`), and `native-library-advice`, the end-user
+  advice every load failure ends with: reinstall `raft`, or set
+  `RAFT_NATIVE_LIB_PATH` and run `raco setup raft` for a library built by
+  hand. The hook itself, which runs while `raft` installs, gives only the
+  override: this raft ships no prebuilt libraftrkt yet. Neither names Nix,
+  as the manual does not (#41).
 - Tests: `tests/private/gpu.rkt` (`gpu-available?`, `test-gpu`),
   `tests/private/probe.rkt` (the probe library, from `RAFT_SHIM_PROBE`,
   its jobs bound with `define-job`, `gate-job`, `test-host-probe`, which
@@ -883,8 +908,9 @@ the binding census), `racket-review`, `racket-version` (at least 9.3),
 
 - One manual, `raft/scribblings/raft.scrbl`: a guide (chapters under
   `guide/`) and a reference (one section per module under `reference/`).
-  `utils.rkt` holds `make-raft-eval`, `make-downstream-eval`, `listing` and
-  `excerpt` (a listing read from a repository file).
+  `utils.rkt` holds `make-raft-eval`, `make-downstream-eval` and `listing`.
+  Nothing in the manual reads a repository file: a catalog install has none
+  (#23).
 - **The manual assumes a catalog install** (`raco pkg install raft`; what
   that still needs is #24) and mentions no Nix at all: no dev shell, flake,
   `nix build`, `packages.*`, test-running or rendering instructions. Those
@@ -1336,9 +1362,8 @@ since cuSPARSE's error string for it is only "out of memory"). The frozen rule i
   seed changes the result, so a dropped seed or init would show.
 - **Follow-ups from the re-verification:** outputs sized only by the call
   (HDBSCAN's condensed tree) need an additive entry point that adopts a native
-  buffer as a raft array (#22); `excerpt` in `scribblings/utils.rkt` reads
-  repository files, which a catalog install lacks (#23), so fix it before
-  any catalog release.
+  buffer as a raft array (#22); `excerpt` in `scribblings/utils.rkt` read
+  repository files, which a catalog install lacks (#23); #41 deleted it.
 - **The ffi2 port (#15).** The frozen Racket exports hand out
   `ffi/unsafe` cpointers (a handle, cstruct pointers), and downstream
   bindings pass them as `_pointer`. A port to ffi2 must keep these exports

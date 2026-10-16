@@ -113,10 +113,12 @@ if(BUILD_TESTING)
     PROPERTIES TIMEOUT ${raftrkt_gtest_timeout_seconds})
 
   add_executable(raftrkt_error_tests
+    src/detail/device.cpp
     src/detail/dtype.cpp
     src/detail/error.cpp
     src/detail/view.cpp
     tests/deposit_header_test.cpp
+    tests/driver_test.cpp
     tests/error_test.cpp
     tests/headers_test.cpp
     tests/view_test.cpp
@@ -143,6 +145,20 @@ if(BUILD_TESTING)
   )
   raftrkt_enable_warnings(raftrkt_probe)
   raftrkt_apply_nix_cflags(raftrkt_probe)
+
+  function(raftrkt_add_abi_fixture name source)
+    add_library(${name} SHARED ${source})
+    set_target_properties(${name} PROPERTIES C_VISIBILITY_PRESET hidden)
+    target_include_directories(${name}
+      PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+    target_compile_definitions(${name} PRIVATE ${ARGN})
+    raftrkt_enable_warnings(${name})
+  endfunction()
+  raftrkt_add_abi_fixture(raftrkt_stale_abi tests/probe/abi_tag.c
+    "RR_FIXTURE_ABI_VERSION=(RR_ABI_VERSION + 1)")
+  raftrkt_add_abi_fixture(raftrkt_abi_only tests/probe/abi_tag.c
+    RR_FIXTURE_ABI_VERSION=RR_ABI_VERSION)
+  raftrkt_add_abi_fixture(raftrkt_null_abi tests/probe/null_abi.c)
 endif()
 
 install(TARGETS raftrkt
@@ -156,6 +172,7 @@ install(FILES cmake/raftrkt-config.cmake DESTINATION ${RAFTRKT_CMAKE_DIR})
 
 if(BUILD_TESTING AND DEFINED RAFTRKT_TESTS_PREFIX)
   install(TARGETS raftrkt_tests raftrkt_error_tests raftrkt_probe
+    raftrkt_stale_abi raftrkt_abi_only raftrkt_null_abi
     RUNTIME DESTINATION ${RAFTRKT_TESTS_PREFIX}/bin
     LIBRARY DESTINATION ${RAFTRKT_TESTS_PREFIX}/lib)
 endif()
