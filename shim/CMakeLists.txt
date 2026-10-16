@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.30)
 
-option(RAFTRKT_RELEASE "Build the shipped library: $ORIGIN RUNPATH, architectures from the command line" OFF)
+option(RAFTRKT_RELEASE "Build the shipped library" OFF)
 
 if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
   if(RAFTRKT_RELEASE)
@@ -81,14 +81,7 @@ target_link_options(raftrkt PRIVATE
 )
 raftrkt_enable_warnings(raftrkt)
 raftrkt_apply_nix_cflags(raftrkt)
-if(RAFTRKT_RELEASE)
-  set_target_properties(raftrkt PROPERTIES
-    BUILD_WITH_INSTALL_RPATH ON
-    INSTALL_RPATH "$ORIGIN"
-    INSTALL_RPATH_USE_LINK_PATH OFF
-  )
-  target_link_options(raftrkt PRIVATE "LINKER:--enable-new-dtags")
-endif()
+raftrkt_apply_release_rpath(raftrkt)
 
 raftrkt_add_tidy_target(tidy raftrkt)
 
