@@ -11,7 +11,7 @@ RELEASE_CUDA_ARCHITECTURES="75-real;80-real;86-real;90a-real;100f-real;120a-real
 RELEASE_GLIBC_MAX=2.28
 RELEASE_GLIBCXX_MAX=3.4.25
 RELEASE_SHIPPED="libraftrkt.so librmm.so librapids_logger.so"
-RELEASE_LICENSES="LICENSE.librmm LICENSE.rapids_logger"
+RELEASE_LICENSES="LICENSE LICENSE.librmm LICENSE.rapids_logger"
 RELEASE_SHIM_NEEDED="libcublas.so.13 libcublasLt.so.13 librapids_logger.so librmm.so"
 RELEASE_LIBC_FAMILY="ld-linux-x86-64.so.2 libc.so.6 libdl.so.2 libgcc_s.so.1 libm.so.6 libpthread.so.0 librt.so.1 libstdc++.so.6"
 

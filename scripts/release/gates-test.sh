@@ -79,17 +79,19 @@ want_fail corrupt "$work/corrupt/SHA256SUMS" checksums "librmm.so: FAILED"
 fixture dropped "$dev"
 sed -i '/ librmm\.so$/d' "$work/dropped/SHA256SUMS"
 gates dropped checksums
-want_fail dropped "$work/dropped/SHA256SUMS" checksums "lists [LICENSE.librmm LICENSE.rapids_logger libraftrkt.so librapids_logger.so manifest.json]"
+want_fail dropped "$work/dropped/SHA256SUMS" checksums "lists [LICENSE LICENSE.librmm LICENSE.rapids_logger libraftrkt.so librapids_logger.so manifest.json]"
 
 fixture no-logger "$dev"
 rm "$work/no-logger/librapids_logger.so"
 gates no-logger files
 want_fail no-logger "$work/no-logger" files "missing librapids_logger.so"
 
-fixture no-licence "$dev"
-rm "$work/no-licence/LICENSE.rapids_logger"
-gates no-licence files
-want_fail no-licence "$work/no-licence" files "missing LICENSE.rapids_logger"
+for licence in LICENSE LICENSE.librmm LICENSE.rapids_logger; do
+  fixture "no-$licence" "$dev"
+  rm -f "$work/no-$licence/$licence"
+  gates "no-$licence" files
+  want_fail "no-$licence" "$work/no-$licence" files "missing $licence"
+done
 
 fixture stray "$dev"
 cp "$dev" "$work/stray/libraftrkt.so.old"

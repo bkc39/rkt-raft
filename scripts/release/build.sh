@@ -49,6 +49,7 @@ cmake -S "$src/shim" -B "$work/build" -G Ninja \
 cmake --build "$work/build" --target raftrkt -j "$jobs"
 
 cp "$work/build/libraftrkt.so" "$out/"
+cp "$src/LICENSE" "$out/LICENSE"
 cp "$work/wheels/librmm/lib64/librmm.so" "$out/"
 cp "$work/wheels/rapids_logger/lib64/librapids_logger.so" "$out/"
 cp "$work/wheels"/librmm_*.dist-info/licenses/LICENSE "$out/LICENSE.librmm"
