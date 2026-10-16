@@ -30,6 +30,8 @@
   (resyntax       "scripts/resyntax.sh")
   (docs           "scripts/render-docs.sh /tmp/rkt-raft-docs")
   (sanitizers     "nix build --max-jobs 1 --cores 4 --no-link .#checks.x86_64-linux.shim-sanitizers")
+  ;; The release gates must reject the dev library and the stale-ABI fixture.
+  (release-gates  "nix build --max-jobs 1 --cores 4 --no-link .#checks.x86_64-linux.release-gates")
   ;; The CI-equivalent: every flake check (AGENTS.md lists them).
   (check          "nix flake check --max-jobs 1 --cores 4"))
  (push-gates (format no-syntax-rule no-raw-malloc bounded-death-tests gpu-suite-signals review compile test bindings)))

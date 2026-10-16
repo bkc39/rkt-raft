@@ -418,6 +418,41 @@
             touch $out
           '';
 
+      releaseGates =
+        pkgs.runCommand "rkt-raft-release-gates"
+          {
+            src = lib.fileset.toSource {
+              root = ./.;
+              fileset = lib.fileset.unions [
+                ./scripts/release
+                ./raft/private/foreign/library.rkt
+              ];
+            };
+            nativeBuildInputs = [
+              pkgs.binutils
+              pkgs.stdenv.cc
+              cudaPackages.cuda_cuobjdump
+            ];
+          }
+          ''
+            . $src/scripts/release/pins.sh
+            pinned() {
+              if [ "$2" != "$3" ]; then
+                echo "ERROR: scripts/release/pins.sh pins $1 as $2; nix/rapids.nix has $3" >&2
+                exit 1
+              fi
+            }
+            pinned libraft "$RELEASE_WHEEL_LIBRAFT $RELEASE_WHEEL_LIBRAFT_SHA256" \
+              "${rapids.libraft.wheel.url} ${rapids.libraft.wheel.sha256}"
+            pinned librmm "$RELEASE_WHEEL_LIBRMM $RELEASE_WHEEL_LIBRMM_SHA256" \
+              "${rapids.librmm.wheel.url} ${rapids.librmm.wheel.sha256}"
+            pinned rapids_logger "$RELEASE_WHEEL_RAPIDS_LOGGER $RELEASE_WHEEL_RAPIDS_LOGGER_SHA256" \
+              "${rapids.rapids-logger.wheel.url} ${rapids.rapids-logger.wheel.sha256}"
+            bash $src/scripts/release/gates-test.sh ${shim}/lib/libraftrkt.so \
+              ${shim.tests}/lib/libraftrkt_stale_abi.so ${rapids.core}/lib64
+            touch $out
+          '';
+
       racketVersion =
         pkgs.runCommand "rkt-raft-racket-version"
           {
@@ -597,6 +632,7 @@
         kmeans-canary = kmeansCanary;
         line-count = lineCount;
         racket-version = racketVersion;
+        release-gates = releaseGates;
         no-syntax-rule = grepGate "no-syntax-rule" "no-syntax-rule.sh";
         no-raw-malloc = grepGate "no-raw-malloc" "no-raw-malloc.sh";
         bounded-death-tests = grepGate "bounded-death-tests" "bounded-death-tests.sh";
