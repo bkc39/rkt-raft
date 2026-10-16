@@ -458,7 +458,7 @@
               "${rapids.librmm.wheel.url} ${rapids.librmm.wheel.sha256}" \
               "${rapids.rapids-logger.wheel.url} ${rapids.rapids-logger.wheel.sha256}" \
               ${cudaPackages.libcublas.version}
-            ${pkgs.bash}/bin/bash $src/scripts/release/gates-test.sh ${shim}/lib/libraftrkt.so \
+            timeout 900 ${pkgs.bash}/bin/bash $src/scripts/release/gates-test.sh ${shim}/lib/libraftrkt.so \
               ${shim.tests}/lib/libraftrkt_stale_abi.so ${rapids.core}/lib64 ${releaseArchFixtures}
             touch $out
           '';

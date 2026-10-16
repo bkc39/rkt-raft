@@ -21,22 +21,26 @@ problem() {
   failures=1
 }
 
+sums() {
+  local listed
+  read -ra listed <<<"$RELEASE_SHIPPED $RELEASE_LICENSES manifest.json"
+  (cd "$work/$1" && sha256sum "${listed[@]}" >SHA256SUMS)
+}
 fixture() {
-  local name=$1 shim=$2 f listed
+  local name=$1 shim=$2 f
   mkdir -p "$work/$name"
   cp "$shim" "$work/$name/libraftrkt.so"
   cp "$rapids/librmm.so" "$rapids/librapids_logger.so" "$work/$name/"
   for f in $RELEASE_LICENSES; do echo "Apache-2.0" >"$work/$name/$f"; done
   printf '{}\n' >"$work/$name/manifest.json"
   chmod u+w "$work/$name"/*
-  read -ra listed <<<"$RELEASE_SHIPPED $RELEASE_LICENSES manifest.json"
-  (cd "$work/$name" && sha256sum "${listed[@]}" >SHA256SUMS)
+  sums "$name"
 }
 
 gates() {
   local name=$1
   shift
-  if bash "${tree:-$here/../..}/scripts/release/gates.sh" "$work/$name" "$@" >"$work/$name.out" 2>&1; then
+  if timeout 60 bash "${tree:-$here/../..}/scripts/release/gates.sh" "$work/$name" "$@" >"$work/$name.out" 2>&1; then
     echo 0 >"$work/$name.status"
   else
     echo 1 >"$work/$name.status"
@@ -68,6 +72,7 @@ fixture stale "$stale"
 gates stale
 want_fail stale "$work/stale/libraftrkt.so" needed "outside the libc family"
 want_fail stale "$work/stale/libraftrkt.so" abi "raft wants "
+want_fail stale "$work/stale/libraftrkt.so" architectures "no .nv_fatbin module"
 want_ok stale checksums
 
 fixture corrupt "$dev"
@@ -93,6 +98,14 @@ for licence in LICENSE LICENSE.librmm LICENSE.rapids_logger; do
   want_fail "no-$licence" "$work/no-$licence" files "missing $licence"
 done
 
+fixture notelf "$dev"
+echo "not a library" >"$work/notelf/librapids_logger.so"
+sums notelf
+gates notelf
+want_fail notelf "$work/notelf/librapids_logger.so" files "not an ELF shared object"
+want_fail notelf "$work/notelf/librapids_logger.so" runpath "RUNPATH [] RPATH []"
+want_ok notelf checksums
+
 fixture stray "$dev"
 cp "$dev" "$work/stray/libraftrkt.so.old"
 gates stray files
@@ -113,16 +126,41 @@ mkdir -p "$tree/scripts/release" "$tree/raft/private/foreign"
 cp "$here/gates.sh" "$here/pins.sh" "$here/abi-probe.c" "$tree/scripts/release/"
 echo "#lang racket/base" >"$tree/raft/private/foreign/library.rkt"
 fixture no-abi-version "$dev"
-gates no-abi-version abi
-want_fail no-abi-version "$tree/scripts/release/../../raft/private/foreign/library.rkt" abi "no (define abi-version N)"
+GITHUB_ACTIONS=true gates no-abi-version abi
+want_fail no-abi-version "$tree/raft/private/foreign/library.rkt" abi "no (define abi-version N)"
+grep -qxF "::error file=raft/private/foreign/library.rkt::abi gate: no (define abi-version N)" "$work/no-abi-version.out" ||
+  problem "no-abi-version: want a repo-relative ::error file= annotation"
 unset tree
 
 fixture arch-full "$arch/full.so"
 gates arch-full architectures
-want_ok arch-full architectures
+grep -q "^ok   architectures: 1 fatbin module(s), " "$work/arch-full.out" || problem "arch-full: want ok architectures, 1 module"
 fixture arch-short "$arch/short.so"
 gates arch-short architectures
 want_fail arch-short "$work/arch-short/libraftrkt.so" architectures "fatbin module 2 has elf [sm_86] ptx []"
+! grep -qF .nvFatBinSegment "$work/arch-short.out" || problem "arch-short: 2 modules and 2 wrappers reported a mismatch"
+
+fixture arch-zero "$arch/full.so"
+printf '\x50\xed\x55\xba\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00' >"$work/zero-header"
+objcopy --update-section .nv_fatbin="$work/zero-header" "$arch/full.so" "$work/arch-zero/libraftrkt.so"
+gates arch-zero architectures
+want_fail arch-zero "$work/arch-zero/libraftrkt.so" architectures "fatbin header at 0: header 0, size 0"
+
+fixture arch-segment "$arch/short.so"
+head -c 24 /dev/zero >"$work/one-wrapper"
+objcopy --update-section .nvFatBinSegment="$work/one-wrapper" "$arch/short.so" "$work/arch-segment/libraftrkt.so"
+gates arch-segment architectures
+want_fail arch-segment "$work/arch-segment/libraftrkt.so" architectures \
+  "2 fatbin module(s) in .nv_fatbin, 24 bytes of .nvFatBinSegment hold 1"
+
+gha="gha:%,"
+fixture "$gha" "$arch/short.so"
+GITHUB_ACTIONS=true gates "$gha" architectures abi
+message=$(sed -n "s|^$work/$gha/libraftrkt.so: \(architectures gate: fatbin module 2 .*\)\$|\1|p" "$work/$gha.out")
+grep -qxF "::error title=$work/gha%3A%25%2C/libraftrkt.so::$message" "$work/$gha.out" ||
+  problem "$gha: want an escaped ::error title= annotation for module 2"
+grep -qF "::error title=$work/gha%3A%25%2C/libraftrkt.so::abi gate: does not load: dlopen: $work/gha:%25,/libraftrkt.so: " "$work/$gha.out" ||
+  problem "$gha: want the abi message's % escaped"
 
 mkdir -p "$work/fetch/cache"
 echo "wheel" >"$work/fetch/remote.whl"

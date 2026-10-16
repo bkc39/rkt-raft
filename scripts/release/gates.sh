@@ -6,7 +6,8 @@ export LC_ALL=C
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 # shellcheck source=scripts/release/pins.sh
 . "$here/pins.sh"
-racket_abi_source="$here/../../raft/private/foreign/library.rkt"
+root=$(cd "$here/../.." && pwd)
+racket_abi_source="$root/raft/private/foreign/library.rkt"
 
 gate_names="files runpath nix-store glibc glibcxx needed companion-needed architectures abi checksums"
 
@@ -17,16 +18,37 @@ fi
 dir=$1
 shift
 gates=${*:-$gate_names}
+scratch=$(mktemp -d)
+trap 'rm -rf "$scratch"' EXIT
 
 failed=0
 gate_failed=0
 # shellcheck disable=SC2016
 origin='$ORIGIN'
 ok() { [ "$gate_failed" -eq 1 ] || printf 'ok   %s: %s\n' "$1" "$2"; }
+escape_data() {
+  local s=${1//%/%25}
+  s=${s//$'\r'/%0D}
+  printf '%s' "${s//$'\n'/%0A}"
+}
+escape_property() {
+  local s
+  s=$(escape_data "$1")
+  s=${s//,/%2C}
+  printf '%s' "${s//:/%3A}"
+}
+annotate() {
+  local file=$1 message=$2 where
+  case $file in
+    "$root"/*) where="file=$(escape_property "${file#"$root"/}")" ;;
+    *) where="title=$(escape_property "$file")" ;;
+  esac
+  printf '::error %s::%s\n' "$where" "$(escape_data "$message")"
+}
 fail() {
   local gate=$1 file=$2 message="$1 gate: $3"
   echo "$file: $message"
-  [ -z "${GITHUB_ACTIONS:-}" ] || echo "::error file=$file::$message"
+  [ -z "${GITHUB_ACTIONS:-}" ] || annotate "$file" "$message"
   gate_failed=1
   failed=1
 }
@@ -37,11 +59,12 @@ present() {
     [ -f "$dir/$f" ] && printf '%s\n' "$dir/$f"
   done
 }
-dynamic() { readelf -d "$1" | sed -n "s/.*($2).*\[\(.*\)\]\$/\1/p"; }
+elf_shared() { readelf -h "$1" 2>/dev/null | grep '^ *Type: *DYN ' >/dev/null; }
+dynamic() { { readelf -d "$1" 2>/dev/null || true; } | sed -n "s/.*($2).*\[\(.*\)\]\$/\1/p"; }
 words() { tr ' ' '\n' <<<"$1" | sed '/^$/d' | sort -u; }
 line() { tr '\n' ' ' <<<"$1" | sed 's/ $//'; }
 required_versions() {
-  objdump -p "$1" | awk -v p="$2_" '
+  { objdump -p "$1" 2>/dev/null || true; } | awk -v p="$2_" '
     /^Version References:/ { r = 1; next }
     r && /^[^ ]/ { r = 0 }
     r && index($NF, p) == 1 && $NF ~ /[0-9]$/ { print substr($NF, length(p) + 1) }'
@@ -75,6 +98,9 @@ gate_files() {
   done
   for f in $(comm -13 <(printf '%s\n' "$want") <(printf '%s\n' "$actual")); do
     fail files "$dir/$f" "not a release file"
+  done
+  for f in $(present); do
+    elf_shared "$f" || fail files "$f" "not an ELF shared object"
   done
   ok files "$(line "$want")"
 }
@@ -127,6 +153,7 @@ gate_companion_needed() {
 
 fatbin_modules() {
   local lib=$1 work=$2 size offset=0 n=0 header fat
+  : >"$work/modules"
   objcopy -O binary --only-section=.nv_fatbin "$lib" "$work/nv_fatbin" 2>/dev/null || return 0
   size=$(stat -c %s "$work/nv_fatbin")
   while [ "$offset" -lt "$size" ]; do
@@ -136,15 +163,20 @@ fatbin_modules() {
     fi
     header=$(od -An -t u2 -j $((offset + 6)) -N 2 "$work/nv_fatbin" | tr -d ' ')
     fat=$(od -An -t u8 -j $((offset + 8)) -N 8 "$work/nv_fatbin" | tr -d ' ')
+    if [ $((offset + 16)) -gt "$size" ] || [ "${#fat}" -gt 18 ] || [ "$header" -lt 16 ] ||
+      [ $((offset + header + fat)) -gt "$size" ]; then
+      fail architectures "$lib" "fatbin header at $offset: header ${header:-none}, size ${fat:-none}"
+      return 0
+    fi
     n=$((n + 1))
     tail -c +$((offset + 1)) "$work/nv_fatbin" | head -c $((header + fat)) >"$work/module-$n.fatbin"
-    printf '%s\n' "$work/module-$n.fatbin"
+    printf '%s\n' "$work/module-$n.fatbin" >>"$work/modules"
     offset=$((offset + header + fat))
   done
 }
 
 gate_architectures() {
-  local lib="$dir/libraftrkt.so" a want_elf="" want_ptx="" work module n=0 embedded elf ptx
+  local lib="$dir/libraftrkt.so" a want_elf="" want_ptx="" work="$scratch/architectures" modules module n=0 wrappers embedded elf ptx
   for a in ${RELEASE_CUDA_ARCHITECTURES//;/ }; do
     case $a in
       *-real) want_elf="$want_elf sm_${a%-real}" ;;
@@ -157,8 +189,11 @@ gate_architectures() {
   done
   want_elf=$(words "$want_elf")
   want_ptx=$(words "$want_ptx")
-  work=$(mktemp -d)
-  for module in $(fatbin_modules "$lib" "$work"); do
+  mkdir -p "$work"
+  fatbin_modules "$lib" "$work"
+  [ "$gate_failed" -eq 0 ] || return 0
+  mapfile -t modules <"$work/modules"
+  for module in "${modules[@]}"; do
     n=$((n + 1))
     embedded=$(cuobjdump -elf -ptx "$module" 2>&1 |
       awk '/^Fatbin (elf|ptx) code:$/ { kind = $2 } /^arch = / && kind { print kind, $3; kind = "" }' || true)
@@ -167,8 +202,13 @@ gate_architectures() {
     [ "$elf" = "$want_elf" ] && [ "$ptx" = "$want_ptx" ] ||
       fail architectures "$lib" "fatbin module $n has elf [$(line "$elf")] ptx [$(line "$ptx")], want elf [$(line "$want_elf")] ptx [$(line "$want_ptx")]"
   done
-  rm -rf "$work"
-  [ "$n" -gt 0 ] || fail architectures "$lib" "no .nv_fatbin module"
+  objcopy -O binary --only-section=.nvFatBinSegment "$lib" "$work/segment" 2>/dev/null || : >"$work/segment"
+  wrappers=$(stat -c %s "$work/segment")
+  if [ "$n" -eq 0 ]; then
+    fail architectures "$lib" "no .nv_fatbin module"
+  elif [ $((wrappers % 24)) -ne 0 ] || [ $((wrappers / 24)) -ne "$n" ]; then
+    fail architectures "$lib" "$n fatbin module(s) in .nv_fatbin, $wrappers bytes of .nvFatBinSegment hold $((wrappers / 24))"
+  fi
   ok architectures "$n fatbin module(s), each elf $(line "$want_elf") ptx $(line "$want_ptx")"
 }
 
@@ -179,7 +219,8 @@ gate_abi() {
     fail abi "$racket_abi_source" "no (define abi-version N)"
     return
   fi
-  work=$(mktemp -d)
+  work="$scratch/abi"
+  mkdir -p "$work"
   if ! "${CC:-cc}" -o "$work/abi-probe" "$here/abi-probe.c" -ldl; then
     fail abi "$here/abi-probe.c" "the probe does not compile"
   elif ! found=$("$work/abi-probe" "$lib" 2>&1); then
@@ -187,7 +228,6 @@ gate_abi() {
   elif [ "$found" != "$want" ]; then
     fail abi "$lib" "rr_abi $found, raft wants $want"
   fi
-  rm -rf "$work"
   ok abi "rr_abi $found = raft $want"
 }
 
