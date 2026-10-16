@@ -1,6 +1,10 @@
 #lang racket/base
 
-(require (only-in racket/file delete-directory/files make-directory* make-temporary-directory)
+(require (only-in racket/file
+                  delete-directory/files
+                  file->string
+                  make-directory*
+                  make-temporary-directory)
          (only-in racket/list remove-duplicates)
          (only-in racket/match match-lambda)
          ;; whole-module: define-runtime-path needs bindings only-in strips
@@ -15,6 +19,7 @@
          (only-in "private/native-package.rkt" native-package pre-installer-output))
 
 (define-runtime-path raft-dir "..")
+(define-runtime-path getting-started "../scribblings/guide/getting-started.scrbl")
 
 (define raft-version (package-version raft-dir))
 
@@ -139,3 +144,7 @@
            (raft-info 'deps)))
   (check-equal? dependency `("raft-x86_64-linux" #:platform "x86_64-linux" #:version ,version))
   (check-equal? ((get-info '("raft-x86_64-linux")) 'version) version))
+
+(test-case "the manual tells raco exe users to set RAFT_NATIVE_LIB_PATH"
+  (check-regexp-match #rx"(?s:@exec{raco exe}.*@envvar{RAFT_NATIVE_LIB_PATH})"
+                      (file->string getting-started)))

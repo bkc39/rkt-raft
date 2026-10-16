@@ -30,6 +30,10 @@ library, @tt{libraftrkt}, and the RAPIDS libraries it loads.
 If @racket[(require raft)] then fails, the message says what is wrong with the
 native library and where it looked.
 
+An executable made with @exec{raco exe} does not find @tt{raft-x86_64-linux};
+run it with @envvar{RAFT_NATIVE_LIB_PATH} set to a directory whose
+@filepath{lib/} holds @tt{libraftrkt} and the libraries beside it.
+
 @section[#:tag "gs-first-program"]{A first program}
 
 Put this in @filepath{hello.rkt} and run it with @exec{racket hello.rkt}:
