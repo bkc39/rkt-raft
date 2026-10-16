@@ -15,6 +15,7 @@
          (only-in "../private/cuda-wheels.rkt"
                   cuda-wheel-dir
                   cuda-wheel-members
+                  cuda-wheel-roots
                   read-cuda-wheels
                   wheel-member-name
                   wheel-member-size)
@@ -74,7 +75,6 @@
                    (lambda ()
                      (parameterize ([current-output-port out])
                        (cublas-setup-warning root
-                                             #:roots (list root)
                                              #:platform platform
                                              #:system? (lambda () #f))))))
   (list warning (get-output-string out)))
@@ -90,6 +90,17 @@
      (check-regexp-match #rx"^raft: fetching cuBLAS 13[.]4[.]0[.]1 [(]405 MB[)] from http://127"
                          (cadr result))
      (check-equal? (installed root) '()))))
+
+(test-case "an installation-scope setup fetches into its own root despite a user's copy"
+  (call-with-temp (lambda (dir)
+                    (define user (build-path dir "user"))
+                    (define share (build-path dir "share"))
+                    (stage-fetched! (cuda-wheel-dir user cublas-wheel))
+                    (define result
+                      (parameterize ([cuda-wheel-roots (list user share)])
+                        (setup-output share #:base (closed-port-base))))
+                    (check-regexp-match #rx"^could not fetch cuBLAS: " (car result))
+                    (check-regexp-match #rx"^raft: fetching cuBLAS " (cadr result)))))
 
 (test-case "off x86_64-linux, setup fetches nothing"
   (call-with-temp
@@ -111,6 +122,8 @@
    #rx"fetch it with `racket -l- raft/fetch-cuda`, set RAFT_CUDA_LIB_PATH to a directory holding them, or install CUDA 13"
    message))
 
+(define probe-seconds 20)
+
 (define (system-probe library-path)
   (call-with-temp
    (lambda (dir)
@@ -121,7 +134,12 @@
                                         (require (only-in (file ,(path->string cublas-module))
                                                           cublas-location-kind
                                                           locate-cublas))
-                                        (write (cublas-location-kind (locate-cublas #:roots '()))))
+                                        (define kind (cublas-location-kind (locate-cublas #:roots '())))
+                                        (define lt-mapped?
+                                          (call-with-input-file "/proc/self/maps"
+                                                                (lambda (in)
+                                                                  (regexp-match? #rx"libcublasLt" in))))
+                                        (write (list kind lt-mapped?)))
                                      out)))
      (define-values (process stdout stdin stderr)
        (call-with-env (list (cons "LD_LIBRARY_PATH" (path->string library-path))
@@ -129,15 +147,16 @@
                       (lambda () (subprocess #f #f #f (find-exe) program))))
      (close-output-port stdin)
      (define err (thread (lambda () (port->string stderr #:close? #t)) #:keep 'results))
-     (define result (read stdout))
-     (close-input-port stdout)
+     (define finished? (sync/timeout probe-seconds process))
      (cond
-       [(sync/timeout 60 process)
+       [finished?
         (check-equal? (subprocess-status process) 0 (thread-wait err))
-        result]
+        (begin0 (read stdout)
+          (close-input-port stdout))]
        [else
         (subprocess-kill process #t)
-        (fail "the system probe was still running after 60 s")]))))
+        (close-input-port stdout)
+        (fail (format "the system probe was still running after ~a s" probe-seconds))]))))
 
 (define (link-dir! dir names)
   (make-directory* dir)
@@ -145,7 +164,7 @@
     (make-file-or-directory-link (build-path cublas-dir (cdr name)) (build-path dir (car name))))
   dir)
 
-(test-case "the system probe needs both CUDA 13 libraries on the library path"
+(test-case "the system probe needs both CUDA 13 libraries and leaves no Lt mapped when it fails"
   (cond
     [cublas-dir
      (call-with-temp (lambda (dir)
@@ -159,7 +178,7 @@
                        (define lt-only
                          (link-dir! (build-path dir "lt-only")
                                     (list (cons "libcublasLt.so.13" "libcublasLt.so.13"))))
-                       (check-equal? (system-probe both) 'system)
-                       (check-equal? (system-probe older) 'missing)
-                       (check-equal? (system-probe lt-only) 'missing)))]
+                       (check-equal? (system-probe both) '(system #t))
+                       (check-equal? (system-probe older) '(missing #f))
+                       (check-equal? (system-probe lt-only) '(missing #f))))]
     [else (displayln "SKIP: the system probe test needs the native library's cuBLAS")]))

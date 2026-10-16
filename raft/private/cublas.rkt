@@ -64,7 +64,8 @@
 
 (define (system-cublas?)
   (with-handlers ([exn:fail? (lambda (_) #f)])
-    (for ([name (in-list cublas-libraries)])
+    ;; libcublas first: it maps its own Lt, so a failed probe leaves no Lt for a later load to bind
+    (for ([name (in-list (reverse cublas-libraries))])
       (match name
         [(regexp #rx"^(.+)[.]so[.](.+)$" (list _ stem version)) (ffi-lib stem (list version))]))
     #t))
@@ -109,10 +110,9 @@
     [dir dir]))
 
 (define (cublas-setup-warning root
-                              #:roots [roots (cuda-wheel-roots)]
                               #:platform [platform (path->string (system-library-subpath #f))]
                               #:system? [system? system-cublas?])
-  (match* (platform (locate-cublas #:system? system? #:roots roots))
+  (match* (platform (locate-cublas #:system? system? #:roots (list root)))
     [(_ (cublas-location 'bad-override dir)) (cublas-error 'override dir)]
     [("x86_64-linux" (cublas-location 'missing _))
      (with-handlers ([exn:fail:raft? exn-message])

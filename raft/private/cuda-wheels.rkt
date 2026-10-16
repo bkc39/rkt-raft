@@ -60,8 +60,8 @@
       (find-system-path 'addon-dir)
       (find-share-dir)))
 
-(define (cuda-wheel-roots)
-  (filter values (list (cuda-wheel-root #t) (cuda-wheel-root #f))))
+(define cuda-wheel-roots
+  (make-parameter (filter values (list (cuda-wheel-root #t) (cuda-wheel-root #f)))))
 
 (define (locate-cuda-wheel wheel roots)
   (for/first ([root (in-list roots)]
