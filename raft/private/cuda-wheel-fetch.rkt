@@ -178,9 +178,9 @@
   (make-directory* (wheel-place-parent place))
   (define (wait-again retry)
     (cond
-      [(>= (current-inexact-milliseconds) deadline)
-       (error 'cuda-wheel "gave up after ~a s waiting for another fetch to release ~a" limit lock)]
-      [else (retry #t)]))
+      [(< (current-inexact-milliseconds) deadline) (retry #t)]
+      [else
+       (error 'cuda-wheel "gave up after ~a s waiting for another fetch to release ~a" limit lock)]))
   (let retry ([announced? #f])
     (call-with-file-lock/timeout #f
                                  'exclusive
