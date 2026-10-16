@@ -449,6 +449,7 @@
                 ./scripts/release
                 ./raft/info.rkt
                 ./raft/private/foreign/library.rkt
+                ./raft/private/cuda-wheels.rkt
                 ./raft/private/cuda-wheels.rktd
                 ./raft-x86_64-linux/info.rkt
                 ./raft-x86_64-linux/NOTICE

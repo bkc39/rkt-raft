@@ -32,9 +32,7 @@ unset LD_LIBRARY_PATH
 wheel=$(release_fetch "$RELEASE_WHEEL_CUBLAS" "$RELEASE_WHEEL_CUBLAS_SHA256" "$cache")
 export RAFT_CUDA_WHEEL_URL_BASE="file://${wheel%/*}"
 fetched() {
-  local root
-  root=$(racket -l racket/base -l setup/dirs -e "(display $1)")
-  printf '%s/rapids/cu13/nvidia-cublas-%s/lib\n' "${root%/}" "$(release_wheel_version "$RELEASE_WHEEL_CUBLAS")"
+  racket "$here/cuda-pin.rkt" dir "$1" nvidia-cublas
 }
 
 install_raft() {
@@ -65,7 +63,7 @@ racket "$here/catalog.rkt" entry "$work/files/native/$RELEASE_NATIVE_PACKAGE" "$
 raco pkg config --set --scope installation catalogs "file://$catalog" "${catalogs[@]}"
 
 install_raft user
-cublas=$(fetched "(find-system-path 'addon-dir)")
+cublas=$(fetched user)
 racket "$check" installed "$cublas"
 racket -l- raft/fetch-cuda >"$work/fetch.log"
 cat "$work/fetch.log"
@@ -92,5 +90,5 @@ grep -F "raft: could not fetch cuBLAS" -A1 "$work/offline.log"
 racket "$check" cuda-missing
 echo "catalog test: raco setup --pkgs raft, online, fetches cuBLAS into the installation"
 raco setup --no-docs --pkgs raft
-racket "$check" installed "$(fetched "(find-share-dir)")"
+racket "$check" installed "$(fetched installation)"
 echo "catalog test: passed"
