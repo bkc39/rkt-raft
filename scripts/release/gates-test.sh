@@ -51,7 +51,7 @@ want_ok() {
 }
 want_fail() {
   local name=$1 file=$2 gate=$3 reason=$4
-  grep -F "$file: $gate gate: " "$work/$name.out" | grep -qF -- "$reason" ||
+  grep -F "$file: $gate gate: " "$work/$name.out" | grep -F -- "$reason" >/dev/null ||
     problem "$name: want $file: $gate gate: ...$reason..."
   [ "$(cat "$work/$name.status")" = 1 ] || problem "$name: gates.sh exited $(cat "$work/$name.status"), want 1"
 }
