@@ -20,9 +20,9 @@ dirty=false
 [ -z "$(git -C "$root" status --porcelain 2>/dev/null)" ] || dirty=true
 
 run() {
-  docker run --rm --name "rr-release-$$-$1" \
+  docker run --rm --init --name "rr-release-$$-$1" \
     -v "$root:/src:ro" -v "$cache:/cache" \
-    -e HOST_UID="$(id -u)" -e HOST_GID="$(id -g)" \
+    -e HOST_UID="$(id -u)" -e HOST_GID="$(id -g)" -e GITHUB_ACTIONS \
     "${@:2}"
 }
 

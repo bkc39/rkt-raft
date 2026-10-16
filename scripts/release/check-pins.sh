@@ -14,9 +14,7 @@ status=0
 pinned() {
   local name=$1 release=$2 flake=$3
   [ "$release" != "$flake" ] || return 0
-  local file=scripts/release/pins.sh message="pins $name as $release; the flake has $flake"
-  echo "$file: $message"
-  [ -z "${GITHUB_ACTIONS:-}" ] || echo "::error file=$file::$message"
+  echo "scripts/release/pins.sh: pins $name as $release; the flake has $flake"
   status=1
 }
 
