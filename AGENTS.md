@@ -919,10 +919,10 @@ gates' own tests), `no-syntax-rule`, `no-raw-malloc`,
 - `.github/workflows/release.yml`, one job on `ubuntu-latest`: the release
   build (`scripts/release.sh build`), the `manylinux_2_28` load check
   (`scripts/release.sh load-check`), then the artifact
-  `libraftrkt-x86_64-linux` (the three libraries, the companions' licences,
-  `manifest.json`, `SHA256SUMS`). It runs on pull requests touching `shim/`,
-  `nix/rapids.nix`, `raft/private/foreign/library.rkt`, the release scripts,
-  the workflow or `flake.nix`, on `v*` tags and by dispatch; only a pull
+  `libraftrkt-x86_64-linux` (the three libraries, `LICENSE`, the companions'
+  licences, `manifest.json`, `SHA256SUMS`). It runs on pull requests touching
+  `shim/`, `nix/rapids.nix`, `raft/private/foreign/library.rkt`, the release
+  scripts, the workflow, `.github/actions/free-disk/**` or `flake.nix`, on `v*` tags and by dispatch; only a pull
   request's run is cancelled by a newer one. Compile only: no GPU (#9).
   Adds `actions/upload-artifact@v7`.
 - No docs build in GitHub CI: doc examples need the GPU.
