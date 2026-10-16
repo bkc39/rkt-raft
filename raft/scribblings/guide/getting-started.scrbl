@@ -16,9 +16,7 @@ checked the GPU stack under it.
  @item{@bold{An NVIDIA GPU of compute capability 7.5 or newer}, the
        architectures RAPIDS supports.}
  @item{@bold{An NVIDIA driver for CUDA 13}, release 580 or newer.}
- @item{@bold{cuBLAS from CUDA 13} (@tt{libcublas.so.13} and
-       @tt{libcublasLt.so.13}) where the dynamic loader finds it, such as a
-       CUDA 13 toolkit's @filepath{lib64} on @envvar{LD_LIBRARY_PATH}.}
+ @item{@bold{cuBLAS from CUDA 13} on the loader path.}
  @item{@bold{glibc 2.28} or later.}
  @item{@bold{Racket 9.3} or later.}]
 
