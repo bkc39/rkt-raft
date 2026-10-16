@@ -627,7 +627,35 @@ nix run --max-jobs 1 --cores 4 .#copy-native-libs   # restage the shim after a C
 cmake -S shim -B shim/build -G Ninja -DBUILD_TESTING=ON   # the shim's inner loop
 nix build --max-jobs 1 --cores 4 .#kmeans-canary  # the canary (lib/, and tests/bin in .tests)
 raco test downstream/kmeans-canary/kmeans-canary  # the canary's Racket tests, twin included
+scripts/release.sh all <dir>       # the release libraftrkt in docker, its gates, the
+                                   #   manylinux_2_28 load check (build|load-check|all)
 ```
+
+**The release build** (#42) is what a catalog install ships, and does not
+touch the dev build (nix, sm_86, store `RUNPATH`). `scripts/release.sh` runs
+`scripts/release/build.sh` in the pinned `nvidia/cuda:13.2.1-devel-rockylinux8`
+image (glibc 2.28, nvcc 13.2.78 as in the flake, gcc-toolset-14, CMake 4.1.2
+and ninja 1.13.1 from release tarballs) against the wheels of
+`scripts/release/pins.sh`, with `-DRAFTRKT_RELEASE=ON` (`RUNPATH` `$ORIGIN`
+only; it refuses to configure without `CMAKE_CUDA_ARCHITECTURES`) and
+rapids-cmake 26.08's `RAPIDS` list for CUDA 13:
+`75-real;80-real;86-real;90a-real;100f-real;120a-real;120` (PTX for 120).
+It copies `librmm.so` and `librapids_logger.so` unmodified from the wheels
+(they already carry `RUNPATH` `$ORIGIN`), writes `manifest.json` and
+`SHA256SUMS`, and runs `scripts/release/gates.sh` on the result.
+`scripts/release/load-check.sh` then `dlopen`s it with `RTLD_NOW` in
+`manylinux_2_28` with no GPU, beside cuBLAS from the pinned
+`nvidia-cublas` 13.4.0.1 wheel (the cuBLAS the flake ships; #44 fetches the
+same wheel at install). Downloads are cached in `RELEASE_CACHE` (default
+`~/.cache/rkt-raft-release`); `RELEASE_JOBS` (default 4) caps the build,
+`RELEASE_CONTAINER` names the containers. The pinned wheels must equal
+`nix/rapids.nix`'s: flake check `release-gates` compares them, then
+`scripts/release/gates-test.sh` runs the gates on the dev library (must fail
+`runpath`, `nix-store`, `glibc`, `glibcxx`, `architectures` and, with one
+corrupted sum, `checksums`; must pass `needed` and `abi`) and on the
+stale-ABI fixture (must fail `needed` and `abi`).
+The `architectures` gate reads `cuobjdump -elf -ptx`'s `arch =` headers:
+`--list-elf` names the `100f` family cubin `sm_100`.
 
 `nix develop` does this on entry, from the checkout's root only:
 
@@ -673,6 +701,10 @@ The lab host has 62 GB of RAM shared with other sessions, and a global OOM on
   instantiation) peaks at 730–760 MB. The cap keeps a build near 3 GB; keep
   `buildJobs` × peak RSS under about 24 GB, and measure again when a heavier
   header family (`linalg/svd`, `sparse`, `cluster`) arrives.
+- The release build (`scripts/release.sh build`, seven architectures, four
+  jobs) compiles in 89 s; its largest process peaks at 823 MB (GNU `time
+  -f %M`), the container at 1.9 GB (`docker stats`; 2.9 GB in cgroup
+  `memory.peak`, page cache included).
 - Check `free -g` before a heavy build; with less than 30 GB available, wait
   and retry rather than start.
 
@@ -804,6 +836,7 @@ the binding census), `racket-review`, `racket-version` (at least 9.3),
 | clang-tidy (`shim/.clang-tidy`, `downstream/kmeans-canary/.clang-tidy`) | every `.cpp` under `shim/src`, `shim/tests` and the canary's `src` and `tests`, warnings as errors: `bugprone-*`, `performance-*`, `readability-*` except `identifier-length` (below), `modernize-use-nullptr`, `modernize-use-override` | flake checks `clang-tidy`, `clang-tidy-canary` | by hand |
 | `c-headers`, `line-count` | the umbrella header as C11; 500 lines per C/C++/CUDA file | flake checks | by hand |
 | ASAN and UBSAN (`-DRAFTRKT_SANITIZE=ON`) | host memory errors, leaks and undefined behaviour in both gtest binaries (not signed overflow: the nix stdenv's `strictoverflow` hardening builds with `-fno-strict-overflow`), and in every death-test child; the leak check runs only in a child that reaches normal exit, not one whose drain skipped (its exit ends in `_exit`) or that calls `_exit`/`std::_Exit`; the exit and deposit-job death tests' children send ASan and LSan reports to stdout, UBSan's to stderr, and fail by exit status | flake check `shim-sanitizers` (GPU cases SKIP); the GPU suite (GPU cases run); gate `sanitizers` | by hand |
+| release gates (`scripts/release/gates.sh`) | the shipped libraries: `RUNPATH` `$ORIGIN` only, no `/nix/store`, `GLIBC_` ≤ 2.28, `GLIBCXX_` ≤ 3.4.25, the shim's `NEEDED`, the companions' `NEEDED`, every architecture in `cuobjdump`, the ABI version against `library.rkt`, `SHA256SUMS` | `release.yml`; flake check `release-gates` runs them on the dev library and the stale-ABI fixture, which must fail | by hand |
 | compute-sanitizer memcheck | device memory errors, device leaks (`--leak-check full`) and failing CUDA calls (`--report-api-errors explicit`) in both gtest binaries and the canary's | the GPU suite (gate `gpu`, `gpu.yml`) | by hand |
 
 - **raco fmt** formats `.rkt` files only. It crashes on Scribble's
@@ -902,6 +935,15 @@ the binding census), `racket-review`, `racket-version` (at least 9.3),
   host and their counts go in the review packet. The `if:` is not a security
   boundary: a fork's PR runs workflow files it controls, so keeping forks off
   the runner is the runner group's job (#9 lists the settings).
+- `.github/workflows/release.yml`, one job on `ubuntu-latest`: the release
+  build (`scripts/release.sh build`), the `manylinux_2_28` load check
+  (`scripts/release.sh load-check`), then the artifact
+  `libraftrkt-x86_64-linux` (the three libraries, `manifest.json`,
+  `SHA256SUMS`). It runs on pull requests touching `shim/`,
+  `nix/rapids.nix`, `raft/private/foreign/library.rkt`, the release scripts
+  or the workflow, on `v*` tags and by dispatch. Its own workflow because
+  its triggers differ from `nix.yml`'s and #43 adds the release upload to
+  it. Compile only: no GPU (#9). Adds `actions/upload-artifact@v7`.
 - No docs build in GitHub CI: doc examples need the GPU.
 
 ## Documentation
