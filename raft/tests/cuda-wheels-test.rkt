@@ -1,7 +1,7 @@
 #lang racket/base
 
 (require (only-in net/url-connect current-https-protocol)
-         (only-in racket/file file->bytes make-directory*)
+         (only-in racket/file call-with-file-lock/timeout file->bytes make-directory*)
          ;; whole-module: define-runtime-path needs bindings only-in strips
          racket/runtime-path
          (only-in rackunit
@@ -9,12 +9,14 @@
                   check-exn
                   check-false
                   check-not-false
+                  check-pred
                   check-regexp-match
                   check-true
                   fail
                   test-case)
          (only-in "../private/cuda-wheel-fetch.rkt"
                   cuda-wheel-connect-timeout
+                  cuda-wheel-lock-timeout
                   cuda-wheel-read-timeout
                   cuda-wheel-source
                   ensure-cuda-wheel)
@@ -32,7 +34,8 @@
                   installed
                   libraries
                   make-wheel!
-                  sized-file!))
+                  sized-file!)
+         (only-in "../private/resource.rkt" with-release))
 
 (define-runtime-path cuda-wheels "../private/cuda-wheels.rktd")
 
@@ -57,6 +60,9 @@
     [else
      (kill-thread worker)
      (fail (format "still running after ~a s" seconds))]))
+
+(define (open-fds)
+  (length (directory-list "/proc/self/fd")))
 
 (define ((serving body #:then [then void]) out)
   (write-bytes (http-response "200 OK" body) out)
@@ -144,6 +150,7 @@
      (define wheel (make-wheel! dir))
      (define root (build-path dir "root"))
      (define response (http-response "200 OK" (file->bytes (build-path dir "fake.whl"))))
+     (define fds (open-fds))
      (call-with-server (lambda (out)
                          (write-bytes response out 0 200)
                          (flush-output out)
@@ -153,12 +160,14 @@
                            (parameterize ([cuda-wheel-read-timeout 0.5])
                              (within 10 (lambda () (fetch wheel root base)))))
                          (check-regexp-match #rx"stalled: no data for 0[.]5 s" (exn-message result))
-                         (check-true (nothing-in-place? root wheel)))))))
+                         (check-true (nothing-in-place? root wheel))))
+     (check-equal? (open-fds) fds))))
 
 (test-case "a server that accepts but never answers fails within the connect timeout"
   (call-with-temp (lambda (dir)
                     (define wheel (make-wheel! dir))
                     (define root (build-path dir "root"))
+                    (define fds (open-fds))
                     (call-with-server (lambda (_out) (sync never-evt))
                                       (lambda (base)
                                         (define result
@@ -166,7 +175,8 @@
                                             (within 10 (lambda () (fetch wheel root base)))))
                                         (check-regexp-match #rx"did not answer within 0[.]5 s"
                                                             (exn-message result))
-                                        (check-true (nothing-in-place? root wheel)))))))
+                                        (check-true (nothing-in-place? root wheel))))
+                    (check-equal? (open-fds) fds))))
 
 (test-case "the fetch verifies HTTPS certificates"
   (call-with-temp (lambda (dir)
@@ -224,6 +234,56 @@
      (check-false (locate-cuda-wheel wheel (list root)))
      (check-not-false (fetch wheel root (file-base dir)))
      (check-equal? (installed root) (list home)))))
+
+(test-case "a stale part that cannot be deleted does not block the fetch"
+  (call-with-temp
+   (lambda (dir)
+     (define wheel (make-wheel! dir))
+     (define root (build-path dir "root"))
+     (define stale (build-path root "rapids" "cu13" (string-append home ".part-123") "lib"))
+     (make-directory* stale)
+     (call-with-output-file (build-path stale "libcublas.so.13") void)
+     (with-release ([locked
+                     (begin
+                       (file-or-directory-permissions stale #o555)
+                       stale)
+                     (lambda (locked) (file-or-directory-permissions locked #o755))])
+       (check-equal? (fetch wheel root (file-base dir)) (cuda-wheel-dir root wheel))
+       (check-true (directory-exists? locked))))))
+
+(test-case "a fetch waiting on another's lock says so once and gives up at the limit"
+  (call-with-temp
+   (lambda (dir)
+     (define wheel (make-wheel! dir))
+     (define root (build-path dir "root"))
+     (define parent (build-path root "rapids" "cu13"))
+     (define lock (build-path parent (string-append home ".lock")))
+     (make-directory* parent)
+     (define held (make-semaphore))
+     (define release (make-semaphore))
+     (define holder
+       (thread (lambda ()
+                 (call-with-file-lock/timeout #f
+                                              'exclusive
+                                              (lambda ()
+                                                (semaphore-post held)
+                                                (semaphore-wait release))
+                                              (lambda () (semaphore-post held))
+                                              #:lock-file lock))))
+     (semaphore-wait held)
+     (define out (open-output-string))
+     (define result
+       (parameterize ([cuda-wheel-lock-timeout 4]
+                      [current-output-port out])
+         (within 20 (lambda () (fetch wheel root (file-base dir))))))
+     (semaphore-post release)
+     (thread-wait holder)
+     (check-pred exn:fail? result)
+     (check-regexp-match (regexp (string-append "gave up after 4 s waiting for another fetch to release "
+                                                (regexp-quote (path->string lock))))
+                         (exn-message result))
+     (check-equal? (get-output-string out) (format "raft: waiting for another fetch (~a)\n" lock))
+     (check-true (nothing-in-place? root wheel)))))
 
 (test-case "libraries already in place are not fetched again"
   (call-with-temp (lambda (dir)

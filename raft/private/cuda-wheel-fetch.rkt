@@ -32,6 +32,7 @@
          (only-in "resource.rkt" with-release))
 
 (provide cuda-wheel-connect-timeout
+         cuda-wheel-lock-timeout
          cuda-wheel-read-timeout
          cuda-wheel-source
          ensure-cuda-wheel)
@@ -39,6 +40,8 @@
 (define cuda-wheel-connect-timeout (make-parameter 30))
 
 (define cuda-wheel-read-timeout (make-parameter 60))
+
+(define cuda-wheel-lock-timeout (make-parameter 1800))
 
 (define (pinned-file-name wheel)
   (path/param-path (last (url-path (string->url (cuda-wheel-url wheel))))))
@@ -53,8 +56,7 @@
                         (string-append base "/"))))
      (url->string (combine-url/relative directory (pinned-file-name wheel)))]))
 
-(define (call-with-deadline seconds stalled thunk)
-  (define custodian (make-custodian))
+(define (call-with-deadline custodian seconds stalled thunk)
   (define worker
     (parameterize ([current-custodian custodian])
       (thread (lambda ()
@@ -62,32 +64,27 @@
                   (call-with-values thunk list)))
               #:keep 'results)))
   (match (sync/timeout seconds worker)
-    [#f
-     (custodian-shutdown-all custodian)
-     (error 'cuda-wheel "~a" stalled)]
+    [#f (error 'cuda-wheel "~a" stalled)]
     [_
      (match (thread-wait worker)
        [(? exn:fail? e) (raise e)]
        [results (apply values results)])]))
 
-(define (open-source source get)
+(define (open-source source get custodian)
   (define url (string->url source))
   (define seconds (cuda-wheel-connect-timeout))
   (match (url-scheme url)
-    ["file" (get-pure-port url)]
+    ["file" (parameterize ([current-custodian custodian]) (get-pure-port url))]
     [_
      (define-values (in headers)
-       (call-with-deadline seconds
+       (call-with-deadline custodian
+                           seconds
                            (format "~a did not answer within ~a s" source seconds)
                            (lambda () (get url #:redirections 5 #:status? #t))))
      (match (regexp-match #rx"^HTTP/[0-9.]+ ([0-9]+)" headers)
        [(list _ "200") in]
-       [(list _ code)
-        (close-input-port in)
-        (error 'cuda-wheel "~a answered HTTP ~a" source code)]
-       [#f
-        (close-input-port in)
-        (error 'cuda-wheel "~a answered with no HTTP status" source)])]))
+       [(list _ code) (error 'cuda-wheel "~a answered HTTP ~a" source code)]
+       [#f (error 'cuda-wheel "~a answered with no HTTP status" source)])]))
 
 (define (copy-until-stalled in out source)
   (define seconds (cuda-wheel-read-timeout))
@@ -101,10 +98,9 @@
        (loop)])))
 
 (define (download! source file get)
-  (with-release ([in (open-source source get) close-input-port])
-    (call-with-output-file file
-                           #:exists 'truncate
-                           (lambda (out) (copy-until-stalled in out source)))))
+  (with-release ([custodian (make-custodian) custodian-shutdown-all]
+                 [out (open-output-file file #:exists 'truncate) close-output-port])
+    (copy-until-stalled (open-source source get custodian) out source)))
 
 (define (file-sha256 file)
   (bytes->hex-string (call-with-input-file file sha256-bytes)))
@@ -140,7 +136,8 @@
   (define pattern (regexp (string-append "^" (regexp-quote (wheel-place-name place)) "[.]part-")))
   (for ([entry (in-list (directory-list (wheel-place-parent place)))]
         #:when (regexp-match? pattern (path->string entry)))
-    (delete-directory/files (build-path (wheel-place-parent place) entry))))
+    (with-handlers ([exn:fail:filesystem? void])
+      (delete-directory/files (build-path (wheel-place-parent place) entry)))))
 
 (define (remove-part! part)
   (delete-directory/files part #:must-exist? #f))
@@ -174,9 +171,26 @@
 (define (call-with-wheel-lock place thunk)
   (define lock
     (build-path (wheel-place-parent place) (string-append (wheel-place-name place) ".lock")))
+  (define limit (cuda-wheel-lock-timeout))
+  (define deadline (+ (current-inexact-milliseconds) (* 1000 limit)))
   (make-directory* (wheel-place-parent place))
-  (let retry ()
-    (call-with-file-lock/timeout #f 'exclusive thunk retry #:lock-file lock #:max-delay 1)))
+  (define (wait-again retry)
+    (cond
+      [(>= (current-inexact-milliseconds) deadline)
+       (error 'cuda-wheel "gave up after ~a s waiting for another fetch to release ~a" limit lock)]
+      [else (retry #t)]))
+  (let retry ([announced? #f])
+    (call-with-file-lock/timeout #f
+                                 'exclusive
+                                 thunk
+                                 (lambda ()
+                                   (cond
+                                     [announced? (wait-again retry)]
+                                     [else
+                                      (printf "raft: waiting for another fetch (~a)\n" lock)
+                                      (wait-again retry)]))
+                                 #:lock-file lock
+                                 #:max-delay 1)))
 
 (define (ensure-cuda-wheel wheel root #:url-base [url-base #f] #:get [get get-pure-port/headers])
   (define (present)
