@@ -98,6 +98,28 @@
                                                          (lambda (dir) (write-lib! dir #"v1"))))
                    ""))))
 
+(define (staged-output collection package)
+  (make-directory* (build-path collection "native-libs"))
+  (write-lib! (build-path collection "native-libs") #"v1")
+  (pre-installer-output collection package))
+
+(test-case "the pre-installer names a staged directory that hides the native package"
+  (call-with-collection
+   (lambda (collection)
+     (check-equal?
+      (staged-output collection (native-package raft-version (lambda (dir) (write-lib! dir #"v1"))))
+      (format
+       "raft: the staged directory ~a wins over the package raft-x86_64-linux; delete it to use the package\n"
+       (simplify-path (build-path collection "native-libs")))))))
+
+(test-case "the pre-installer is quiet about a staged directory with no native package"
+  (call-with-collection (lambda (collection) (check-equal? (staged-output collection void) ""))))
+
+(test-case "the pre-installer is quiet about a staged directory over an empty native package"
+  (call-with-collection (lambda (collection)
+                          (check-equal? (staged-output collection (native-package raft-version void))
+                                        ""))))
+
 (test-case "the pre-installer copies nothing from RAFT_NATIVE_LIB_PATH"
   (call-with-collection
    (lambda (collection)

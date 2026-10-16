@@ -58,15 +58,18 @@
                      (package-version package-dir)
                      #f)))
 
+(define (installed-package-location)
+  (match (collection-file-path "main.rkt" native-package #:fail (lambda (_) #f))
+    [#f #f]
+    [main (native-package-location main)]))
+
 (define (locate-native-library staged-dir)
   (cond
     [(override-dir)
      =>
      (lambda (dir) (native-location 'override dir #f #f))]
     [(staged? staged-dir) (native-location 'staged (simplify-path staged-dir) #f #f)]
-    [(collection-file-path "main.rkt" native-package #:fail (lambda (_) #f))
-     =>
-     native-package-location]
+    [(installed-package-location)]
     [else (native-location 'missing (simplify-path staged-dir) #f #f)]))
 
 (define (missing-error where platform)
@@ -133,8 +136,24 @@
      (native-version-error found wanted dir)]
     [(native-location (or 'override 'staged 'package) _ _ _) #f]))
 
+(define (package-holds-library?)
+  (match (installed-package-location)
+    [(native-location 'package dir _ _) (staged? dir)]
+    [_ #f]))
+
+(define (shadowed-package-warning location)
+  (match location
+    [(native-location 'staged dir _ _)
+     #:when (package-holds-library?)
+     (format "the staged directory ~a wins over the package ~a; delete it to use the package"
+             dir
+             native-package)]
+    [_ #f]))
+
 (define (pre-installer _collections-top-path this-collection-path _user-specific?)
   (define location (locate-native-library (build-path this-collection-path "native-libs")))
-  (match (native-library-problem location (package-version this-collection-path))
-    [#f (void)]
-    [message (eprintf "raft: ~a\n" message)]))
+  (for ([message (in-list (list (shadowed-package-warning location)
+                                (native-library-problem location
+                                                        (package-version this-collection-path))))]
+        #:when message)
+    (eprintf "raft: ~a\n" message)))
