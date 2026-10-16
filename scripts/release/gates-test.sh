@@ -23,7 +23,7 @@ problem() {
 
 sums() {
   local listed
-  read -ra listed <<<"$RELEASE_SHIPPED $RELEASE_LICENSES manifest.json"
+  release_words listed "$RELEASE_SHIPPED" "$RELEASE_LICENSES" manifest.json
   (cd "$work/$1" && sha256sum "${listed[@]}" >SHA256SUMS)
 }
 fixture() {
@@ -272,5 +272,15 @@ version_check versions-dependency "$versions/0.2/$RELEASE_NATIVE_PACKAGE" "$vers
 want_refused versions-dependency "raft depends on $RELEASE_NATIVE_PACKAGE #:version 0.1, not 0.2"
 version_check versions-wrong-tag "$versions/0.2/$RELEASE_NATIVE_PACKAGE" "$versions/raft" v0.3
 want_refused versions-wrong-tag "tag v0.3 does not name version 0.2 (want v0.2)"
+
+for copyright in "Copyright (c) 2016 Gabi Melman." \
+  "Copyright (c) 2012 - present, Victor Zverovich and {fmt} contributors"; do
+  grep -qF "$copyright" "$here/../../$RELEASE_NATIVE_PACKAGE/NOTICE" ||
+    problem "NOTICE: lacks \"$copyright\", which librapids_logger.so's spdlog and {fmt} need"
+done
+for path in "raft/**" "$RELEASE_NATIVE_PACKAGE/**"; do
+  grep -qxF "      - $path" "$here/../../.github/workflows/release.yml" ||
+    problem "release.yml: no pull_request path $path, which the catalog test installs"
+done
 
 exit "$failures"

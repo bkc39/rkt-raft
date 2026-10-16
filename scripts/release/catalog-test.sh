@@ -11,16 +11,10 @@ raft_src=${2:?$usage}
 artifact=${3:?$usage}
 cache=${RELEASE_CACHE:-/cache}
 work=$(mktemp -d)
-
-hand_back() {
-  rm -rf "$work"
-  [ -z "${HOST_UID:-}" ] || chown -R "$HOST_UID:${HOST_GID:-$HOST_UID}" "$cache"
-}
-trap hand_back EXIT
+release_on_exit --remove "$work" "$cache"
 
 echo "catalog test: $(ldd --version | head -n1), no GPU, no nix"
-release_install_racket "$cache" "$work/racket"
-PATH="$work/racket/bin:$PATH"
+release_use_racket "$cache" "$work/racket"
 check="$here/catalog-check.rkt"
 
 catalog="$work/catalog"
@@ -33,20 +27,16 @@ native_zip="$dist/$RELEASE_NATIVE_PACKAGE.zip"
 mkdir -p "$work/files/native"
 unzip -q "$native_zip" -d "$work/files/native/$RELEASE_NATIVE_PACKAGE"
 cmp "$artifact/manifest.json" "$work/files/native/$RELEASE_NATIVE_PACKAGE/manifest.json"
-if [ -n "${CATALOG_TEST_OMIT_NATIVE:-}" ]; then
-  echo "catalog test: $RELEASE_NATIVE_PACKAGE left out of the catalog (CATALOG_TEST_OMIT_NATIVE)"
-else
-  racket "$here/catalog.rkt" entry "$work/files/native/$RELEASE_NATIVE_PACKAGE" "$native_zip" "$native_zip" \
-    >"$catalog/pkg/$RELEASE_NATIVE_PACKAGE"
-fi
 
-cublas="$work/cublas"
-wheel=$(release_fetch "$RELEASE_WHEEL_CUBLAS" "$RELEASE_WHEEL_CUBLAS_SHA256" "$cache")
-unzip -q -j "$wheel" nvidia/cu13/lib/libcublas.so.13 nvidia/cu13/lib/libcublasLt.so.13 -d "$cublas"
-export LD_LIBRARY_PATH=$cublas
-
-read -ra catalogs <<<"$RELEASE_RACKET_CATALOGS"
-raco pkg config --set --scope installation catalogs "file://$catalog" "${catalogs[@]}"
+# Until #44 fetches cuBLAS, the pinned wheel's copy on LD_LIBRARY_PATH.
+cublas_from_wheel() {
+  local wheel
+  cublas="$work/cublas"
+  wheel=$(release_fetch "$RELEASE_WHEEL_CUBLAS" "$RELEASE_WHEEL_CUBLAS_SHA256" "$cache")
+  unzip -q -j "$wheel" nvidia/cu13/lib/libcublas.so.13 nvidia/cu13/lib/libcublasLt.so.13 -d "$cublas"
+  export LD_LIBRARY_PATH=$cublas
+}
+cublas_from_wheel
 
 install_raft() {
   local scope=$1
@@ -55,20 +45,41 @@ install_raft() {
 }
 
 export PLTUSERHOME="$work/user"
+declare -a catalogs
+release_words catalogs "$RELEASE_RACKET_CATALOGS"
+
+if [ -n "${CATALOG_TEST_OMIT_NATIVE:-}" ]; then
+  echo "catalog test: $RELEASE_NATIVE_PACKAGE left out of the catalog, only the Racket release catalog behind it"
+  raco pkg config --set --scope installation catalogs "file://$catalog" "${catalogs[0]}"
+  if install_raft user >"$work/omit.log" 2>&1; then
+    echo "catalog test: raft installed with no $RELEASE_NATIVE_PACKAGE in any catalog" >&2
+    exit 1
+  fi
+  cat "$work/omit.log"
+  grep -A1 -F "cannot find package on catalogs" "$work/omit.log" | grep -qxF "  package: $RELEASE_NATIVE_PACKAGE"
+  echo "catalog test: passed, the install failed for want of $RELEASE_NATIVE_PACKAGE"
+  exit 0
+fi
+
+racket "$here/catalog.rkt" entry "$work/files/native/$RELEASE_NATIVE_PACKAGE" "$native_zip" "$native_zip" \
+  >"$catalog/pkg/$RELEASE_NATIVE_PACKAGE"
+raco pkg config --set --scope installation catalogs "file://$catalog" "${catalogs[@]}"
+
 install_raft user
-racket "$check" installed
+racket "$check" installed "$cublas"
 
 echo "catalog test: raco pkg remove $RELEASE_NATIVE_PACKAGE, then load raft and set it up"
 raco pkg remove --batch --force --no-setup --scope user "$RELEASE_NATIVE_PACKAGE"
 racket "$check" missing "$work/load.txt"
-if racket "$check" installed >"$work/installed.log" 2>&1; then
+if racket "$check" installed "$cublas" >"$work/installed.log" 2>&1; then
   echo "catalog test: the installed check passed with no $RELEASE_NATIVE_PACKAGE" >&2
   exit 1
 fi
-raco setup --no-docs --pkgs raft >"$work/setup.log" 2>&1 || true
-racket "$check" agree "$work/load.txt" "$work/setup.log"
+setup_status=0
+raco setup --no-docs --pkgs raft >"$work/setup.log" 2>&1 || setup_status=$?
+racket "$check" setup "$setup_status" "$work/load.txt" "$work/setup.log"
 
 export PLTUSERHOME="$work/installation-user"
 install_raft installation
-racket "$check" installed
+racket "$check" installed "$cublas"
 echo "catalog test: passed"

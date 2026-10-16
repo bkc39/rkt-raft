@@ -77,11 +77,34 @@ release_racket_version() {
   printf '%s\n' "${name%%-*}"
 }
 
-release_install_racket() {
+release_words() {
+  local -n words=$1
+  shift
+  read -ra words <<<"$*"
+}
+
+release_hand_back() {
+  [ -z "$release_scratch" ] || rm -rf "$release_scratch"
+  [ -z "${HOST_UID:-}" ] || [ ${#release_owned[@]} -eq 0 ] ||
+    chown -R "$HOST_UID:${HOST_GID:-$HOST_UID}" "${release_owned[@]}"
+}
+
+release_on_exit() {
+  release_scratch=
+  if [ "${1:-}" = --remove ]; then
+    release_scratch=$2
+    shift 2
+  fi
+  release_owned=("$@")
+  trap release_hand_back EXIT
+}
+
+release_use_racket() {
   local cache=$1 dest=$2 installer
   installer=$(release_fetch "$RELEASE_RACKET" "$RELEASE_RACKET_SHA256" "$cache") || return 1
   sh "$installer" --in-place --dest "$dest" >/dev/null || {
-    echo "release_install_racket: $installer did not install into $dest" >&2
+    echo "release_use_racket: $installer did not install into $dest" >&2
     return 1
   }
+  PATH="$dest/bin:$PATH"
 }

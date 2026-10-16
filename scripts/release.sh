@@ -29,7 +29,7 @@ dirty=false
 [ -z "$(git -C "$root" status --porcelain 2>/dev/null)" ] || dirty=true
 
 run() {
-  docker run --rm --init --name "${RELEASE_CONTAINER:-rr-release}-$$-$1" \
+  docker run --rm --init --name "rr-release-$$-$1" \
     -v "$root:/src:ro" -v "$cache:/cache" \
     -e HOST_UID="$(id -u)" -e HOST_GID="$(id -g)" -e GITHUB_ACTIONS \
     "${@:2}"
@@ -51,11 +51,15 @@ package() {
     "$RELEASE_LOAD_IMAGE" bash /src/scripts/release/package.sh /artifact /dist
 }
 
+tracked_copy() {
+  git -C "$root" ls-files -z -- "$1" | tar -C "$root" --null -T - -cf - | tar -C "$2" -xf -
+}
+
 catalog_test() {
   local raft
   raft=$(mktemp -d)
-  trap 'rm -rf "$raft"' RETURN
-  git -C "$root" ls-files -z -- raft | tar -C "$root" --null -T - -cf - | tar -C "$raft" -xf -
+  release_on_exit --remove "$raft"
+  tracked_copy raft "$raft"
   run catalog -v "$out:/artifact:ro" -v "$dist:/dist:ro" -v "$raft/raft:/raft:ro" -e CATALOG_TEST_OMIT_NATIVE \
     "$RELEASE_LOAD_IMAGE" bash /src/scripts/release/catalog-test.sh /dist /raft /artifact
 }

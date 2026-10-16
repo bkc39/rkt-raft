@@ -11,12 +11,10 @@ cache=${RELEASE_CACHE:-/cache}
 work=${RELEASE_WORK:-/work}
 jobs=${RELEASE_JOBS:-4}
 
-hand_back() {
-  [ -z "${HOST_UID:-}" ] || chown -R "$HOST_UID:${HOST_GID:-$HOST_UID}" "$out" "$cache"
-}
-trap hand_back EXIT
+release_on_exit "$out" "$cache"
 
-read -ra dnf_packages <<<"$RELEASE_DNF_PACKAGES"
+declare -a dnf_packages shipped
+release_words dnf_packages "$RELEASE_DNF_PACKAGES"
 dnf install -y -q "${dnf_packages[@]}" >/dev/null
 # shellcheck disable=SC1090
 . "/opt/rh/gcc-toolset-$RELEASE_GCC_TOOLSET/enable"
@@ -56,7 +54,7 @@ cp "$work/wheels/rapids_logger/lib64/librapids_logger.so" "$out/"
 cp "$work/wheels"/librmm_*.dist-info/licenses/LICENSE "$out/LICENSE.librmm"
 cp "$work/wheels"/rapids_logger-*.dist-info/licenses/LICENSE "$out/LICENSE.rapids_logger"
 
-read -ra shipped <<<"$RELEASE_SHIPPED $RELEASE_LICENSES"
+release_words shipped "$RELEASE_SHIPPED" "$RELEASE_LICENSES"
 files=$(cd "$out" && sha256sum "${shipped[@]}" | jq -R -n '[inputs | split("  ") | {(.[1]): .[0]}] | add')
 jq -n \
   --arg shim_commit "${RELEASE_COMMIT:-unknown}" \

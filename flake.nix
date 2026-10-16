@@ -172,6 +172,10 @@
         done
       '';
 
+      installNativePackage =
+        mode:
+        "raco pkg install --batch --deps fail --no-docs --no-setup --scope user ${mode} --name raft-x86_64-linux \"$PWD/raft-x86_64-linux\"";
+
       # polars and its dependency closure, then datasets, offline into
       # $PLTUSERHOME (glmnet's recipe). polars' dependencies are set up first:
       # setup copies tzdata's zoneinfo where gregor, which polars loads, finds
@@ -214,8 +218,7 @@
           ${stageNativeLibs shim}
           [ "$_stage_failed" = 0 ] || exit 1
           ${installDocsDeps ""}
-          raco pkg install --batch --deps fail --no-setup --copy --scope user \
-            --name raft-x86_64-linux ./raft-x86_64-linux
+          ${installNativePackage "--copy"}
           raco pkg install --batch --deps fail --no-setup --copy --scope user \
             --name raft ./raft
           raco setup --no-docs --check-pkg-deps --unused-pkg-deps --pkgs raft-x86_64-linux raft
@@ -398,8 +401,7 @@
           ${installDocsDeps ""}
           raco pkg install --batch --no-docs --no-setup --deps fail --scope user \
             --link --name raft-lint ./lint
-          raco pkg install --batch --no-docs --no-setup --deps fail --scope user \
-            --link --name raft-x86_64-linux ./raft-x86_64-linux
+          ${installNativePackage "--link"}
           raco pkg install --batch --no-docs --no-setup --deps fail --scope user \
             --link --name raft ./raft
           raco setup --no-docs --pkgs raft-x86_64-linux raft raft-lint
@@ -448,6 +450,8 @@
                 ./raft/info.rkt
                 ./raft/private/foreign/library.rkt
                 ./raft-x86_64-linux/info.rkt
+                ./raft-x86_64-linux/NOTICE
+                ./.github/workflows/release.yml
               ];
             };
             nativeBuildInputs = [
@@ -522,8 +526,7 @@
           echo "Installing raft and kmeans-canary into $PLTUSERHOME (link mode)"
           rm -f "$PLTUSERHOME"/.raft-installed-* 2>/dev/null || true
           ${installDocsDeps "--skip-installed"}
-          if raco pkg install --batch --auto --no-setup --link --scope user \
-               --skip-installed --name raft-x86_64-linux "$PWD/raft-x86_64-linux" \
+          if ${installNativePackage "--link --skip-installed"} \
              && raco pkg install --batch --auto --no-setup --link --scope user \
                   --skip-installed --name raft "$PWD/raft" \
              && raco pkg install --batch --auto --no-setup --link --scope user \

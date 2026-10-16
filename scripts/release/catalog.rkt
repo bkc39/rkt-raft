@@ -11,8 +11,11 @@
     (raise-user-error 'catalog "~a has no info.rkt" dir))
   (info key (lambda () (raise-user-error 'catalog "~a/info.rkt has no ~a" dir key))))
 
+(define (package-name dir)
+  (path->string (file-name-from-path (simplify-path (path->complete-path dir)))))
+
 (define (entry dir zip source)
-  (hash 'name (path->string (file-name-from-path (simplify-path (path->complete-path dir))))
+  (hash 'name (package-name dir)
         'source source
         'checksum (call-with-input-file zip sha1)
         'version (info-ref dir 'version)
@@ -20,18 +23,13 @@
         'description (info-ref dir 'pkg-desc)))
 
 (define (dependency-version deps name)
-  (define (keyword-version options)
-    (match options
-      [(list* '#:version version _) version]
-      [(list* _ _ more) (keyword-version more)]
-      [_ #f]))
   (for/or ([dep (in-list deps)])
     (match dep
-      [(cons (== name) options) (keyword-version options)]
+      [(list (== name) _ ... '#:version version _ ...) version] ;; noqa
       [_ #f])))
 
 (define (check-version native raft tag)
-  (define name (path->string (file-name-from-path (simplify-path (path->complete-path native)))))
+  (define name (package-name native))
   (define version (info-ref native 'version))
   (define raft-version (info-ref raft 'version))
   (define wanted (dependency-version (info-ref raft 'deps) name))

@@ -9,11 +9,7 @@ artifact=${1:?usage: load-check.sh ARTIFACT}
 cache=${RELEASE_CACHE:-/cache}
 cublas=$(mktemp -d)
 
-hand_back() {
-  rm -rf "$cublas"
-  [ -z "${HOST_UID:-}" ] || chown -R "$HOST_UID:${HOST_GID:-$HOST_UID}" "$cache"
-}
-trap hand_back EXIT
+release_on_exit --remove "$cublas" "$cache"
 
 echo "load check: $(ldd --version | head -n1), no GPU"
 wheel=$(release_fetch "$RELEASE_WHEEL_CUBLAS" "$RELEASE_WHEEL_CUBLAS_SHA256" "$cache")

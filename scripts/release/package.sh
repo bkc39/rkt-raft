@@ -11,21 +11,17 @@ dist=${2:?usage: package.sh ARTIFACT DIST}
 cache=${RELEASE_CACHE:-/cache}
 work=$(mktemp -d)
 
-hand_back() {
-  rm -rf "$work"
-  [ -z "${HOST_UID:-}" ] || chown -R "$HOST_UID:${HOST_GID:-$HOST_UID}" "$dist" "$cache"
-}
-trap hand_back EXIT
+release_on_exit --remove "$work" "$dist" "$cache"
 
 "$here/gates.sh" "$artifact" files checksums
-release_install_racket "$cache" "$work/racket"
-PATH="$work/racket/bin:$PATH"
+release_use_racket "$cache" "$work/racket"
 
 pkg="$work/$RELEASE_NATIVE_PACKAGE"
 mkdir -p "$pkg/native-libs" "$dist"
 cp "$src/$RELEASE_NATIVE_PACKAGE/info.rkt" "$src/$RELEASE_NATIVE_PACKAGE/main.rkt" "$pkg/"
-read -ra licences <<<"$RELEASE_LICENSES"
-read -ra shipped <<<"$RELEASE_SHIPPED"
+declare -a licences shipped
+release_words licences "$RELEASE_LICENSES"
+release_words shipped "$RELEASE_SHIPPED"
 (cd "$artifact" && cp "${licences[@]}" manifest.json "$pkg/" && cp "${shipped[@]}" "$pkg/native-libs/")
 cmp "$pkg/NOTICE" "$src/$RELEASE_NATIVE_PACKAGE/NOTICE"
 

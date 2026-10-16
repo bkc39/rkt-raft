@@ -5,10 +5,7 @@ on:
     paths:
       - shim/**
       - nix/rapids.nix
-      - raft/info.rkt
-      - raft/private/foreign/library.rkt
-      - raft/private/install-native.rkt
-      - raft/private/native-package.rkt
+      - raft/**
       - raft-x86_64-linux/**
       - scripts/release.sh
       - scripts/release/**
@@ -22,6 +19,9 @@ on:
 permissions:
   contents: read
 
+env:
+  CHECKOUT_REF: ${{ github.event.pull_request.head.sha || github.sha }}
+
 concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -34,11 +34,11 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          ref: ${{ env.CHECKOUT_REF }}
       - uses: ./.github/actions/free-disk
-      - name: Build in the CUDA 13 rockylinux8 image and gate the result
+      - name: Build and gate
         run: scripts/release.sh build "$RUNNER_TEMP/libraftrkt"
-      - name: dlopen in manylinux_2_28 with the pinned cuBLAS wheel, no GPU
+      - name: Load check
         run: scripts/release.sh load-check "$RUNNER_TEMP/libraftrkt"
       - name: Manifest
         run: cat "$RUNNER_TEMP/libraftrkt/manifest.json"
@@ -56,16 +56,16 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          ref: ${{ env.CHECKOUT_REF }}
       - uses: actions/download-artifact@v8
         with:
           name: libraftrkt-x86_64-linux
           path: ${{ runner.temp }}/libraftrkt
-      - name: Package the artifact as raft-x86_64-linux
+      - name: Package
         env:
           RELEASE_TAG: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
         run: scripts/release.sh package "$RUNNER_TEMP/libraftrkt" "$RUNNER_TEMP/dist"
-      - name: raco pkg install raft from a directory catalog in manylinux_2_28
+      - name: Catalog test
         run: scripts/release.sh catalog-test "$RUNNER_TEMP/libraftrkt" "$RUNNER_TEMP/dist"
       - uses: actions/upload-artifact@v7
         with:
@@ -90,14 +90,14 @@ jobs:
         with:
           name: raft-x86_64-linux
           path: ${{ runner.temp }}/dist
-      - name: Create the draft release with the package, its checksum and the manifest
+      - name: Draft the release
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: >-
           gh release create "$GITHUB_REF_NAME" --draft --verify-tag
           --title "$GITHUB_REF_NAME"
-          --notes "raft-x86_64-linux for raft $GITHUB_REF_NAME; catalog-entry.rktd holds the catalog entry."
+          --notes "raft-x86_64-linux $GITHUB_REF_NAME and its catalog entry"
           "$RUNNER_TEMP/dist/raft-x86_64-linux.zip"
           "$RUNNER_TEMP/dist/raft-x86_64-linux.zip.CHECKSUM"
           "$RUNNER_TEMP/dist/catalog-entry.rktd"
