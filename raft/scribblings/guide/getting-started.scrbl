@@ -27,10 +27,12 @@ This also installs @tt{raft-x86_64-linux}, the package that holds the native
 library, @tt{libraftrkt}, and the RAPIDS libraries it loads.
 
 The install also fetches cuBLAS from CUDA 13, NVIDIA's @tt{nvidia-cublas}
-wheel from PyPI (a 405 MB download, 560 MB installed), unless
-@envvar{RAFT_CUDA_LIB_PATH} names a directory holding @tt{libcublas.so.13} and
-@tt{libcublasLt.so.13} or the system loader finds them. If the fetch failed,
-retry it with @exec{racket -l- raft/fetch-cuda}.
+wheel from PyPI (a 405 MB download, 560 MB installed, about 1 GB free needed
+while it unpacks), unless @envvar{RAFT_CUDA_LIB_PATH} names a directory holding
+@tt{libcublas.so.13} and @tt{libcublasLt.so.13} or the system loader finds
+them. If the fetch failed, rerun @exec{raco setup --pkgs raft}, which fetches
+into the right place for the install's scope, or run
+@exec{racket -l- raft/fetch-cuda} for a copy of your own.
 
 cuBLAS is under NVIDIA's licence; raft does not redistribute it.
 
