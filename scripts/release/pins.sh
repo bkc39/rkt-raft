@@ -4,12 +4,14 @@
 RELEASE_BUILD_IMAGE="nvidia/cuda:13.2.1-devel-rockylinux8@sha256:826d035d433c935c86ecabd0b108fee87389e005b3fd8b4d1152f7bfcebe3a4a"
 RELEASE_LOAD_IMAGE="quay.io/pypa/manylinux_2_28_x86_64@sha256:4131ddd7acb9c6c966af02fe7e71edc51e078c2d41f475966697676430bfa2ae"
 RELEASE_GCC_TOOLSET=14
+RELEASE_DNF_PACKAGES="gcc-toolset-14-gcc-c++-14.2.1-11.el8_10.x86_64 jq-1.6-12.el8_10.x86_64"
 
 RELEASE_CUDA_ARCHITECTURES="75-real;80-real;86-real;90a-real;100f-real;120a-real;120"
 
 RELEASE_GLIBC_MAX=2.28
 RELEASE_GLIBCXX_MAX=3.4.25
 RELEASE_SHIPPED="libraftrkt.so librmm.so librapids_logger.so"
+RELEASE_LICENSES="LICENSE.librmm LICENSE.rapids_logger"
 RELEASE_SHIM_NEEDED="libcublas.so.13 libcublasLt.so.13 librapids_logger.so librmm.so"
 RELEASE_LIBC_FAMILY="ld-linux-x86-64.so.2 libc.so.6 libdl.so.2 libgcc_s.so.1 libm.so.6 libpthread.so.0 librt.so.1 libstdc++.so.6"
 
@@ -32,11 +34,32 @@ RELEASE_NINJA_SHA256="0830252db77884957a1a4b87b05a1e2d9b5f658b8367f82999a941884c
 release_fetch() {
   local url=$1 sha=$2 dir=$3
   local file="$dir/${url##*/}"
-  mkdir -p "$dir"
-  if ! { [ -f "$file" ] && echo "$sha  $file" | sha256sum -c --status; }; then
-    curl -fsSL --retry 3 -o "$file.part" "$url"
-    mv "$file.part" "$file"
-    echo "$sha  $file" | sha256sum -c --quiet
+  mkdir -p "$dir" || return 1
+  if [ -f "$file" ] && echo "$sha  $file" | sha256sum -c --status; then
+    printf '%s\n' "$file"
+    return 0
   fi
+  rm -f "$file"
+  curl -fsSL --retry 3 -o "$file.part" "$url" || {
+    echo "release_fetch: $url: download failed" >&2
+    rm -f "$file.part"
+    return 1
+  }
+  echo "$sha  $file.part" | sha256sum -c --status || {
+    echo "release_fetch: $url: sha256 is not $sha" >&2
+    rm -f "$file.part"
+    return 1
+  }
+  mv "$file.part" "$file" || {
+    echo "release_fetch: $file: cannot move the download into the cache" >&2
+    rm -f "$file.part"
+    return 1
+  }
   printf '%s\n' "$file"
+}
+
+release_wheel_version() {
+  local name=${1##*/}
+  name=${name#*-}
+  printf '%s\n' "${name%%-*}"
 }

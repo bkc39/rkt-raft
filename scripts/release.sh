@@ -6,7 +6,7 @@ root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 . "$root/scripts/release/pins.sh"
 
 usage() {
-  echo "usage: scripts/release.sh build|load-check|all OUT" >&2
+  echo "usage: scripts/release.sh build|load-check OUT" >&2
   exit 2
 }
 [ $# -eq 2 ] || usage
@@ -15,13 +15,12 @@ mkdir -p "$2"
 out=$(cd "$2" && pwd)
 cache=${RELEASE_CACHE:-${XDG_CACHE_HOME:-$HOME/.cache}/rkt-raft-release}
 mkdir -p "$cache"
-name=${RELEASE_CONTAINER:-rkt-raft-release-$$}
 commit=$(git -C "$root" rev-parse HEAD 2>/dev/null || echo unknown)
 dirty=false
 [ -z "$(git -C "$root" status --porcelain 2>/dev/null)" ] || dirty=true
 
 run() {
-  docker run --rm --name "$name-$1" \
+  docker run --rm --name "rr-release-$$-$1" \
     -v "$root:/src:ro" -v "$cache:/cache" \
     -e HOST_UID="$(id -u)" -e HOST_GID="$(id -g)" \
     "${@:2}"
@@ -41,9 +40,5 @@ load_check() {
 case $step in
   build) build ;;
   load-check) load_check ;;
-  all)
-    build
-    load_check
-    ;;
   *) usage ;;
 esac
