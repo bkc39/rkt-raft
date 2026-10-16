@@ -2,8 +2,9 @@
 set -euo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
+# shellcheck source=scripts/roots.sh
+. scripts/roots.sh
 
-dirs=(downstream lint raft scripts)
 before='(^|[^-[:alnum:]!?*<>=/+.$%&^~_])'
 after='([^-[:alnum:]!?*<>=/+:.$%&^~_]|$)'
 
@@ -11,7 +12,7 @@ status=0
 flag() {
   local form=$1 message=$2 hits
   hits=$(grep -rnE --include='*.rkt' --include='*.scrbl' \
-    "$before$form$after" "${dirs[@]}" || true)
+    "$before$form$after" "${racket_roots[@]}" || true)
   [ -n "$hits" ] || return 0
   status=1
   while IFS=: read -r file line _; do
@@ -26,6 +27,6 @@ flag define-syntax-rule "use define-syntax-parse-rule (require syntax/parse/defi
 flag syntax-rules "use define-syntax-parse-rule or define-syntax-parser"
 
 if [ "$status" -eq 0 ]; then
-  echo "no-syntax-rule: none in ${dirs[*]}"
+  echo "no-syntax-rule: none in ${racket_roots[*]}"
 fi
 exit "$status"

@@ -11,7 +11,7 @@ RELEASE_CUDA_ARCHITECTURES="75-real;80-real;86-real;90a-real;100f-real;120a-real
 RELEASE_GLIBC_MAX=2.28
 RELEASE_GLIBCXX_MAX=3.4.25
 RELEASE_SHIPPED="libraftrkt.so librmm.so librapids_logger.so"
-RELEASE_LICENSES="LICENSE LICENSE.librmm LICENSE.rapids_logger"
+RELEASE_LICENSES="LICENSE LICENSE.librmm LICENSE.rapids_logger NOTICE"
 RELEASE_SHIM_NEEDED="libcublas.so.13 libcublasLt.so.13 librapids_logger.so librmm.so"
 RELEASE_LIBC_FAMILY="ld-linux-x86-64.so.2 libc.so.6 libdl.so.2 libgcc_s.so.1 libm.so.6 libpthread.so.0 librt.so.1 libstdc++.so.6"
 
@@ -25,6 +25,13 @@ RELEASE_WHEEL_RAPIDS_LOGGER="$RELEASE_PYPI/69/b6/139d9df6d0f7bd289a9a6286cecfff9
 RELEASE_WHEEL_RAPIDS_LOGGER_SHA256="7fe67ef4049c5d8ba6154746325dcf7cc0f327f0efa8f2611fc8f64e67510f60"
 RELEASE_WHEEL_CUBLAS="$RELEASE_PYPI/3d/ec/c9b2998aebe3149dee2769e501257e048c8701de51263925f4dff76ddedc/nvidia_cublas-13.4.0.1-py3-none-manylinux_2_27_x86_64.whl"
 RELEASE_WHEEL_CUBLAS_SHA256="53bf22e2ccbf644db74b6cc21cea7f5efb1a52aa64515438b430abbd05af4106"
+
+RELEASE_RACKET="https://download.racket-lang.org/releases/9.3/installers/racket-9.3-x86_64-linux-buster-cs.sh"
+RELEASE_RACKET_SHA256="30dc59d9b5af083eacf793253d35782c5231e8bfb7a7331fe32ccd9a41fd792f"
+RELEASE_RACKET_CATALOGS="https://download.racket-lang.org/releases/9.3/catalog/ https://pkgs.racket-lang.org"
+
+RELEASE_NATIVE_PACKAGE=raft-x86_64-linux
+RELEASE_DOWNLOADS="https://github.com/bkc39/rkt-raft/releases/download"
 
 RELEASE_CMAKE="https://github.com/Kitware/CMake/releases/download/v4.1.2/cmake-4.1.2-linux-x86_64.tar.gz"
 RELEASE_CMAKE_SHA256="773cc679c3a7395413bd096523f8e5d6c39f8718af4e12eb4e4195f72f35e4ab"
@@ -62,4 +69,42 @@ release_wheel_version() {
   local name=${1##*/}
   name=${name#*-}
   printf '%s\n' "${name%%-*}"
+}
+
+release_racket_version() {
+  local name=${1##*/}
+  name=${name#racket-}
+  printf '%s\n' "${name%%-*}"
+}
+
+release_words() {
+  local -n words=$1
+  shift
+  read -ra words <<<"$*"
+}
+
+release_hand_back() {
+  [ -z "$release_scratch" ] || rm -rf "$release_scratch"
+  [ -z "${HOST_UID:-}" ] || [ ${#release_owned[@]} -eq 0 ] ||
+    chown -R "$HOST_UID:${HOST_GID:-$HOST_UID}" "${release_owned[@]}"
+}
+
+release_on_exit() {
+  release_scratch=
+  if [ "${1:-}" = --remove ]; then
+    release_scratch=$2
+    shift 2
+  fi
+  release_owned=("$@")
+  trap release_hand_back EXIT
+}
+
+release_use_racket() {
+  local cache=$1 dest=$2 installer
+  installer=$(release_fetch "$RELEASE_RACKET" "$RELEASE_RACKET_SHA256" "$cache") || return 1
+  sh "$installer" --in-place --dest "$dest" >/dev/null || {
+    echo "release_use_racket: $installer did not install into $dest" >&2
+    return 1
+  }
+  PATH="$dest/bin:$PATH"
 }

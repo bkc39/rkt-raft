@@ -1,0 +1,84 @@
+rkt-raft native libraries: notices
+
+libraftrkt.so statically links the NVIDIA CUDA Runtime (libcudart_static.a,
+CUDA Toolkit 13.2). The CUDA Runtime is NVIDIA's, redistributed unmodified in
+object code form under the NVIDIA CUDA Toolkit End User License Agreement
+(https://docs.nvidia.com/cuda/eula/index.html), whose Attachment A lists it as
+distributable:
+
+    CUDA Runtime ... Linux: libcudart.so, libcudart_static.a, libcudadevrt.a
+
+The Apache License 2.0 that covers rkt-raft does not cover the CUDA Runtime;
+the Agreement's terms do, including section 1.1.2, item 2:
+
+    The distributable portions of the SDK shall only be accessed by your
+    application.
+
+librmm.so and librapids_logger.so are RAPIDS libraries, unmodified from their
+PyPI wheels, under the Apache License 2.0 (LICENSE.librmm,
+LICENSE.rapids_logger). rkt-raft's own code is under the Apache License 2.0
+(LICENSE).
+
+librapids_logger.so (rapids-logger 0.2.3) statically links spdlog 1.14.1 and
+the copy of {fmt} 10.2.1 that spdlog bundles, both under the MIT License.
+Their notices follow, from https://github.com/gabime/spdlog/blob/v1.14.1/LICENSE
+and https://github.com/fmtlib/fmt/blob/10.2.1/LICENSE.
+
+---- spdlog 1.14.1 ----
+
+The MIT License (MIT)
+
+Copyright (c) 2016 Gabi Melman.                                       
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
+
+-- NOTE: Third party dependency used by this software --
+This software depends on the fmt lib (MIT License),
+and users must comply to its license: https://raw.githubusercontent.com/fmtlib/fmt/master/LICENSE
+
+
+---- {fmt} 10.2.1 ----
+
+Copyright (c) 2012 - present, Victor Zverovich and {fmt} contributors
+
+Permission is hereby granted, free of charge, to any person obtaining
+a copy of this software and associated documentation files (the
+"Software"), to deal in the Software without restriction, including
+without limitation the rights to use, copy, modify, merge, publish,
+distribute, sublicense, and/or sell copies of the Software, and to
+permit persons to whom the Software is furnished to do so, subject to
+the following conditions:
+
+The above copyright notice and this permission notice shall be
+included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
+LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+--- Optional exception to the license ---
+
+As an exception, if, as a result of your compiling your source code, portions
+of this Software are embedded into a machine-executable object form of such
+source code, you may redistribute such embedded portions in such object form
+without including the above copyright and permission notices.

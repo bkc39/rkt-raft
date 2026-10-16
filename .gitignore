@@ -8,3 +8,4 @@ raft/doc/
 .cuda-driver/
 .claude/worktrees/
 .scratch/
+raft-x86_64-linux/native-libs/

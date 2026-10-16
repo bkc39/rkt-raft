@@ -23,7 +23,7 @@ problem() {
 
 sums() {
   local listed
-  read -ra listed <<<"$RELEASE_SHIPPED $RELEASE_LICENSES manifest.json"
+  release_words listed "$RELEASE_SHIPPED" "$RELEASE_LICENSES" manifest.json
   (cd "$work/$1" && sha256sum "${listed[@]}" >SHA256SUMS)
 }
 fixture() {
@@ -82,14 +82,14 @@ want_fail corrupt "$work/corrupt/SHA256SUMS" checksums "librmm.so: FAILED"
 fixture dropped "$dev"
 sed -i '/ librmm\.so$/d' "$work/dropped/SHA256SUMS"
 gates dropped checksums
-want_fail dropped "$work/dropped/SHA256SUMS" checksums "lists [LICENSE LICENSE.librmm LICENSE.rapids_logger libraftrkt.so librapids_logger.so manifest.json]"
+want_fail dropped "$work/dropped/SHA256SUMS" checksums "lists [LICENSE LICENSE.librmm LICENSE.rapids_logger NOTICE libraftrkt.so librapids_logger.so manifest.json]"
 
 fixture no-logger "$dev"
 rm "$work/no-logger/librapids_logger.so"
 gates no-logger files
 want_fail no-logger "$work/no-logger" files "missing librapids_logger.so"
 
-for licence in LICENSE LICENSE.librmm LICENSE.rapids_logger; do
+for licence in $RELEASE_LICENSES; do
   fixture "no-$licence" "$dev"
   rm -f "$work/no-$licence/$licence"
   gates "no-$licence" files
@@ -228,12 +228,78 @@ fetched=$(release_fetch "file://$work/fetch/remote.whl" "$sha" "$work/fetch/cach
 pins=("$RELEASE_WHEEL_LIBRAFT $RELEASE_WHEEL_LIBRAFT_SHA256"
   "$RELEASE_WHEEL_LIBRMM $RELEASE_WHEEL_LIBRMM_SHA256"
   "$RELEASE_WHEEL_RAPIDS_LOGGER $RELEASE_WHEEL_RAPIDS_LOGGER_SHA256")
-bash "$here/check-pins.sh" "${pins[@]}" "$(release_wheel_version "$RELEASE_WHEEL_CUBLAS")" >/dev/null ||
+cublas=$(release_wheel_version "$RELEASE_WHEEL_CUBLAS")
+racket=$(release_racket_version "$RELEASE_RACKET")
+bash "$here/check-pins.sh" "${pins[@]}" "$cublas" "$racket" >/dev/null ||
   problem "check-pins: the pins' own values failed"
-if bash "$here/check-pins.sh" "${pins[@]}" 0.0.0 >"$work/pins.out"; then
+if bash "$here/check-pins.sh" "${pins[@]}" 0.0.0 "$racket" >"$work/pins.out"; then
   problem "check-pins: a cuBLAS 0.0.0 flake passed"
 fi
 grep -qF "scripts/release/pins.sh: pins the cuBLAS wheel version as" "$work/pins.out" ||
   problem "check-pins: a cuBLAS 0.0.0 flake said $(cat "$work/pins.out")"
+if bash "$here/check-pins.sh" "${pins[@]}" "$cublas" 9.9 >"$work/racket-pins.out"; then
+  problem "check-pins: a Racket 9.9 floor passed"
+fi
+grep -qF "scripts/release/pins.sh: pins the catalog test's Racket as $racket; the flake has 9.9" "$work/racket-pins.out" ||
+  problem "check-pins: a Racket 9.9 floor said $(cat "$work/racket-pins.out")"
+
+versions="$here/fixtures/versions"
+version_check() {
+  local name=$1 native=$2 raft=$3 tag=$4 status=0
+  racket "$here/catalog.rkt" check "$native" "$raft" "$tag" >"$work/$name.out" 2>&1 || status=$?
+  echo "$status" >"$work/$name.status"
+}
+want_version() {
+  local name=$1 want=$2
+  [ "$(cat "$work/$name.status")" = 0 ] && [ "$(cat "$work/$name.out")" = "$want" ] ||
+    problem "$name: want version $want, got status $(cat "$work/$name.status"): $(cat "$work/$name.out")"
+}
+want_refused() {
+  local name=$1 reason=$2
+  if [ "$(cat "$work/$name.status")" = 0 ] || ! grep -qF -- "$reason" "$work/$name.out"; then
+    problem "$name: want a refusal saying $reason, got status $(cat "$work/$name.status"): $(cat "$work/$name.out")"
+  fi
+}
+version_check versions-repo "$here/../../$RELEASE_NATIVE_PACKAGE" "$here/../../raft" ""
+want_version versions-repo "$(sed -n 's/^(define version "\(.*\)")$/\1/p' "$here/../../raft/info.rkt")"
+version_check versions-same "$versions/0.2/$RELEASE_NATIVE_PACKAGE" "$versions/raft" ""
+want_version versions-same 0.2
+version_check versions-tag "$versions/0.2/$RELEASE_NATIVE_PACKAGE" "$versions/raft" v0.2
+want_version versions-tag 0.2
+version_check versions-older "$versions/0.1/$RELEASE_NATIVE_PACKAGE" "$versions/raft" ""
+want_refused versions-older "$RELEASE_NATIVE_PACKAGE is version 0.1, raft is version 0.2"
+version_check versions-dependency "$versions/0.2/$RELEASE_NATIVE_PACKAGE" "$versions/raft-dep-0.1" ""
+want_refused versions-dependency "raft depends on $RELEASE_NATIVE_PACKAGE #:version 0.1, not 0.2"
+version_check versions-wrong-tag "$versions/0.2/$RELEASE_NATIVE_PACKAGE" "$versions/raft" v0.3
+want_refused versions-wrong-tag "tag v0.3 does not name version 0.2 (want v0.2)"
+
+for copyright in "Copyright (c) 2016 Gabi Melman." \
+  "Copyright (c) 2012 - present, Victor Zverovich and {fmt} contributors"; do
+  grep -qF "$copyright" "$here/../../$RELEASE_NATIVE_PACKAGE/NOTICE" ||
+    problem "NOTICE: lacks \"$copyright\", which librapids_logger.so's spdlog and {fmt} need"
+done
+readme=$(tr -s ' \n' ' ' <"$here/../../README.md")
+[[ $readme == *"spdlog 1.14.1 and {fmt} 10.2.1, MIT"* ]] ||
+  problem "README.md: the licence summary lacks spdlog 1.14.1 and {fmt} 10.2.1, MIT"
+
+racket "$here/catalog.rkt" license "$here/../../$RELEASE_NATIVE_PACKAGE" >"$work/license.out" 2>&1 ||
+  problem "license: $(cat "$work/license.out")"
+license_case() {
+  local name=$1 expression=$2 reason=$3
+  mkdir -p "$work/$name"
+  cp "$here/../../$RELEASE_NATIVE_PACKAGE/NOTICE" "$work/$name/"
+  printf '#lang info\n(define license %s)\n' "$expression" >"$work/$name/info.rkt"
+  if racket "$here/catalog.rkt" license "$work/$name" >"$work/$name.out" 2>&1 ||
+    ! grep -qF -- "$reason" "$work/$name.out"; then
+    problem "$name: want a refusal saying $reason, got $(cat "$work/$name.out")"
+  fi
+}
+license_case license-no-mit "'(Apache-2.0 AND LicenseRef-NVIDIA-CUDA-EULA)" "lacks (MIT), which NOTICE names"
+license_case license-n-ary "'(Apache-2.0 AND MIT AND LicenseRef-NVIDIA-CUDA-EULA)" "is not a license S-expression"
+
+for path in "raft/**" "$RELEASE_NATIVE_PACKAGE/**"; do
+  grep -qxF "      - $path" "$here/../../.github/workflows/release.yml" ||
+    problem "release.yml: no pull_request path $path, which the catalog test installs"
+done
 
 exit "$failures"

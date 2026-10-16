@@ -12,13 +12,21 @@
                   ptr-ref)
          (only-in ffi/unsafe/define define-ffi-definer)
          (only-in ffi/unsafe/define/conventions convention:hyphen->underscore)
+         (only-in racket/match match)
+         (only-in racket/path path-only)
          ;; whole-module: define-runtime-path needs bindings only-in strips
          racket/runtime-path
          (only-in "../exn.rkt" raise-raft)
-         (only-in "../install-native.rkt" native-library-advice staged?))
+         (only-in "../install-native.rkt"
+                  locate-native-library
+                  native-library-advice
+                  native-library-error
+                  native-library-problem
+                  native-location-dir
+                  package-version))
 
 (provide define-raft
-         native-library-error
+         native-library-dir
          _raft-handle/null ;; noqa
          _rr-buffer
          _rr-buffer/null ;; noqa
@@ -31,17 +39,8 @@
          _rr-resources/null ;; noqa
          released-tag)
 
-(define-runtime-path native-libs-dir "../../native-libs")
-
-;; ffi-lib reports a missing file and a failed dlopen of a dependency alike.
-(define (native-library-error staged where loader-message)
-  (if staged
-      (format
-       "libraftrkt is staged but would not load\n  found in: ~a\n  the loader said: ~a\n  check that LD_LIBRARY_PATH holds no other CUDA, or ~a"
-       where
-       loader-message
-       native-library-advice)
-      (format "libraftrkt is not staged\n  looked in: ~a\n  ~a" where native-library-advice)))
+(define-runtime-path staged-dir "../../native-libs")
+(define-runtime-path raft-info "../../info.rkt")
 
 (define abi-version 1)
 
@@ -62,13 +61,12 @@
 (define (raise-load-failure message)
   (raise-raft 'raft 'generic "~a" message))
 
-(define (open-native-library dir)
-  (define where (simplify-path dir))
+(define (load-checked-library where)
   (define library
     (with-handlers ([exn:fail? (lambda (e)
                                  (raise-load-failure
-                                  (native-library-error (staged? dir) where (exn-message e))))])
-      (ffi-lib (build-path dir "libraftrkt"))))
+                                  (native-library-error 'unloadable where (exn-message e))))])
+      (ffi-lib (build-path where "libraftrkt"))))
   (define found (library-abi-version library))
   (cond
     [(eqv? found abi-version) library]
@@ -82,12 +80,19 @@
              where
              native-library-advice))))
 
-(define native-library (open-native-library native-libs-dir))
+(define location (locate-native-library staged-dir))
+
+(define native-library-dir (native-location-dir location))
+
+(define native-library
+  (match (native-library-problem location (package-version (path-only raft-info)))
+    [#f (load-checked-library native-library-dir)]
+    [message (raise-load-failure message)]))
 
 (define-ffi-definer define-raft
                     native-library
                     #:make-c-id convention:hyphen->underscore
-                    #:default-make-fail (missing-export (simplify-path native-libs-dir)))
+                    #:default-make-fail (missing-export native-library-dir))
 
 (define released-tag 'rr-released)
 

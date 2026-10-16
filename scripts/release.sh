@@ -6,13 +6,22 @@ root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 . "$root/scripts/release/pins.sh"
 
 usage() {
-  echo "usage: scripts/release.sh build|load-check OUT" >&2
+  echo "usage: scripts/release.sh build|load-check ARTIFACT | package|catalog-test ARTIFACT DIST" >&2
   exit 2
 }
-[ $# -eq 2 ] || usage
-step=$1
+step=${1:-}
+case $step in
+  build | load-check) [ $# -eq 2 ] || usage ;;
+  package | catalog-test) [ $# -eq 3 ] || usage ;;
+  *) usage ;;
+esac
 mkdir -p "$2"
 out=$(cd "$2" && pwd)
+dist=""
+if [ $# -eq 3 ]; then
+  mkdir -p "$3"
+  dist=$(cd "$3" && pwd)
+fi
 cache=${RELEASE_CACHE:-${XDG_CACHE_HOME:-$HOME/.cache}/rkt-raft-release}
 mkdir -p "$cache"
 commit=$(git -C "$root" rev-parse HEAD 2>/dev/null || echo unknown)
@@ -37,8 +46,27 @@ load_check() {
     "$RELEASE_LOAD_IMAGE" bash /src/scripts/release/load-check.sh /artifact
 }
 
+package() {
+  run package -v "$out:/artifact:ro" -v "$dist:/dist" -e RELEASE_TAG \
+    "$RELEASE_LOAD_IMAGE" bash /src/scripts/release/package.sh /artifact /dist
+}
+
+tracked_copy() {
+  git -C "$root" ls-files -z -- "$1" | tar -C "$root" --null -T - -cf - | tar -C "$2" -xf -
+}
+
+catalog_test() {
+  local raft
+  raft=$(mktemp -d)
+  release_on_exit --remove "$raft"
+  tracked_copy raft "$raft"
+  run catalog -v "$out:/artifact:ro" -v "$dist:/dist:ro" -v "$raft/raft:/raft:ro" -e CATALOG_TEST_OMIT_NATIVE \
+    "$RELEASE_LOAD_IMAGE" bash /src/scripts/release/catalog-test.sh /dist /raft /artifact
+}
+
 case $step in
   build) build ;;
   load-check) load_check ;;
-  *) usage ;;
+  package) package ;;
+  catalog-test) catalog_test ;;
 esac

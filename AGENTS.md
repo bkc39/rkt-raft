@@ -85,6 +85,8 @@ raft/                         the Racket package and collection
   private/{array,dtype,pack,print}.rkt   arrays over buffers, the tables, packing, printing
   scribblings/                the manual: guide/ chapters, reference/ sections
   tests/                      raco tests; tests/private/ the harness; tests/python/ the twins
+raft-x86_64-linux/            the native package: info.rkt, main.rkt (native-libs-dir), NOTICE;
+                                release.sh package adds the libraries (never committed)
 scripts/                      gates, the GPU suite, the docs render, the binding census
 bench/README.md               how to run the benchmarks, and the last measured table (#25)
 bench/conversions.rkt         the conversion speed table (raft/compat), 10^6 elements
@@ -221,10 +223,12 @@ plans/scoping-plan.md         the approved plan (revision 5), as Markdown
      binding.
 10. **Staging the native library.** `libraftrkt.so` reaches
     `raft/native-libs/` by temp file plus `rename(2)`, and only when the
-    bytes differ (the flake's shell hook, `nix run .#copy-native-libs`, and
-    the pre-install hook `raft/private/install-native.rkt`). Never `cp` in
-    place: rewriting a mapped library faults live REPLs (rktorch #72). Restart
-    a REPL to pick up a new shim.
+    bytes differ (the flake's shell hook and `nix run .#copy-native-libs`;
+    the pre-install hook copies nothing, #43). Never `cp` in place: rewriting
+    a mapped library faults live REPLs (rktorch #72). Restart a REPL to pick
+    up a new shim. The loader takes the first of `$RAFT_NATIVE_LIB_PATH/lib`,
+    the staged `raft/native-libs/` and `raft-x86_64-linux`'s `native-libs/`;
+    the dev shell sets no `RAFT_NATIVE_LIB_PATH`, so a restage wins.
 11. **Nix builds see only tracked files.** `git add` new files before any nix
     command.
 12. **Skips are visible.** A self-skipping test prints `SKIP: <reason>`
@@ -554,9 +558,11 @@ plans/scoping-plan.md         the approved plan (revision 5), as Markdown
   native handle or raises `exn:fail:raft` naming `who` if the resources
   were released; `resources-sync!` calls it on every poll), and
   `memory-resource-kind`, the tests' view of the default memory resource.
-- `private/foreign/library.rkt`: the runtime path to `native-libs/`, `ffi-lib`
-  (default local binding: only one copy of each RAPIDS library can load per
-  process), then the ABI handshake: `open-native-library` reads `rr_abi`'s
+- `private/foreign/library.rkt`: `ffi-lib` by full path of the directory
+  `locate-native-library` gives (default local binding: one copy of each
+  RAPIDS library per process; `librmm.so` and `librapids_logger.so` load
+  through `RUNPATH $ORIGIN`, and a later `NEEDED librmm.so` resolves to that
+  copy by soname, #10), then the ABI handshake: it reads `rr_abi`'s
   first field and refuses anything but `abi-version` (the Racket side's one
   copy of `RR_ABI_VERSION`; the load itself ties the two), a library with no
   `rr_abi`, or one whose `rr_abi` returns NULL, before any `define-raft`
@@ -564,26 +570,28 @@ plans/scoping-plan.md         the approved plan (revision 5), as Markdown
   handshake alone cannot catch a stale one: `define-raft`'s
   `#:default-make-fail` refuses a missing export at once, naming the binding
   as one a libraftrkt older than this raft lacks (a per-binding `#:make-fail`
-  or `#:fail` would opt that binding out, so none has one). Every load failure (not staged,
-  would not load, ABI mismatch, missing export) is `exn:fail:raft` of kind
-  `'generic` and ends with `native-library-advice` (#41; `load-test.rkt`
-  loads copies of the loader modules against fixture libraries in a fresh
-  namespace). Then the cpointer types `_rr-resources`, `_rr-buffer`. `core.rkt`, `memory.rkt`, `array.rkt` bind `core.h`,
-  `memory.h`, `array.h`.
+  or `#:fail` would opt that binding out, so none has one). Every load failure
+  is `exn:fail:raft` of kind `'generic` (#41, #43; `load-test.rkt` loads
+  copies of the loader in a fresh namespace whose collection paths hold a
+  fixture `raft-x86_64-linux`, broken ones, or none). Then the cpointer
+  types `_rr-resources`, `_rr-buffer`. `core.rkt`, `memory.rkt`, `array.rkt`
+  bind `core.h`, `memory.h`, `array.h`.
 - `private/exn.rkt`: `exn:fail:raft`, with no dependencies, so the loader can
   raise it. `private/error.rkt`: `call/raft`, re-exporting the exception. A
   released handle's cpointer type refuses it with `exn:fail:raft` (kind
   `'logic`) before the call, named by the public noun:
   `device-resources: used after its release` and
   `device-array: used after its release` (#16).
-  `private/resource.rkt`: `with-release`. `private/install-native.rkt`: the
-  pre-install hook, honouring `RAFT_NATIVE_LIB_PATH` (a directory whose
-  `lib/` holds `libraftrkt.so`), and `native-library-advice`, the end-user
-  advice every load failure ends with: reinstall `raft`, or set
-  `RAFT_NATIVE_LIB_PATH` and run `raco setup raft` for a library built by
-  hand. The hook itself, which runs while `raft` installs, gives only the
-  override: this raft ships no prebuilt libraftrkt yet. Neither names Nix,
-  as the manual does not (#41).
+  `private/resource.rkt`: `with-release`. `private/install-native.rkt`:
+  `locate-native-library` (a `native-location`), `native-library-problem`
+  (the message, or `#f`; the package's version must equal raft's, since
+  `#:version` in `deps` is only a minimum) and the pre-install hook, which
+  prints that message and copies nothing. No module requires
+  `raft-x86_64-linux`: it is found by `collection-file-path` and
+  `dynamic-require`, so `raco setup` of raft compiles without it
+  (`catalog-test.sh` asserts it), and `--unused-pkg-deps` warns about it,
+  which in Racket 9.3 is only a warning. Off x86_64 Linux the missing-library
+  advice is the override alone; no message names Nix (#41, #43).
 - Tests: `tests/private/gpu.rkt` (`gpu-available?`, `test-gpu`),
   `tests/private/probe.rkt` (the probe library, from `RAFT_SHIM_PROBE`,
   its jobs bound with `define-job`, `gate-job`, `test-host-probe`, which
@@ -629,6 +637,8 @@ nix build --max-jobs 1 --cores 4 .#kmeans-canary  # the canary (lib/, and tests/
 raco test downstream/kmeans-canary/kmeans-canary  # the canary's Racket tests, twin included
 scripts/release.sh build <dir>      # the release libraftrkt in docker, then its gates
 scripts/release.sh load-check <dir> # dlopen it in manylinux_2_28 beside the cuBLAS wheel
+scripts/release.sh package <dir> <dist>       # raft-x86_64-linux.zip, its CHECKSUM, catalog-entry.rktd
+scripts/release.sh catalog-test <dir> <dist>  # raco pkg install raft from a directory catalog
 ```
 
 **The release build** (#42) is what a catalog install ships; the dev build
@@ -638,6 +648,15 @@ is untouched. Its pins (images, wheels, tools) are in
 compile. Flake check `release-gates` fails when the wheel pins differ from
 `nix/rapids.nix` or the cuBLAS wheel from `cudaPackages.libcublas`, and runs
 `scripts/release/gates-test.sh`, the gates' own tests.
+
+**The native package** (#43) is the artifact plus `raft-x86_64-linux/`'s
+files, versioned with raft (`package` refuses a mismatch or a tag other
+than `v<version>`; tested in `gates-test.sh`). `catalog-test`, in
+`manylinux_2_28` with Racket 9.3 and no nix, serves it and raft from a
+directory catalog ahead of the official ones; what it asserts is in
+Tooling. `CATALOG_TEST_OMIT_NATIVE=1` leaves the package out, keeps only
+the Racket release catalog behind it, and passes when the install fails
+for want of `raft-x86_64-linux`.
 
 `nix develop` does this on entry, from the checkout's root only:
 
@@ -650,14 +669,15 @@ compile. Flake check `release-gates` fails when the wheel pins differ from
   found with `ldconfig -p` and symlinked into `.cuda-driver/`, which goes
   first on `LD_LIBRARY_PATH` (rktorch's `cudaHook`). Twin subprocesses get
   only that directory (`RAFT_CUDA_DRIVER_PATH`).
-- **Stages the shim** and exports `RAFT_NATIVE_LIB_PATH`, `RAFT_SHIM_TESTS`
-  (the gtest binaries) and `RAFT_SHIM_PROBE` (the probe library).
+- **Stages the shim** and exports `RAFT_SHIM_TESTS` (the gtest binaries) and
+  `RAFT_SHIM_PROBE` (the probe library).
 - **Points at the canary:** `RAFT_KMEANS_CANARY` (its `libkmeans_canary.so`
   in the store, loaded from there: it is never staged), `RAFT_KMEANS_CANARY_TESTS`
   (its gtests) and `RAFT_RAPIDS_PREFIX` (`packages.rapids`, for the
   `libcuml.so` symbol check).
 - **Gives each checkout its own `PLTUSERHOME`** under
-  `~/.cache/rkt-raft-devshell/<hash of the path>`, installs `raft` and
+  `~/.cache/rkt-raft-devshell/<hash of the path>`, installs
+  `raft-x86_64-linux` (no libraries: the staged shim wins), `raft` and
   `kmeans-canary` there in link mode once (re-run when either `info.rkt`
   changes) and installs the pinned
   Resyntax, raco fmt, raco review and `raft-lint` (from `lint/`, linked).
@@ -818,6 +838,7 @@ gates' own tests), `no-syntax-rule`, `no-raw-malloc`,
 | `c-headers`, `line-count` | the umbrella header as C11; 500 lines per C/C++/CUDA file | flake checks | by hand |
 | ASAN and UBSAN (`-DRAFTRKT_SANITIZE=ON`) | host memory errors, leaks and undefined behaviour in both gtest binaries (not signed overflow: the nix stdenv's `strictoverflow` hardening builds with `-fno-strict-overflow`), and in every death-test child; the leak check runs only in a child that reaches normal exit, not one whose drain skipped (its exit ends in `_exit`) or that calls `_exit`/`std::_Exit`; the exit and deposit-job death tests' children send ASan and LSan reports to stdout, UBSan's to stderr, and fail by exit status | flake check `shim-sanitizers` (GPU cases SKIP); the GPU suite (GPU cases run); gate `sanitizers` | by hand |
 | release gates (`scripts/release/gates.sh`) | the artifact: exactly the shipped files, each library an x86-64 ELF64 shared object with no `PT_INTERP`, `RUNPATH` `$ORIGIN` only, no `/nix/store`, `GLIBC_` ≤ 2.28, `GLIBCXX_` ≤ 3.4.25, the shim's `NEEDED`, the companions' `NEEDED`, every architecture in each fatbin module and as many modules as `.nvFatBinSegment` bytes / 24, the ABI version against `library.rkt`, `SHA256SUMS` | `release.yml`; flake check `release-gates` (`scripts/release/gates-test.sh`) | by hand |
+| catalog test (`scripts/release/catalog-test.sh`, `catalog-check.rkt`) | `raco pkg install raft` from a directory catalog, no GPU or nix: libraries mapped from `raft-x86_64-linux` and equal to the manifest, cuBLAS from the wheel, one `librmm.so`; with the package removed, the load message, `raco setup --pkgs raft` exiting 0 and printing it; both scopes | `release.yml` job `native-package`; `scripts/release.sh catalog-test` | by hand |
 | compute-sanitizer memcheck | device memory errors, device leaks (`--leak-check full`) and failing CUDA calls (`--report-api-errors explicit`) in both gtest binaries and the canary's | the GPU suite (gate `gpu`, `gpu.yml`) | by hand |
 
 - **raco fmt** formats `.rkt` files only. It crashes on Scribble's
@@ -916,15 +937,13 @@ gates' own tests), `no-syntax-rule`, `no-raw-malloc`,
   host and their counts go in the review packet. The `if:` is not a security
   boundary: a fork's PR runs workflow files it controls, so keeping forks off
   the runner is the runner group's job (#9 lists the settings).
-- `.github/workflows/release.yml`, one job on `ubuntu-latest`: the release
-  build (`scripts/release.sh build`), the `manylinux_2_28` load check
-  (`scripts/release.sh load-check`), then the artifact
-  `libraftrkt-x86_64-linux` (the three libraries, `LICENSE`, the companions'
-  licences, `manifest.json`, `SHA256SUMS`). It runs on pull requests touching
-  `shim/`, `nix/rapids.nix`, `raft/private/foreign/library.rkt`, the release
-  scripts, the workflow, `.github/actions/free-disk/**` or `flake.nix`, on `v*` tags and by dispatch; only a pull
-  request's run is cancelled by a newer one. Compile only: no GPU (#9).
-  Adds `actions/upload-artifact@v7`.
+- `.github/workflows/release.yml`: `libraftrkt` (build, gates, load check),
+  `native-package` (`package`, `catalog-test`), and on `v*` tags
+  `draft-release`, the one job with `contents: write`. Pull requests check
+  out their head, so `shim_commit` is the head, not the merge ref. It runs
+  on pull requests touching what the jobs build or install (its `paths`;
+  `gates-test.sh` checks `raft/**` and `raft-x86_64-linux/**` are there),
+  on tags and by dispatch. No GPU (#9).
 - No docs build in GitHub CI: doc examples need the GPU.
 
 ## Documentation

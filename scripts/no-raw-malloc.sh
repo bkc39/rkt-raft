@@ -2,12 +2,14 @@
 set -euo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
+# shellcheck source=scripts/roots.sh
+. scripts/roots.sh
 
 allowed=raft/private/resource.rkt
 non_moving=raft/private/foreign/host.rkt
 pattern='\((malloc|free)([[:space:]]|\)|$)'
 
-hits=$(grep -rnE --include='*.rkt' --include='*.scrbl' "$pattern" downstream lint raft scripts |
+hits=$(grep -rnE --include='*.rkt' --include='*.scrbl' "$pattern" "${racket_roots[@]}" |
   grep -v -e "^$allowed:" -e "^$non_moving:" || true)
 
 if [ -n "$hits" ]; then

@@ -5,7 +5,8 @@ on:
     paths:
       - shim/**
       - nix/rapids.nix
-      - raft/private/foreign/library.rkt
+      - raft/**
+      - raft-x86_64-linux/**
       - scripts/release.sh
       - scripts/release/**
       - .github/workflows/release.yml
@@ -18,6 +19,9 @@ on:
 permissions:
   contents: read
 
+env:
+  CHECKOUT_REF: ${{ github.event.pull_request.head.sha || github.sha }}
+
 concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -29,10 +33,12 @@ jobs:
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.CHECKOUT_REF }}
       - uses: ./.github/actions/free-disk
-      - name: Build in the CUDA 13 rockylinux8 image and gate the result
+      - name: Build and gate
         run: scripts/release.sh build "$RUNNER_TEMP/libraftrkt"
-      - name: dlopen in manylinux_2_28 with the pinned cuBLAS wheel, no GPU
+      - name: Load check
         run: scripts/release.sh load-check "$RUNNER_TEMP/libraftrkt"
       - name: Manifest
         run: cat "$RUNNER_TEMP/libraftrkt/manifest.json"
@@ -41,3 +47,59 @@ jobs:
           name: libraftrkt-x86_64-linux
           path: ${{ runner.temp }}/libraftrkt
           if-no-files-found: error
+
+  native-package:
+    name: raft-x86_64-linux, installed from a local catalog with no GPU
+    needs: libraftrkt
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.CHECKOUT_REF }}
+      - uses: actions/download-artifact@v8
+        with:
+          name: libraftrkt-x86_64-linux
+          path: ${{ runner.temp }}/libraftrkt
+      - name: Package
+        env:
+          RELEASE_TAG: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
+        run: scripts/release.sh package "$RUNNER_TEMP/libraftrkt" "$RUNNER_TEMP/dist"
+      - name: Catalog test
+        run: scripts/release.sh catalog-test "$RUNNER_TEMP/libraftrkt" "$RUNNER_TEMP/dist"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: raft-x86_64-linux
+          path: ${{ runner.temp }}/dist
+          if-no-files-found: error
+
+  draft-release:
+    name: Draft the GitHub Release
+    if: github.ref_type == 'tag'
+    needs: [libraftrkt, native-package]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: libraftrkt-x86_64-linux
+          path: ${{ runner.temp }}/libraftrkt
+      - uses: actions/download-artifact@v8
+        with:
+          name: raft-x86_64-linux
+          path: ${{ runner.temp }}/dist
+      - name: Draft the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: >-
+          gh release create "$GITHUB_REF_NAME" --draft --verify-tag
+          --title "$GITHUB_REF_NAME"
+          --notes "raft-x86_64-linux $GITHUB_REF_NAME and its catalog entry"
+          "$RUNNER_TEMP/dist/raft-x86_64-linux.zip"
+          "$RUNNER_TEMP/dist/raft-x86_64-linux.zip.CHECKSUM"
+          "$RUNNER_TEMP/dist/catalog-entry.rktd"
+          "$RUNNER_TEMP/libraftrkt/manifest.json"
+          "$RUNNER_TEMP/libraftrkt/SHA256SUMS"
