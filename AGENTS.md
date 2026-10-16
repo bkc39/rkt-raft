@@ -1260,8 +1260,13 @@ canary changes with it in the same pull request:
   `rr_deposit*`) and `define-job` in
   `raft/unsafe`. A downstream detects them with
   `__has_include(<raftrkt/job.hpp>)`.
+
+Not part of the ABI:
+
 - **Racket CUDA wheels (#44):** the provides of `raft/private/cuda-wheels.rkt`,
-  which rkt-cuml uses to read pins and find the CUDA libraries raft fetched.
+  the interface rkt-cuml requires to read pins and find the CUDA libraries raft
+  fetched; versioned with the package version. `cuda-wheels-test.rkt` pins the
+  export set.
 
 What a downstream binding must do, which the canary does: compile against `packages.rapids` and
 `packages.raft-dev` of this flake (never another RAPIDS); check the tag at

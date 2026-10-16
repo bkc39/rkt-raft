@@ -154,7 +154,8 @@
 
 (define (ensure-cublas-at-setup location problem user-specific?)
   (match* (location problem)
-    [((native-location 'package _ _ _) #f) (cublas-setup-warning (cuda-wheel-root user-specific?))]
+    [((native-location 'package _ _ _) #f)
+     (cublas-setup-warning (cuda-wheel-root user-specific?) #:user-specific? user-specific?)]
     [(_ _) #f]))
 
 (define (pre-installer _collections-top-path this-collection-path user-specific?)

@@ -2,6 +2,7 @@
 
 (require (only-in ffi/unsafe ffi-lib)
          (only-in racket/lazy-require lazy-require)
+         (only-in racket/list partition)
          (only-in racket/match match match*)
          ;; whole-module: define-runtime-path needs bindings only-in strips
          racket/runtime-path
@@ -21,6 +22,8 @@
 (provide (struct-out cublas-location)
          cublas-error
          cublas-libraries
+         cublas-load-order
+         cublas-probe-order
          cublas-setup-warning
          fetch-cublas
          locate-cublas)
@@ -32,6 +35,19 @@
 (define cublas-libraries (cuda-wheel-libraries cublas-wheel))
 
 (define fetch-command "racket -l- raft/fetch-cuda")
+
+(define setup-command "raco setup --pkgs raft")
+
+(define (lt-and-others libraries)
+  (partition (lambda (name) (regexp-match? #rx"^libcublasLt[.]" name)) libraries))
+
+(define (cublas-load-order libraries)
+  (define-values (lt others) (lt-and-others libraries))
+  (append lt others))
+
+(define (cublas-probe-order libraries)
+  (define-values (lt others) (lt-and-others libraries))
+  (append others lt))
 
 (define holding (string-join cublas-libraries " and "))
 
@@ -51,11 +67,13 @@
       dir
       holding
       fetch-command)]
-    [(list 'fetch cause)
+    [(list 'fetch cause user-specific?)
      (format
       "could not fetch cuBLAS: ~a\n  retry with `~a`, or set RAFT_CUDA_LIB_PATH to a directory holding ~a"
       cause
-      fetch-command
+      (match user-specific?
+        [#f setup-command]
+        [_ fetch-command])
       holding)]
     [(list 'unloadable name dir said)
      (format "~a would not load\n  found in: ~a\n  the loader said: ~a" name dir said)]))
@@ -65,7 +83,7 @@
 (define (system-cublas?)
   (with-handlers ([exn:fail? (lambda (_) #f)])
     ;; libcublas first: it maps its own Lt, so a failed probe leaves no Lt for a later load to bind
-    (for ([name (in-list (reverse cublas-libraries))])
+    (for ([name (in-list (cublas-probe-order cublas-libraries))])
       (match name
         [(regexp #rx"^(.+)[.]so[.](.+)$" (list _ stem version)) (ffi-lib stem (list version))]))
     #t))
@@ -95,13 +113,15 @@
     [(or #f "") #f]
     [base base]))
 
-(define (raise-fetch-failure e)
-  (raise (exn:fail:raft (cublas-error 'fetch (exn-message e)) (exn-continuation-marks e) 'generic)))
+(define ((raise-fetch-failure user-specific?) e)
+  (raise (exn:fail:raft (cublas-error 'fetch (exn-message e) user-specific?)
+                        (exn-continuation-marks e)
+                        'generic)))
 
-(define (fetch-cublas root)
+(define (fetch-cublas root #:user-specific? [user-specific? #t])
   (match (locate-cuda-wheel cublas-wheel (list root))
     [#f
-     (with-handlers ([exn:fail? raise-fetch-failure])
+     (with-handlers ([exn:fail? (raise-fetch-failure user-specific?)])
        (printf "raft: fetching cuBLAS ~a (~a MB) from ~a\n"
                (cuda-wheel-version cublas-wheel)
                (round (/ (cuda-wheel-size cublas-wheel) 1000000))
@@ -110,13 +130,18 @@
     [dir dir]))
 
 (define (cublas-setup-warning root
+                              #:user-specific? user-specific?
                               #:platform [platform (path->string (system-library-subpath #f))]
                               #:system? [system? system-cublas?])
-  (match* (platform (locate-cublas #:system? system? #:roots (list root)))
+  (define roots
+    (match user-specific?
+      [#f (list root)]
+      [_ (cuda-wheel-roots)]))
+  (match* (platform (locate-cublas #:system? system? #:roots roots))
     [(_ (cublas-location 'bad-override dir)) (cublas-error 'override dir)]
     [("x86_64-linux" (cublas-location 'missing _))
      (with-handlers ([exn:fail:raft? exn-message])
-       (printf "raft: cuBLAS is in ~a\n" (fetch-cublas root))
+       (printf "raft: cuBLAS is in ~a\n" (fetch-cublas root #:user-specific? user-specific?))
        #f)]
     [(_ (cublas-location 'missing _)) #f]
     [(_ (cublas-location (or 'override 'system 'fetched) _)) #f]))

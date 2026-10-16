@@ -2,18 +2,23 @@
 
 (require (only-in compiler/find-exe find-exe)
          (only-in racket/file delete-directory/files make-directory*)
+         (only-in racket/match match)
          (only-in racket/port port->string)
          ;; whole-module: define-runtime-path needs bindings only-in strips
          racket/runtime-path
          (only-in rackunit check-equal? check-false check-regexp-match fail test-case)
          (only-in "../private/cublas.rkt"
                   cublas-error
+                  cublas-load-order
+                  cublas-probe-order
                   cublas-location-dir
                   cublas-location-kind
                   cublas-setup-warning
                   locate-cublas)
          (only-in "../private/cuda-wheels.rkt"
+                  cuda-wheel
                   cuda-wheel-dir
+                  cuda-wheel-libraries
                   cuda-wheel-members
                   cuda-wheel-roots
                   read-cuda-wheels
@@ -68,13 +73,21 @@
                     (check-equal? (located dir #:override (build-path dir "empty") #:system? #t)
                                   (list 'bad-override (simplify-path (build-path dir "empty")))))))
 
-(define (setup-output root #:platform [platform "x86_64-linux"] #:base base)
+(define (setup-output root
+                      #:user-specific? [user-specific? #t]
+                      #:roots [roots (list root)]
+                      #:platform [platform "x86_64-linux"]
+                      #:base base)
   (define out (open-output-string))
   (define warning
     (call-with-env (cublas-env #:base base)
                    (lambda ()
-                     (parameterize ([current-output-port out])
-                       (cublas-setup-warning root #:platform platform #:system? (lambda () #f))))))
+                     (parameterize ([current-output-port out]
+                                    [cuda-wheel-roots roots])
+                       (cublas-setup-warning root
+                                             #:user-specific? user-specific?
+                                             #:platform platform
+                                             #:system? (lambda () #f))))))
   (list warning (get-output-string out)))
 
 (test-case "offline, setup warns with the cause and the retry command and does not raise"
@@ -90,15 +103,41 @@
      (check-equal? (installed root) '()))))
 
 (test-case "an installation-scope setup fetches into its own root despite a user's copy"
-  (call-with-temp (lambda (dir)
-                    (define user (build-path dir "user"))
-                    (define share (build-path dir "share"))
-                    (stage-fetched! (cuda-wheel-dir user cublas-wheel))
-                    (define result
-                      (parameterize ([cuda-wheel-roots (list user share)])
-                        (setup-output share #:base (closed-port-base))))
-                    (check-regexp-match #rx"^could not fetch cuBLAS: " (car result))
-                    (check-regexp-match #rx"^raft: fetching cuBLAS " (cadr result)))))
+  (call-with-temp
+   (lambda (dir)
+     (define user (build-path dir "user"))
+     (define share (build-path dir "share"))
+     (stage-fetched! (cuda-wheel-dir user cublas-wheel))
+     (define result
+       (setup-output share #:user-specific? #f #:roots (list user share) #:base (closed-port-base)))
+     (check-regexp-match #rx"^could not fetch cuBLAS: " (car result))
+     (check-regexp-match #rx"retry with `raco setup --pkgs raft`" (car result))
+     (check-regexp-match #rx"^raft: fetching cuBLAS " (cadr result)))))
+
+(test-case "a user-scope setup uses the installation's copy and fetches nothing"
+  (call-with-temp
+   (lambda (dir)
+     (define user (build-path dir "user"))
+     (define share (build-path dir "share"))
+     (stage-fetched! (cuda-wheel-dir share cublas-wheel))
+     (check-equal? (setup-output user #:roots (list user share) #:base (closed-port-base))
+                   (list #f ""))
+     (check-equal? (installed user) '()))))
+
+(test-case "the probe loads libcublas first and the loader Lt first, whatever the pin's order"
+  (define reversed
+    (cuda-wheel "nvidia-cublas"
+                "13.4.0.1"
+                "cu13"
+                "https://example.invalid/fake.whl"
+                ""
+                0
+                (reverse (cuda-wheel-members cublas-wheel))))
+  (for ([wheel (in-list (list cublas-wheel reversed))])
+    (check-equal? (cublas-probe-order (cuda-wheel-libraries wheel))
+                  '("libcublas.so.13" "libcublasLt.so.13"))
+    (check-equal? (cublas-load-order (cuda-wheel-libraries wheel))
+                  '("libcublasLt.so.13" "libcublas.so.13"))))
 
 (test-case "off x86_64-linux, setup fetches nothing"
   (call-with-temp
@@ -165,18 +204,24 @@
 (test-case "the system probe needs both CUDA 13 libraries and leaves no Lt mapped when it fails"
   (cond
     [cublas-dir
-     (call-with-temp (lambda (dir)
-                       (define both
-                         (link-dir! (build-path dir "both") (map cons libraries libraries)))
-                       (define older
-                         (link-dir! (build-path dir "older")
-                                    (for*/list ([major (in-list '("12" "11"))]
-                                                [name (in-list libraries)])
-                                      (cons (regexp-replace #rx"13$" name major) name))))
-                       (define lt-only
-                         (link-dir! (build-path dir "lt-only")
-                                    (list (cons "libcublasLt.so.13" "libcublasLt.so.13"))))
-                       (check-equal? (system-probe both) '(system #t))
-                       (check-equal? (system-probe older) '(missing #f))
-                       (check-equal? (system-probe lt-only) '(missing #f))))]
+     (call-with-temp
+      (lambda (dir)
+        (define both (link-dir! (build-path dir "both") (map cons libraries libraries)))
+        (define older
+          (link-dir! (build-path dir "older")
+                     (for*/list ([major (in-list '("12" "11"))]
+                                 [name (in-list libraries)])
+                       (cons (regexp-replace #rx"13$" name major) name))))
+        (define lt-only
+          (link-dir! (build-path dir "lt-only")
+                     (list (cons "libcublasLt.so.13" "libcublasLt.so.13"))))
+        (define none (link-dir! (build-path dir "none") '()))
+        (check-equal? (system-probe both) '(system #t))
+        (match (system-probe none)
+          [(list 'system _)
+           (displayln
+            "SKIP: the host loader finds a CUDA 13 cuBLAS, so the older and Lt-only cases cannot fail")]
+          [_
+           (check-equal? (system-probe older) '(missing #f))
+           (check-equal? (system-probe lt-only) '(missing #f))])))]
     [else (displayln "SKIP: the system probe test needs the native library's cuBLAS")]))

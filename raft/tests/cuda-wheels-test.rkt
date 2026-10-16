@@ -2,6 +2,7 @@
 
 (require (only-in net/url-connect current-https-protocol)
          (only-in racket/file call-with-file-lock/timeout file->bytes make-directory*)
+         (only-in racket/match match)
          ;; whole-module: define-runtime-path needs bindings only-in strips
          racket/runtime-path
          (only-in rackunit
@@ -37,6 +38,7 @@
                   make-wheel!
                   sized-file!))
 
+(define-runtime-path cuda-wheels-module "../private/cuda-wheels.rkt")
 (define-runtime-path cuda-wheels "../private/cuda-wheels.rktd")
 
 (define cublas-wheel (hash-ref (read-cuda-wheels cuda-wheels) "nvidia-cublas"))
@@ -252,39 +254,40 @@
                       (check-true (directory-exists? locked))))))
 
 (test-case "a fetch waiting on another's lock says so once and gives up at the limit"
-  (call-with-temp (lambda (dir)
-                    (define wheel (make-wheel! dir))
-                    (define root (build-path dir "root"))
-                    (define parent (build-path root "rapids" "cu13"))
-                    (define lock (build-path parent (string-append home ".lock")))
-                    (make-directory* parent)
-                    (define held (make-semaphore))
-                    (define release (make-semaphore))
-                    (define holder
-                      (thread (lambda ()
-                                (call-with-file-lock/timeout #f
-                                                             'exclusive
-                                                             (lambda ()
-                                                               (semaphore-post held)
-                                                               (semaphore-wait release))
-                                                             (lambda () (semaphore-post held))
-                                                             #:lock-file lock))))
-                    (semaphore-wait held)
-                    (define out (open-output-string))
-                    (define result
-                      (parameterize ([cuda-wheel-lock-timeout 4]
-                                     [current-output-port out])
-                        (within 20 (lambda () (fetch wheel root (file-base dir))))))
-                    (semaphore-post release)
-                    (thread-wait holder)
-                    (check-pred exn:fail? result)
-                    (check-regexp-match
-                     (regexp (string-append "gave up after 4 s waiting for another fetch to release "
-                                            (regexp-quote (path->string lock))))
-                     (exn-message result))
-                    (check-equal? (get-output-string out)
-                                  (format "raft: waiting for another fetch (~a)\n" lock))
-                    (check-true (nothing-in-place? root wheel)))))
+  (call-with-temp
+   (lambda (dir)
+     (define wheel (make-wheel! dir))
+     (define root (build-path dir "root"))
+     (define parent (build-path root "rapids" "cu13"))
+     (define lock (build-path parent (string-append home ".lock")))
+     (make-directory* parent)
+     (define held (make-semaphore))
+     (define release (make-semaphore))
+     (define holder
+       (thread (lambda ()
+                 (call-with-file-lock/timeout #f
+                                              'exclusive
+                                              (lambda ()
+                                                (semaphore-post held)
+                                                (semaphore-wait release))
+                                              (lambda () (semaphore-post held))
+                                              #:lock-file lock))))
+     (semaphore-wait held)
+     (define out (open-output-string))
+     (define result
+       (parameterize ([cuda-wheel-lock-timeout 4]
+                      [current-output-port out])
+         (within 20 (lambda () (fetch wheel root (file-base dir))))))
+     (semaphore-post release)
+     (thread-wait holder)
+     (check-pred exn:fail? result)
+     (check-regexp-match
+      (regexp (string-append "another fetch holds "
+                             (regexp-quote (path->string lock))
+                             " and may still finish; gave up waiting for it after 4 s"))
+      (exn-message result))
+     (check-equal? (get-output-string out) (format "raft: waiting for another fetch (~a)\n" lock))
+     (check-true (nothing-in-place? root wheel)))))
 
 (test-case "libraries already in place are not fetched again"
   (call-with-temp (lambda (dir)
@@ -305,3 +308,33 @@
                     (check-equal? (file->bytes (build-path lib "libcublasLt.so.13"))
                                   #"libcublasLt.so.13")
                     (check-equal? (installed root) (list home)))))
+
+(test-case "cuda-wheels.rkt, the interface rkt-cuml requires, exports exactly the documented names"
+  (define-values (variables syntax) (module->exports cuda-wheels-module))
+  (check-equal? (sort (for*/list ([exports (in-list (append variables syntax))]
+                                  [entry (in-list (match exports
+                                                    [(cons 0 entries) entries]
+                                                    [_ '()]))])
+                        (car entry))
+                      symbol<?)
+                '(cuda-wheel cuda-wheel-cuda
+                             cuda-wheel-dir
+                             cuda-wheel-libraries
+                             cuda-wheel-members
+                             cuda-wheel-name
+                             cuda-wheel-root
+                             cuda-wheel-roots
+                             cuda-wheel-sha256
+                             cuda-wheel-size
+                             cuda-wheel-url
+                             cuda-wheel-version
+                             cuda-wheel?
+                             locate-cuda-wheel
+                             read-cuda-wheels
+                             struct:cuda-wheel
+                             struct:wheel-member
+                             wheel-member
+                             wheel-member-name
+                             wheel-member-path
+                             wheel-member-size
+                             wheel-member?)))

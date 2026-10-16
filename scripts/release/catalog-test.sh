@@ -87,6 +87,7 @@ RAFT_CUDA_WHEEL_URL_BASE=http://127.0.0.1:9 install_raft installation >"$work/of
   exit 1
 }
 grep -F "raft: could not fetch cuBLAS" -A1 "$work/offline.log"
+grep -E "retry with .raco setup --pkgs raft." "$work/offline.log"
 racket "$check" cuda-missing
 echo "catalog test: raco setup --pkgs raft, online, fetches cuBLAS into the installation"
 raco setup --no-docs --pkgs raft

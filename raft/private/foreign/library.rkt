@@ -16,7 +16,12 @@
          (only-in racket/path path-only)
          ;; whole-module: define-runtime-path needs bindings only-in strips
          racket/runtime-path
-         (only-in "../cublas.rkt" cublas-error cublas-libraries cublas-location locate-cublas)
+         (only-in "../cublas.rkt"
+                  cublas-error
+                  cublas-libraries
+                  cublas-load-order
+                  cublas-location
+                  locate-cublas)
          (only-in "../cuda-wheels.rkt" cuda-wheel-roots)
          (only-in "../exn.rkt" raise-raft)
          (only-in "../install-native.rkt"
@@ -77,7 +82,7 @@
     [else (raise-load-failure (abi-mismatch-error where found))]))
 
 (define (load-cublas dir)
-  (for ([name (in-list cublas-libraries)])
+  (for ([name (in-list (cublas-load-order cublas-libraries))])
     (with-handlers ([exn:fail? (lambda (e)
                                  (raise-load-failure
                                   (cublas-error 'unloadable name dir (exn-message e))))])

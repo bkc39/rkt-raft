@@ -180,7 +180,10 @@
     (cond
       [(< (current-inexact-milliseconds) deadline) (retry #t)]
       [else
-       (error 'cuda-wheel "gave up after ~a s waiting for another fetch to release ~a" limit lock)]))
+       (error 'cuda-wheel
+              "another fetch holds ~a and may still finish; gave up waiting for it after ~a s"
+              lock
+              limit)]))
   (let retry ([announced? #f])
     (call-with-file-lock/timeout #f
                                  'exclusive
