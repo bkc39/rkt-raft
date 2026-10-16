@@ -74,9 +74,7 @@
     (call-with-env (cublas-env #:base base)
                    (lambda ()
                      (parameterize ([current-output-port out])
-                       (cublas-setup-warning root
-                                             #:platform platform
-                                             #:system? (lambda () #f))))))
+                       (cublas-setup-warning root #:platform platform #:system? (lambda () #f))))))
   (list warning (get-output-string out)))
 
 (test-case "offline, setup warns with the cause and the retry command and does not raise"
@@ -128,19 +126,19 @@
   (call-with-temp
    (lambda (dir)
      (define program (build-path dir "probe.rkt"))
-     (call-with-output-file program
-                            (lambda (out)
-                              (write `(module probe racket/base
-                                        (require (only-in (file ,(path->string cublas-module))
-                                                          cublas-location-kind
-                                                          locate-cublas))
-                                        (define kind (cublas-location-kind (locate-cublas #:roots '())))
-                                        (define lt-mapped?
-                                          (call-with-input-file "/proc/self/maps"
-                                                                (lambda (in)
-                                                                  (regexp-match? #rx"libcublasLt" in))))
-                                        (write (list kind lt-mapped?)))
-                                     out)))
+     (call-with-output-file
+      program
+      (lambda (out)
+        (write `(module probe racket/base
+                  (require (only-in (file ,(path->string cublas-module))
+                                    cublas-location-kind
+                                    locate-cublas))
+                  (define kind (cublas-location-kind (locate-cublas #:roots '())))
+                  (define lt-mapped?
+                    (call-with-input-file "/proc/self/maps"
+                                          (lambda (in) (regexp-match? #rx"libcublasLt" in))))
+                  (write (list kind lt-mapped?)))
+               out)))
      (define-values (process stdout stdin stderr)
        (call-with-env (list (cons "LD_LIBRARY_PATH" (path->string library-path))
                             (cons "RAFT_CUDA_LIB_PATH" #f))

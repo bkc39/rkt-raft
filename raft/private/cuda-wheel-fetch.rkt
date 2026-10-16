@@ -74,7 +74,9 @@
   (define url (string->url source))
   (define seconds (cuda-wheel-connect-timeout))
   (match (url-scheme url)
-    ["file" (parameterize ([current-custodian custodian]) (get-pure-port url))]
+    ["file"
+     (parameterize ([current-custodian custodian])
+       (get-pure-port url))]
     [_
      (define-values (in headers)
        (call-with-deadline custodian

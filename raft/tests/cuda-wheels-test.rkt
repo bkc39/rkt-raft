@@ -26,6 +26,7 @@
                   cuda-wheel-libraries
                   locate-cuda-wheel
                   read-cuda-wheels)
+         (only-in "../private/resource.rkt" with-release)
          (only-in "private/cuda-wheels.rkt"
                   call-with-server
                   call-with-temp
@@ -34,8 +35,7 @@
                   installed
                   libraries
                   make-wheel!
-                  sized-file!)
-         (only-in "../private/resource.rkt" with-release))
+                  sized-file!))
 
 (define-runtime-path cuda-wheels "../private/cuda-wheels.rktd")
 
@@ -236,54 +236,55 @@
      (check-equal? (installed root) (list home)))))
 
 (test-case "a stale part that cannot be deleted does not block the fetch"
-  (call-with-temp
-   (lambda (dir)
-     (define wheel (make-wheel! dir))
-     (define root (build-path dir "root"))
-     (define stale (build-path root "rapids" "cu13" (string-append home ".part-123") "lib"))
-     (make-directory* stale)
-     (call-with-output-file (build-path stale "libcublas.so.13") void)
-     (with-release ([locked
-                     (begin
-                       (file-or-directory-permissions stale #o555)
-                       stale)
-                     (lambda (locked) (file-or-directory-permissions locked #o755))])
-       (check-equal? (fetch wheel root (file-base dir)) (cuda-wheel-dir root wheel))
-       (check-true (directory-exists? locked))))))
+  (call-with-temp (lambda (dir)
+                    (define wheel (make-wheel! dir))
+                    (define root (build-path dir "root"))
+                    (define stale
+                      (build-path root "rapids" "cu13" (string-append home ".part-123") "lib"))
+                    (make-directory* stale)
+                    (call-with-output-file (build-path stale "libcublas.so.13") void)
+                    (with-release ([locked
+                                    (begin
+                                      (file-or-directory-permissions stale #o555)
+                                      stale)
+                                    (lambda (locked) (file-or-directory-permissions locked #o755))])
+                      (check-equal? (fetch wheel root (file-base dir)) (cuda-wheel-dir root wheel))
+                      (check-true (directory-exists? locked))))))
 
 (test-case "a fetch waiting on another's lock says so once and gives up at the limit"
-  (call-with-temp
-   (lambda (dir)
-     (define wheel (make-wheel! dir))
-     (define root (build-path dir "root"))
-     (define parent (build-path root "rapids" "cu13"))
-     (define lock (build-path parent (string-append home ".lock")))
-     (make-directory* parent)
-     (define held (make-semaphore))
-     (define release (make-semaphore))
-     (define holder
-       (thread (lambda ()
-                 (call-with-file-lock/timeout #f
-                                              'exclusive
-                                              (lambda ()
-                                                (semaphore-post held)
-                                                (semaphore-wait release))
-                                              (lambda () (semaphore-post held))
-                                              #:lock-file lock))))
-     (semaphore-wait held)
-     (define out (open-output-string))
-     (define result
-       (parameterize ([cuda-wheel-lock-timeout 4]
-                      [current-output-port out])
-         (within 20 (lambda () (fetch wheel root (file-base dir))))))
-     (semaphore-post release)
-     (thread-wait holder)
-     (check-pred exn:fail? result)
-     (check-regexp-match (regexp (string-append "gave up after 4 s waiting for another fetch to release "
-                                                (regexp-quote (path->string lock))))
-                         (exn-message result))
-     (check-equal? (get-output-string out) (format "raft: waiting for another fetch (~a)\n" lock))
-     (check-true (nothing-in-place? root wheel)))))
+  (call-with-temp (lambda (dir)
+                    (define wheel (make-wheel! dir))
+                    (define root (build-path dir "root"))
+                    (define parent (build-path root "rapids" "cu13"))
+                    (define lock (build-path parent (string-append home ".lock")))
+                    (make-directory* parent)
+                    (define held (make-semaphore))
+                    (define release (make-semaphore))
+                    (define holder
+                      (thread (lambda ()
+                                (call-with-file-lock/timeout #f
+                                                             'exclusive
+                                                             (lambda ()
+                                                               (semaphore-post held)
+                                                               (semaphore-wait release))
+                                                             (lambda () (semaphore-post held))
+                                                             #:lock-file lock))))
+                    (semaphore-wait held)
+                    (define out (open-output-string))
+                    (define result
+                      (parameterize ([cuda-wheel-lock-timeout 4]
+                                     [current-output-port out])
+                        (within 20 (lambda () (fetch wheel root (file-base dir))))))
+                    (semaphore-post release)
+                    (thread-wait holder)
+                    (check-pred exn:fail? result)
+                    (check-regexp-match
+                     (regexp (string-append "gave up after 4 s waiting for another fetch to release "
+                                            (regexp-quote (path->string lock))))
+                     (exn-message result))
+                    (check-equal? (get-output-string out)
+                                  (format "raft: waiting for another fetch (~a)\n" lock))
+                    (check-true (nothing-in-place? root wheel)))))
 
 (test-case "libraries already in place are not fetched again"
   (call-with-temp (lambda (dir)
