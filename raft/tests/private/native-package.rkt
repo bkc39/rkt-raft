@@ -18,7 +18,8 @@
 (define-runtime-path raft-dir "../..")
 
 (define loader-files
-  '("cublas.rkt" "cuda-wheels.rkt"
+  '("cublas.rkt" "cuda-wheel-fetch.rkt"
+                 "cuda-wheels.rkt"
                  "cuda-wheels.rktd"
                  "exn.rkt"
                  "foreign/library.rkt"

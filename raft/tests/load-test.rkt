@@ -4,8 +4,9 @@
          (only-in racket/match match)
          ;; whole-module: define-runtime-path needs bindings only-in strips
          racket/runtime-path
-         (only-in rackunit check-equal? check-false check-pred check-regexp-match test-case)
-         (only-in "../private/foreign/library.rkt" native-library-dir)
+         (only-in rackunit check-equal? check-exn check-false check-pred check-regexp-match test-case)
+         (only-in "../private/cublas.rkt" cublas-location)
+         (only-in "../private/foreign/library.rkt" ensure-cublas native-library-dir)
          (only-in "../private/install-native.rkt"
                   native-library-error
                   native-version-error
@@ -25,9 +26,11 @@
 (define real-library (build-path native-library-dir "libraftrkt.so"))
 (define raft-version (package-version raft-dir))
 
+(define (write-garbage-to file)
+  (call-with-output-file file (lambda (out) (write-bytes #"not a shared object" out))))
+
 (define (write-garbage native-libs)
-  (call-with-output-file (build-path native-libs "libraftrkt.so")
-                         (lambda (out) (write-bytes #"not a shared object" out))))
+  (write-garbage-to (build-path native-libs "libraftrkt.so")))
 
 (define (consumer library)
   `(module consumer racket/base
@@ -228,3 +231,21 @@
    #rx"^raft: RAFT_CUDA_LIB_PATH points at /nonexistent/raft-cuda, which does not hold libcublasLt[.]so[.]13 and libcublas[.]so[.]13\n"
    (outcome-message o))
   (check-regexp-match #rx"`racket -l- raft/fetch-cuda`" (outcome-message o)))
+
+(test-case "a fetched cuBLAS is preloaded for the native package only"
+  (with-release ([dir (make-temporary-directory "raft-load-~a") delete-directory/files])
+    (for ([name (in-list '("libcublasLt.so.13" "libcublas.so.13"))])
+      (write-garbage-to (build-path dir name)))
+    (define fetched (cublas-location 'fetched dir))
+    (check-equal? (ensure-cublas fetched 'staged) (void))
+    (check-equal? (ensure-cublas fetched 'override) (void))
+    (check-exn #rx"^raft: libcublasLt[.]so[.]13 would not load\n  found in: "
+               (lambda () (ensure-cublas fetched 'package)))
+    (check-exn #rx"^raft: libcublasLt[.]so[.]13 would not load"
+               (lambda () (ensure-cublas (cublas-location 'override dir) 'staged)))))
+
+(test-case "loading raft's library module does not load the fetch path's net/url or openssl"
+  (parameterize ([current-namespace (make-base-empty-namespace)])
+    (namespace-require (build-path raft-dir "private" "foreign" "library.rkt"))
+    (check-false (module-declared? 'net/url #f))
+    (check-false (module-declared? 'openssl #f))))

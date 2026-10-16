@@ -16,12 +16,8 @@
          (only-in racket/path path-only)
          ;; whole-module: define-runtime-path needs bindings only-in strips
          racket/runtime-path
-         (only-in "../cublas.rkt"
-                  cublas-libraries
-                  cublas-location
-                  cublas-missing-error
-                  cublas-override-error
-                  locate-cublas)
+         (only-in "../cublas.rkt" cublas-error cublas-libraries cublas-location locate-cublas)
+         (only-in "../cuda-wheels.rkt" cuda-wheel-roots)
          (only-in "../exn.rkt" raise-raft)
          (only-in "../install-native.rkt"
                   locate-native-library
@@ -33,6 +29,7 @@
                   package-version))
 
 (provide define-raft
+         ensure-cublas ;; noqa
          native-library-dir
          _raft-handle/null ;; noqa
          _rr-buffer
@@ -83,18 +80,19 @@
   (for ([name (in-list cublas-libraries)])
     (with-handlers ([exn:fail? (lambda (e)
                                  (raise-load-failure
-                                  (format "~a would not load\n  found in: ~a\n  the loader said: ~a"
-                                          name
-                                          dir
-                                          (exn-message e))))])
+                                  (cublas-error 'unloadable name dir (exn-message e))))])
       (ffi-lib (build-path dir name)))))
 
-(define (ensure-cublas native-kind)
-  (match* ((locate-cublas) native-kind)
-    [((cublas-location (or 'override 'fetched) dir) _) (load-cublas dir)]
-    [((cublas-location 'bad-override dir) _) (raise-load-failure (cublas-override-error dir))]
-    [((cublas-location 'missing _) 'package) (raise-load-failure (cublas-missing-error))]
-    [(_ _) (void)]))
+(define (ensure-cublas location native-kind)
+  (match* (location native-kind)
+    [((cublas-location 'override dir) _) (load-cublas dir)]
+    [((cublas-location 'fetched dir) 'package) (load-cublas dir)]
+    [((cublas-location 'fetched _) (or 'override 'staged)) (void)]
+    [((cublas-location 'system _) _) (void)]
+    [((cublas-location 'bad-override dir) _) (raise-load-failure (cublas-error 'override dir))]
+    [((cublas-location 'missing _) 'package)
+     (raise-load-failure (cublas-error 'missing (cuda-wheel-roots)))]
+    [((cublas-location 'missing _) (or 'override 'staged)) (void)]))
 
 (define ((missing-export where) name)
   (lambda ()
@@ -111,7 +109,7 @@
 (define native-library
   (match (native-library-problem location (package-version (path-only raft-info)))
     [#f
-     (ensure-cublas (native-location-kind location))
+     (ensure-cublas (locate-cublas) (native-location-kind location))
      (load-checked-library native-library-dir)]
     [message (raise-load-failure message)]))
 

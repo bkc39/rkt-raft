@@ -4,8 +4,7 @@
 
 (define collection "raft")
 (define version "0.2")
-(define deps
-  `("base" "math-lib" "net-lib" ("raft-x86_64-linux" #:platform "x86_64-linux" #:version ,version)))
+(define deps `("base" "math-lib" ("raft-x86_64-linux" #:platform "x86_64-linux" #:version ,version)))
 (define build-deps
   '("datasets" "math-doc"
                "pict-lib"
