@@ -1,23 +1,24 @@
 #lang racket/base
 
-(require (only-in racket/file call-with-atomic-output-file file->bytes make-directory*)
-         (only-in racket/match match)
-         ;; whole-module: define-runtime-path needs bindings only-in strips
-         racket/runtime-path
+(require (only-in racket/match == match)
+         (only-in racket/path path-only)
          (only-in setup/getinfo get-info/full))
 
-(provide locate-native-library
+(provide (struct-out native-location)
+         locate-native-library
          native-library-advice
          native-library-error
+         native-library-problem
          native-version-error
          package-version
          pre-installer
-         stage-native-libs!
          staged?)
+
+(struct native-location (kind dir version cause))
 
 (define native-package "raft-x86_64-linux")
 
-(define-runtime-path native-package-module "native-package.rkt")
+(define native-platform "x86_64-linux")
 
 (define library-pattern #rx"^libraftrkt[.]")
 
@@ -29,40 +30,71 @@
 (define missing-package-advice
   (format "install it with `raco pkg install ~a`; ~a" native-package override-advice))
 
+(define broken-package-advice
+  (format "reinstall it with `raco pkg remove --force ~a` and `raco pkg install ~a`; ~a"
+          native-package
+          native-package
+          override-advice))
+
 (define (staged? dir)
   (and (directory-exists? dir)
        (for/or ([f (in-list (directory-list dir))])
          (regexp-match? library-pattern f))))
 
-(define (native-package-libs-dir)
-  (with-handlers ([exn:missing-module? (lambda (_) #f)])
-    (dynamic-require native-package-module 'native-libs-dir)))
-
-(define (locate-native-library staged-dir)
-  (define override
-    (match (getenv "RAFT_NATIVE_LIB_PATH")
-      [(or #f "") #f]
-      [dir dir]))
-  (define package-dir (and (not override) (not (staged? staged-dir)) (native-package-libs-dir)))
-  (define-values (kind dir)
-    (cond
-      [override (values 'override (build-path override "lib"))]
-      [(staged? staged-dir) (values 'staged staged-dir)]
-      [package-dir (values 'package package-dir)]
-      [else (values 'missing staged-dir)]))
-  (values kind (simplify-path dir)))
-
 (define (package-version dir)
   (define info (get-info/full dir))
   (and info (info 'version (lambda () #f))))
 
-(define (native-library-error kind where loader-message)
-  (match kind
-    ['missing
+(define (override-dir)
+  (match (getenv "RAFT_NATIVE_LIB_PATH")
+    [(or #f "") #f]
+    [dir (simplify-path (build-path dir "lib"))]))
+
+(define (native-package-location main)
+  (define package-dir (simplify-path (path-only main)))
+  (with-handlers ([exn:fail? (lambda (e) (native-location 'broken package-dir #f (exn-message e)))])
+    (native-location 'package
+                     (simplify-path (dynamic-require main 'native-libs-dir))
+                     (package-version package-dir)
+                     #f)))
+
+(define (locate-native-library staged-dir)
+  (cond
+    [(override-dir)
+     =>
+     (lambda (dir) (native-location 'override dir #f #f))]
+    [(staged? staged-dir) (native-location 'staged (simplify-path staged-dir) #f #f)]
+    [(collection-file-path "main.rkt" native-package #:fail (lambda (_) #f))
+     =>
+     native-package-location]
+    [else (native-location 'missing (simplify-path staged-dir) #f #f)]))
+
+(define (missing-error where platform)
+  (match platform
+    [(== native-platform)
      (format "libraftrkt is not installed: the package ~a is missing\n  looked in: ~a\n  ~a"
              native-package
              where
              missing-package-advice)]
+    [other
+     (format
+      "libraftrkt is not installed: raft ships a native library for x86_64 Linux only, not ~a\n  looked in: ~a\n  ~a"
+      other
+      where
+      override-advice)]))
+
+(define (native-library-error kind
+                              where
+                              [detail #f]
+                              #:platform [platform (path->string (system-library-subpath #f))])
+  (match kind
+    ['missing (missing-error where platform)]
+    ['broken
+     (format "the package ~a is installed but would not load\n  found in: ~a\n  it said: ~a\n  ~a"
+             native-package
+             where
+             detail
+             broken-package-advice)]
     ['override
      (format
       "libraftrkt is not where RAFT_NATIVE_LIB_PATH points\n  looked in: ~a\n  unset it to load ~a's, or ~a"
@@ -78,7 +110,7 @@
      (format
       "libraftrkt was found but would not load\n  found in: ~a\n  the loader said: ~a\n  check that LD_LIBRARY_PATH holds no other CUDA, or ~a"
       where
-      loader-message
+      detail
       native-library-advice)]))
 
 (define (native-version-error found wanted where)
@@ -89,31 +121,20 @@
           where
           (format "update both with `raco pkg update raft ~a`" native-package)))
 
-(define (same-bytes? a b)
-  (and (file-exists? b) (= (file-size a) (file-size b)) (equal? (file->bytes a) (file->bytes b))))
-
-;; A temp file and rename(2), never a write in place: rewriting a library
-;; that a live process has mapped faults that process.
-(define (stage-file! src dst)
-  (unless (same-bytes? src dst)
-    (call-with-atomic-output-file dst
-                                  (lambda (out tmp)
-                                    (write-bytes (file->bytes src) out)
-                                    (file-or-directory-permissions tmp #o555)))))
-
-(define (stage-native-libs! source-dir dest-dir)
-  (make-directory* dest-dir)
-  (for ([f (in-list (directory-list source-dir))]
-        #:when (regexp-match? library-pattern f))
-    (stage-file! (build-path source-dir f) (build-path dest-dir f))))
+(define (native-library-problem location wanted)
+  (match location
+    [(native-location 'missing dir _ _) (native-library-error 'missing dir)]
+    [(native-location 'broken dir _ cause) (native-library-error 'broken dir cause)]
+    [(native-location (and kind (or 'override 'package)) dir _ _)
+     #:when (not (staged? dir))
+     (native-library-error kind dir)]
+    [(native-location 'package dir found _)
+     #:when (not (equal? found wanted))
+     (native-version-error found wanted dir)]
+    [(native-location (or 'override 'staged 'package) _ _ _) #f]))
 
 (define (pre-installer _collections-top-path this-collection-path _user-specific?)
-  (define native-libs-dir (build-path this-collection-path "native-libs"))
-  (define-values (kind dir) (locate-native-library native-libs-dir))
-  (match kind
-    ['override (stage-native-libs! dir native-libs-dir)]
-    ['missing (eprintf "raft: ~a\n" (native-library-error 'missing dir #f))]
-    ['package
-     #:when (not (staged? dir))
-     (eprintf "raft: ~a\n" (native-library-error 'package dir #f))]
-    [_ (void)]))
+  (define location (locate-native-library (build-path this-collection-path "native-libs")))
+  (match (native-library-problem location (package-version this-collection-path))
+    [#f (void)]
+    [message (eprintf "raft: ~a\n" message)]))

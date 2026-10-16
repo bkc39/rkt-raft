@@ -12,6 +12,8 @@
                   ptr-ref)
          (only-in ffi/unsafe/define define-ffi-definer)
          (only-in ffi/unsafe/define/conventions convention:hyphen->underscore)
+         (only-in racket/match match)
+         (only-in racket/path path-only)
          ;; whole-module: define-runtime-path needs bindings only-in strips
          racket/runtime-path
          (only-in "../exn.rkt" raise-raft)
@@ -19,9 +21,9 @@
                   locate-native-library
                   native-library-advice
                   native-library-error
-                  native-version-error
-                  package-version
-                  staged?))
+                  native-library-problem
+                  native-location-dir
+                  package-version))
 
 (provide define-raft
          native-library-dir
@@ -38,7 +40,7 @@
          released-tag)
 
 (define-runtime-path staged-dir "../../native-libs")
-(define-runtime-path raft-dir "../..")
+(define-runtime-path raft-info "../../info.rkt")
 
 (define abi-version 1)
 
@@ -70,17 +72,6 @@
     [(eqv? found abi-version) library]
     [else (raise-load-failure (abi-mismatch-error where found))]))
 
-(define (open-native-library kind where)
-  (define package? (eq? kind 'package))
-  (define package-found (and package? (package-version (simplify-path (build-path where 'up)))))
-  (define raft-wanted (and package? (package-version raft-dir)))
-  (cond
-    [(eq? kind 'missing) (raise-load-failure (native-library-error 'missing where #f))]
-    [(not (staged? where)) (raise-load-failure (native-library-error kind where #f))]
-    [(and package? (not (and raft-wanted (equal? package-found raft-wanted))))
-     (raise-load-failure (native-version-error package-found raft-wanted where))]
-    [else (load-checked-library where)]))
-
 (define ((missing-export where) name)
   (lambda ()
     (raise-load-failure
@@ -89,9 +80,14 @@
              where
              native-library-advice))))
 
-(define-values (native-library-kind native-library-dir) (locate-native-library staged-dir))
+(define location (locate-native-library staged-dir))
 
-(define native-library (open-native-library native-library-kind native-library-dir))
+(define native-library-dir (native-location-dir location))
+
+(define native-library
+  (match (native-library-problem location (package-version (path-only raft-info)))
+    [#f (load-checked-library native-library-dir)]
+    [message (raise-load-failure message)]))
 
 (define-ffi-definer define-raft
                     native-library
