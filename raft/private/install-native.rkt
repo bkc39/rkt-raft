@@ -1,6 +1,6 @@
 #lang racket/base
 
-(require (only-in racket/match == match)
+(require (only-in racket/match == match match*)
          (only-in racket/path path-only)
          (only-in setup/getinfo get-info/full)
          (only-in "cublas.rkt" cublas-setup-warning)
@@ -152,16 +152,16 @@
              native-package)]
     [_ #f]))
 
-(define (ensure-cublas-at-setup location user-specific?)
-  (match location
-    [(native-location 'package _ _ _) (cublas-setup-warning (cuda-wheel-root user-specific?))]
-    [_ #f]))
+(define (ensure-cublas-at-setup location problem user-specific?)
+  (match* (location problem)
+    [((native-location 'package _ _ _) #f) (cublas-setup-warning (cuda-wheel-root user-specific?))]
+    [(_ _) #f]))
 
 (define (pre-installer _collections-top-path this-collection-path user-specific?)
   (define location (locate-native-library (build-path this-collection-path "native-libs")))
+  (define problem (native-library-problem location (package-version this-collection-path)))
   (for ([message (in-list (list (shadowed-package-warning location)
-                                (native-library-problem location
-                                                        (package-version this-collection-path))
-                                (ensure-cublas-at-setup location user-specific?)))]
+                                problem
+                                (ensure-cublas-at-setup location problem user-specific?)))]
         #:when message)
     (eprintf "raft: ~a\n" message)))

@@ -82,13 +82,17 @@
                                 (and cuda (string->bytes/utf-8 cuda)))
     (proc)))
 
-(define (pre-installer-output collection package #:override (override #f))
+(define (pre-installer-output collection
+                              package
+                              #:override (override #f)
+                              #:cuda [cuda cublas-dir])
   (define errors (open-output-string))
   (copy-loader! collection)
   (call-with-native-package
    (build-path collection "collects")
    package
    #:override override
+   #:cuda cuda
    (lambda ()
      (parameterize ([current-error-port errors])
        ((dynamic-require (build-path collection "private" "install-native.rkt") 'pre-installer)
