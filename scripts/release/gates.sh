@@ -161,9 +161,13 @@ fatbin_modules() {
       offset=$((offset + 8))
       continue
     fi
-    header=$(od -An -t u2 -j $((offset + 6)) -N 2 "$work/nv_fatbin" | tr -d ' ')
-    fat=$(od -An -t u8 -j $((offset + 8)) -N 8 "$work/nv_fatbin" | tr -d ' ')
-    if [ $((offset + 16)) -gt "$size" ] || [ "${#fat}" -gt 18 ] || [ "$header" -lt 16 ] ||
+    header=""
+    fat=""
+    if [ $((offset + 16)) -le "$size" ]; then
+      header=$(od -An -t u2 -j $((offset + 6)) -N 2 "$work/nv_fatbin" | tr -d ' ')
+      fat=$(od -An -t u8 -j $((offset + 8)) -N 8 "$work/nv_fatbin" | tr -d ' ')
+    fi
+    if [ -z "$fat" ] || [ "${#fat}" -gt 18 ] || [ "$header" -lt 16 ] ||
       [ $((offset + header + fat)) -gt "$size" ]; then
       fail architectures "$lib" "fatbin header at $offset: header ${header:-none}, size ${fat:-none}"
       return 0

@@ -38,13 +38,11 @@ fixture() {
 }
 
 gates() {
-  local name=$1
+  local name=$1 status=0
   shift
-  if timeout 60 bash "${tree:-$here/../..}/scripts/release/gates.sh" "$work/$name" "$@" >"$work/$name.out" 2>&1; then
-    echo 0 >"$work/$name.status"
-  else
-    echo 1 >"$work/$name.status"
-  fi
+  timeout 60 bash "${tree:-$here/../..}/scripts/release/gates.sh" "$work/$name" "$@" >"$work/$name.out" 2>&1 || status=$?
+  echo "$status" >"$work/$name.status"
+  [ "$status" -ne 124 ] || problem "$name: gates.sh timed out"
   sed "s|$work/||; s|^|$name: |" "$work/$name.out"
 }
 want_ok() {
@@ -55,7 +53,7 @@ want_fail() {
   local name=$1 file=$2 gate=$3 reason=$4
   grep -F "$file: $gate gate: " "$work/$name.out" | grep -qF -- "$reason" ||
     problem "$name: want $file: $gate gate: ...$reason..."
-  [ "$(cat "$work/$name.status")" = 1 ] || problem "$name: gates.sh exited 0"
+  [ "$(cat "$work/$name.status")" = 1 ] || problem "$name: gates.sh exited $(cat "$work/$name.status"), want 1"
 }
 
 fixture dev "$dev"
@@ -145,6 +143,28 @@ printf '\x50\xed\x55\xba\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00' >"$wor
 objcopy --update-section .nv_fatbin="$work/zero-header" "$arch/full.so" "$work/arch-zero/libraftrkt.so"
 gates arch-zero architectures
 want_fail arch-zero "$work/arch-zero/libraftrkt.so" architectures "fatbin header at 0: header 0, size 0"
+
+fatbin_fixture() {
+  local name=$1 bytes=$2
+  fixture "$name" "$arch/full.so"
+  printf '%b' "$bytes" >"$work/$name.nv_fatbin"
+  objcopy --update-section .nv_fatbin="$work/$name.nv_fatbin" "$arch/full.so" "$work/$name/libraftrkt.so"
+  sums "$name"
+}
+magic='\x50\xed\x55\xba\x01\x00\x10\x00'
+fatbin_fixture arch-truncated-4 '\x50\xed\x55\xba'
+fatbin_fixture arch-truncated-12 "$magic\x00\x00\x00\x00"
+for name in arch-truncated-4 arch-truncated-12; do
+  gates "$name" architectures checksums
+  want_fail "$name" "$work/$name/libraftrkt.so" architectures "fatbin header at 0: header none, size none"
+  want_ok "$name" checksums
+done
+fatbin_fixture arch-overrun "$magic\x01\x00\x00\x00\x00\x00\x00\x00"
+gates arch-overrun architectures
+want_fail arch-overrun "$work/arch-overrun/libraftrkt.so" architectures "fatbin header at 0: header 16, size 1"
+fatbin_fixture arch-huge "$magic\xff\xff\xff\xff\xff\xff\xff\xff"
+gates arch-huge architectures
+want_fail arch-huge "$work/arch-huge/libraftrkt.so" architectures "fatbin header at 0: header 16, size 18446744073709551615"
 
 fixture arch-segment "$arch/short.so"
 head -c 24 /dev/zero >"$work/one-wrapper"
