@@ -2,7 +2,9 @@
 
 (require (only-in racket/match == match)
          (only-in racket/path path-only)
-         (only-in setup/getinfo get-info/full))
+         (only-in setup/dirs find-share-dir)
+         (only-in setup/getinfo get-info/full)
+         (only-in "cublas.rkt" cublas-setup))
 
 (provide (struct-out native-location)
          locate-native-library
@@ -150,10 +152,19 @@
              native-package)]
     [_ #f]))
 
-(define (pre-installer _collections-top-path this-collection-path _user-specific?)
+(define (cublas-warning location user-specific?)
+  (match location
+    [(native-location 'package _ _ _)
+     (cublas-setup (if user-specific?
+                       (find-system-path 'addon-dir)
+                       (find-share-dir)))]
+    [_ #f]))
+
+(define (pre-installer _collections-top-path this-collection-path user-specific?)
   (define location (locate-native-library (build-path this-collection-path "native-libs")))
   (for ([message (in-list (list (shadowed-package-warning location)
                                 (native-library-problem location
-                                                        (package-version this-collection-path))))]
+                                                        (package-version this-collection-path))
+                                (cublas-warning location user-specific?)))]
         #:when message)
     (eprintf "raft: ~a\n" message)))

@@ -12,10 +12,16 @@
                   ptr-ref)
          (only-in ffi/unsafe/define define-ffi-definer)
          (only-in ffi/unsafe/define/conventions convention:hyphen->underscore)
-         (only-in racket/match match)
+         (only-in racket/match match match*)
          (only-in racket/path path-only)
          ;; whole-module: define-runtime-path needs bindings only-in strips
          racket/runtime-path
+         (only-in "../cublas.rkt"
+                  cublas-libraries
+                  cublas-location
+                  cublas-missing-error
+                  cublas-override-error
+                  locate-cublas)
          (only-in "../exn.rkt" raise-raft)
          (only-in "../install-native.rkt"
                   locate-native-library
@@ -23,6 +29,7 @@
                   native-library-error
                   native-library-problem
                   native-location-dir
+                  native-location-kind
                   package-version))
 
 (provide define-raft
@@ -72,6 +79,23 @@
     [(eqv? found abi-version) library]
     [else (raise-load-failure (abi-mismatch-error where found))]))
 
+(define (load-cublas dir)
+  (for ([name (in-list cublas-libraries)])
+    (with-handlers ([exn:fail? (lambda (e)
+                                 (raise-load-failure
+                                  (format "~a would not load\n  found in: ~a\n  the loader said: ~a"
+                                          name
+                                          dir
+                                          (exn-message e))))])
+      (ffi-lib (build-path dir name)))))
+
+(define (ensure-cublas native-kind)
+  (match* ((locate-cublas) native-kind)
+    [((cublas-location (or 'override 'fetched) dir) _) (load-cublas dir)]
+    [((cublas-location 'bad-override dir) _) (raise-load-failure (cublas-override-error dir))]
+    [((cublas-location 'missing _) 'package) (raise-load-failure (cublas-missing-error))]
+    [(_ _) (void)]))
+
 (define ((missing-export where) name)
   (lambda ()
     (raise-load-failure
@@ -86,7 +110,9 @@
 
 (define native-library
   (match (native-library-problem location (package-version (path-only raft-info)))
-    [#f (load-checked-library native-library-dir)]
+    [#f
+     (ensure-cublas (native-location-kind location))
+     (load-checked-library native-library-dir)]
     [message (raise-load-failure message)]))
 
 (define-ffi-definer define-raft

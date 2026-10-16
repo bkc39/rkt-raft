@@ -592,6 +592,30 @@ plans/scoping-plan.md         the approved plan (revision 5), as Markdown
   (`catalog-test.sh` asserts it), and `--unused-pkg-deps` warns about it,
   which in Racket 9.3 is only a warning. Off x86_64 Linux the missing-library
   advice is the override alone; no message names Nix (#41, #43).
+- cuBLAS (#44): `private/cuda-wheels.rktd` pins the `nvidia-cublas` wheel
+  (version, URL, sha256, size, the libraries inside, in load order);
+  `private/cuda-wheels.rkt` turns a pin into a directory,
+  `<root>/rapids/cu13/<wheel>-<version>/lib/`, with root the addon dir (user
+  scope) or the installation's share dir, room for rkt-cuml's wheels beside
+  it. `ensure-cuda-wheel` downloads into `<wheel>-<version>.part/`, checks
+  size then sha256, unzips only the pinned libraries and renames the
+  directory into place, so a failed or killed fetch never counts as present.
+  `private/cublas.rkt`: `locate-cublas` takes `RAFT_CUDA_LIB_PATH`, then a
+  system CUDA 13 (`ffi-lib "libcublasLt" '("13")`, injectable as
+  `#:system?`), then the fetched directory in either root. The loader loads
+  cublasLt then cublas by absolute path before libraftrkt, so its `NEEDED`
+  is met by soname; it never sets `LD_LIBRARY_PATH` and never downloads. A
+  missing cuBLAS is fatal only for the native package (a staged or
+  `RAFT_NATIVE_LIB_PATH` library finds Nix's by RUNPATH); a
+  `RAFT_CUDA_LIB_PATH` without the libraries always is. The pre-install hook
+  fetches only for the native package, on x86_64 Linux, when none of the
+  three is there; a failure is a warning naming the cause and
+  `racket -l- raft/fetch-cuda` (`raft/fetch-cuda.rkt`, into the addon dir),
+  never a failed `raco setup`. `RAFT_CUDA_WHEEL_URL_BASE` replaces the
+  wheel URL's directory (`file:///cache` in the catalog test, a local HTTP
+  server or file in `cuda-wheels-test.rkt`); it is for tests and CI and is
+  not in the manual. `release-gates` fails when the pin differs from
+  `pins.sh` (`check-pins.sh`'s sixth argument).
 - Tests: `tests/private/gpu.rkt` (`gpu-available?`, `test-gpu`),
   `tests/private/probe.rkt` (the probe library, from `RAFT_SHIM_PROBE`,
   its jobs bound with `define-job`, `gate-job`, `test-host-probe`, which
@@ -646,7 +670,8 @@ is untouched. Its pins (images, wheels, tools) are in
 `scripts/release/pins.sh`; downloads are cached in `RELEASE_CACHE` (default
 `~/.cache/rkt-raft-release`) and `RELEASE_JOBS` (default 4) caps the
 compile. Flake check `release-gates` fails when the wheel pins differ from
-`nix/rapids.nix` or the cuBLAS wheel from `cudaPackages.libcublas`, and runs
+`nix/rapids.nix`, the cuBLAS wheel from `cudaPackages.libcublas` or from raft's
+own pin (`raft/private/cuda-wheels.rktd`), and runs
 `scripts/release/gates-test.sh`, the gates' own tests.
 
 **The native package** (#43) is the artifact plus `raft-x86_64-linux/`'s
@@ -838,7 +863,7 @@ gates' own tests), `no-syntax-rule`, `no-raw-malloc`,
 | `c-headers`, `line-count` | the umbrella header as C11; 500 lines per C/C++/CUDA file | flake checks | by hand |
 | ASAN and UBSAN (`-DRAFTRKT_SANITIZE=ON`) | host memory errors, leaks and undefined behaviour in both gtest binaries (not signed overflow: the nix stdenv's `strictoverflow` hardening builds with `-fno-strict-overflow`), and in every death-test child; the leak check runs only in a child that reaches normal exit, not one whose drain skipped (its exit ends in `_exit`) or that calls `_exit`/`std::_Exit`; the exit and deposit-job death tests' children send ASan and LSan reports to stdout, UBSan's to stderr, and fail by exit status | flake check `shim-sanitizers` (GPU cases SKIP); the GPU suite (GPU cases run); gate `sanitizers` | by hand |
 | release gates (`scripts/release/gates.sh`) | the artifact: exactly the shipped files, each library an x86-64 ELF64 shared object with no `PT_INTERP`, `RUNPATH` `$ORIGIN` only, no `/nix/store`, `GLIBC_` ≤ 2.28, `GLIBCXX_` ≤ 3.4.25, the shim's `NEEDED`, the companions' `NEEDED`, every architecture in each fatbin module and as many modules as `.nvFatBinSegment` bytes / 24, the ABI version against `library.rkt`, `SHA256SUMS` | `release.yml`; flake check `release-gates` (`scripts/release/gates-test.sh`) | by hand |
-| catalog test (`scripts/release/catalog-test.sh`, `catalog-check.rkt`) | `raco pkg install raft` from a directory catalog, no GPU or nix: libraries mapped from `raft-x86_64-linux` and equal to the manifest, cuBLAS from the wheel, one `librmm.so`; with the package removed, the load message, `raco setup --pkgs raft` exiting 0 and printing it; both scopes | `release.yml` job `native-package`; `scripts/release.sh catalog-test` | by hand |
+| catalog test (`scripts/release/catalog-test.sh`, `catalog-check.rkt`) | `raco pkg install raft` from a directory catalog, no GPU or nix: libraries mapped from `raft-x86_64-linux` and equal to the manifest, cuBLAS mapped once from the directory the pre-install hook fetched (the cached, verified wheel served by `file://`, no `LD_LIBRARY_PATH`), `racket -l- raft/fetch-cuda` finding it, one `librmm.so`; with the package removed, the load message, `raco setup --pkgs raft` exiting 0 and printing it; installation scope offline (a warning, exit 0, the missing-cuBLAS message), then fetched into the share dir by `raco setup` | `release.yml` job `native-package`; `scripts/release.sh catalog-test` | by hand |
 | compute-sanitizer memcheck | device memory errors, device leaks (`--leak-check full`) and failing CUDA calls (`--report-api-errors explicit`) in both gtest binaries and the canary's | the GPU suite (gate `gpu`, `gpu.yml`) | by hand |
 
 - **raco fmt** formats `.rkt` files only. It crashes on Scribble's

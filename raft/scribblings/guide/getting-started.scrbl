@@ -16,7 +16,6 @@ checked the GPU stack under it.
  @item{@bold{An NVIDIA GPU of compute capability 7.5 or newer}, the
        architectures RAPIDS supports.}
  @item{@bold{An NVIDIA driver for CUDA 13}, release 580 or newer.}
- @item{@bold{cuBLAS from CUDA 13} on the loader path.}
  @item{@bold{glibc 2.28} or later.}
  @item{@bold{Racket 9.3} or later.}]
 
@@ -26,6 +25,15 @@ checked the GPU stack under it.
 
 This also installs @tt{raft-x86_64-linux}, the package that holds the native
 library, @tt{libraftrkt}, and the RAPIDS libraries it loads.
+
+The install also fetches cuBLAS from CUDA 13 (about 400 MB): NVIDIA's
+@tt{nvidia-cublas} wheel from PyPI, under NVIDIA's licence, which raft does
+not redistribute. To use a CUDA 13 you already have, set
+@envvar{RAFT_CUDA_LIB_PATH} to the directory holding @tt{libcublas.so.13} and
+@tt{libcublasLt.so.13}; a CUDA 13 on the system library path is used without
+it. If the fetch failed, retry it with:
+
+@commandline{racket -l- raft/fetch-cuda}
 
 If @racket[(require raft)] then fails, the message says what is wrong with the
 native library and where it looked.

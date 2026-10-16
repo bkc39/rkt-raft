@@ -230,14 +230,21 @@ pins=("$RELEASE_WHEEL_LIBRAFT $RELEASE_WHEEL_LIBRAFT_SHA256"
   "$RELEASE_WHEEL_RAPIDS_LOGGER $RELEASE_WHEEL_RAPIDS_LOGGER_SHA256")
 cublas=$(release_wheel_version "$RELEASE_WHEEL_CUBLAS")
 racket=$(release_racket_version "$RELEASE_RACKET")
-bash "$here/check-pins.sh" "${pins[@]}" "$cublas" "$racket" >/dev/null ||
+cuda_wheels="$here/../../raft/private/cuda-wheels.rktd"
+bash "$here/check-pins.sh" "${pins[@]}" "$cublas" "$racket" "$cuda_wheels" >/dev/null ||
   problem "check-pins: the pins' own values failed"
-if bash "$here/check-pins.sh" "${pins[@]}" 0.0.0 "$racket" >"$work/pins.out"; then
+sed "s/$RELEASE_WHEEL_CUBLAS_SHA256/$(printf '0%.0s' {1..64})/" "$cuda_wheels" >"$work/cuda-wheels.rktd"
+if bash "$here/check-pins.sh" "${pins[@]}" "$cublas" "$racket" "$work/cuda-wheels.rktd" >"$work/raft-pins.out"; then
+  problem "check-pins: a raft cuBLAS pin with another sha256 passed"
+fi
+grep -qF "$work/cuda-wheels.rktd: pins the cuBLAS wheel as" "$work/raft-pins.out" ||
+  problem "check-pins: a raft cuBLAS pin with another sha256 said $(cat "$work/raft-pins.out")"
+if bash "$here/check-pins.sh" "${pins[@]}" 0.0.0 "$racket" "$cuda_wheels" >"$work/pins.out"; then
   problem "check-pins: a cuBLAS 0.0.0 flake passed"
 fi
 grep -qF "scripts/release/pins.sh: pins the cuBLAS wheel version as" "$work/pins.out" ||
   problem "check-pins: a cuBLAS 0.0.0 flake said $(cat "$work/pins.out")"
-if bash "$here/check-pins.sh" "${pins[@]}" "$cublas" 9.9 >"$work/racket-pins.out"; then
+if bash "$here/check-pins.sh" "${pins[@]}" "$cublas" 9.9 "$cuda_wheels" >"$work/racket-pins.out"; then
   problem "check-pins: a Racket 9.9 floor passed"
 fi
 grep -qF "scripts/release/pins.sh: pins the catalog test's Racket as $racket; the flake has 9.9" "$work/racket-pins.out" ||

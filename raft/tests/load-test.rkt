@@ -15,6 +15,7 @@
          (only-in "private/native-package.rkt"
                   call-with-native-package
                   copy-loader!
+                  cublas-dir
                   link-library
                   native-package)
          (only-in "private/probe.rkt" probe-fixture probe-path test-host-probe))
@@ -47,7 +48,10 @@
      (stage! (build-path dir "lib"))
      (path->string dir)]))
 
-(define (load-outcome #:override (override #f) #:staged [stage! void] #:package [package void])
+(define (load-outcome #:override (override #f)
+                      #:staged [stage! void]
+                      #:package [package void]
+                      #:cuda [cuda cublas-dir])
   (with-release ([root (make-temporary-directory "raft-load-~a") delete-directory/files])
     (copy-loader! root)
     (make-directory* (build-path root "native-libs"))
@@ -62,6 +66,7 @@
     (call-with-native-package (build-path root "collects")
                               package
                               #:override (override-value override root)
+                              #:cuda cuda
                               (lambda ()
                                 (eval (consumer (build-path root "private" "foreign" "library.rkt")))
                                 (match (with-handlers ([exn:fail? values])
@@ -214,3 +219,12 @@
    (outcome-message o))
   (check-regexp-match (path-line "found in" (outcome-staged o)) (outcome-message o))
   (check-regexp-match #rx"reinstall raft" (outcome-message o)))
+
+(test-case "RAFT_CUDA_LIB_PATH naming a directory with no cuBLAS is refused before libraftrkt loads"
+  (define o
+    (load-outcome #:package (native-package raft-version (link-library real-library))
+                  #:cuda "/nonexistent/raft-cuda"))
+  (check-regexp-match
+   #rx"^raft: RAFT_CUDA_LIB_PATH points at /nonexistent/raft-cuda, which does not hold libcublasLt[.]so[.]13 and libcublas[.]so[.]13\n"
+   (outcome-message o))
+  (check-regexp-match #rx"`racket -l- raft/fetch-cuda`" (outcome-message o)))

@@ -449,6 +449,7 @@
                 ./scripts/release
                 ./raft/info.rkt
                 ./raft/private/foreign/library.rkt
+                ./raft/private/cuda-wheels.rktd
                 ./raft-x86_64-linux/info.rkt
                 ./raft-x86_64-linux/NOTICE
                 ./README.md
@@ -469,7 +470,7 @@
               "${rapids.libraft.wheel.url} ${rapids.libraft.wheel.sha256}" \
               "${rapids.librmm.wheel.url} ${rapids.librmm.wheel.sha256}" \
               "${rapids.rapids-logger.wheel.url} ${rapids.rapids-logger.wheel.sha256}" \
-              ${cudaPackages.libcublas.version} ${minRacketVersion}
+              ${cudaPackages.libcublas.version} ${minRacketVersion} $src/raft/private/cuda-wheels.rktd
             timeout 900 ${pkgs.bash}/bin/bash $src/scripts/release/gates-test.sh ${shim}/lib/libraftrkt.so \
               ${shim.tests}/lib/libraftrkt_stale_abi.so ${rapids.core}/lib64 ${releaseArchFixtures}
             touch $out

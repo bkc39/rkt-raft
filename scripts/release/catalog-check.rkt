@@ -71,6 +71,15 @@
           (check (string-contains? message "`raco pkg install raft-x86_64-linux`")
                  "and says how to install it")))
 
+(define (cuda-missing)
+  (define message (load-failure))
+  (printf "(require raft) said:\n~a\n" message)
+  (append (check (string-prefix? message "raft: cuBLAS from CUDA 13 is not installed: ")
+                 "the load failure names the missing cuBLAS")
+          (check (string-contains? message "`racket -l- raft/fetch-cuda`")
+                 "and the command that fetches it")
+          (check (string-contains? message "RAFT_CUDA_LIB_PATH") "and the override")))
+
 (define (setup status load-file setup-log)
   (define log (file->string setup-log))
   (append (check (equal? status "0") (format "raco setup --pkgs raft exited 0 (got ~a)" status))
@@ -85,9 +94,10 @@
     (match (current-command-line-arguments)
       [(vector "installed" cublas-dir) (installed cublas-dir)]
       [(vector "missing" out) (missing out)]
+      [(vector "cuda-missing") (cuda-missing)]
       [(vector "setup" status load-file setup-log) (setup status load-file setup-log)]
       [_
        (raise-user-error
         'catalog-check
-        "usage: catalog-check.rkt installed CUBLAS-DIR | missing OUT | setup STATUS LOAD SETUP-LOG")]))
+        "usage: catalog-check.rkt installed CUBLAS-DIR | missing OUT | cuda-missing | setup STATUS LOAD SETUP-LOG")]))
   (exit (if (null? failures) 0 1)))
