@@ -451,6 +451,7 @@
                 ./raft/private/foreign/library.rkt
                 ./raft-x86_64-linux/info.rkt
                 ./raft-x86_64-linux/NOTICE
+                ./README.md
                 ./.github/workflows/release.yml
               ];
             };

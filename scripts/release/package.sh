@@ -26,6 +26,7 @@ release_words shipped "$RELEASE_SHIPPED"
 cmp "$pkg/NOTICE" "$src/$RELEASE_NATIVE_PACKAGE/NOTICE"
 
 version=$(racket "$here/catalog.rkt" check "$pkg" "$src/raft" "${RELEASE_TAG:-}")
+racket "$here/catalog.rkt" license "$pkg" >/dev/null
 
 rm -f "$dist/$RELEASE_NATIVE_PACKAGE.zip" "$dist/$RELEASE_NATIVE_PACKAGE.zip.CHECKSUM"
 raco pkg create --format zip --dest "$dist" "$pkg"

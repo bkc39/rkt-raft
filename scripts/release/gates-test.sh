@@ -278,6 +278,25 @@ for copyright in "Copyright (c) 2016 Gabi Melman." \
   grep -qF "$copyright" "$here/../../$RELEASE_NATIVE_PACKAGE/NOTICE" ||
     problem "NOTICE: lacks \"$copyright\", which librapids_logger.so's spdlog and {fmt} need"
 done
+readme=$(tr -s ' \n' ' ' <"$here/../../README.md")
+[[ $readme == *"spdlog 1.14.1 and {fmt} 10.2.1, MIT"* ]] ||
+  problem "README.md: the licence summary lacks spdlog 1.14.1 and {fmt} 10.2.1, MIT"
+
+racket "$here/catalog.rkt" license "$here/../../$RELEASE_NATIVE_PACKAGE" >"$work/license.out" 2>&1 ||
+  problem "license: $(cat "$work/license.out")"
+license_case() {
+  local name=$1 expression=$2 reason=$3
+  mkdir -p "$work/$name"
+  cp "$here/../../$RELEASE_NATIVE_PACKAGE/NOTICE" "$work/$name/"
+  printf '#lang info\n(define license %s)\n' "$expression" >"$work/$name/info.rkt"
+  if racket "$here/catalog.rkt" license "$work/$name" >"$work/$name.out" 2>&1 ||
+    ! grep -qF -- "$reason" "$work/$name.out"; then
+    problem "$name: want a refusal saying $reason, got $(cat "$work/$name.out")"
+  fi
+}
+license_case license-no-mit "'(Apache-2.0 AND LicenseRef-NVIDIA-CUDA-EULA)" "lacks (MIT), which NOTICE names"
+license_case license-n-ary "'(Apache-2.0 AND MIT AND LicenseRef-NVIDIA-CUDA-EULA)" "is not a license S-expression"
+
 for path in "raft/**" "$RELEASE_NATIVE_PACKAGE/**"; do
   grep -qxF "      - $path" "$here/../../.github/workflows/release.yml" ||
     problem "release.yml: no pull_request path $path, which the catalog test installs"
