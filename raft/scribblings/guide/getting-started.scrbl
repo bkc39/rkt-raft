@@ -13,15 +13,21 @@ checked the GPU stack under it.
 @itemlist[
  @item{@bold{Linux on x86-64.} No macOS or Windows build, and no CPU
        fallback.}
- @item{@bold{An NVIDIA GPU of compute capability 8.6 or a later 8.x}: RTX 30
-       and 40 series, A10, A40, L4, L40. The native library is built for 8.6
-       only; RAPIDS itself supports 7.5 and newer.}
+ @item{@bold{An NVIDIA GPU of compute capability 7.5 or newer}, the
+       architectures RAPIDS supports.}
  @item{@bold{An NVIDIA driver for CUDA 13}, release 580 or newer.}
+ @item{@bold{cuBLAS from CUDA 13} (@tt{libcublas.so.13} and
+       @tt{libcublasLt.so.13}) where the dynamic loader finds it, such as a
+       CUDA 13 toolkit's @filepath{lib64} on @envvar{LD_LIBRARY_PATH}.}
+ @item{@bold{glibc 2.28} or later.}
  @item{@bold{Racket 9.3} or later.}]
 
 @section[#:tag "gs-installing"]{Installing}
 
 @commandline{raco pkg install raft}
+
+This also installs @tt{raft-x86_64-linux}, the package that holds the native
+library, @tt{libraftrkt}, and the RAPIDS libraries it loads.
 
 If @racket[(require raft)] then fails, the message says what is wrong with the
 native library and where it looked.

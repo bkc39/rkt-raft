@@ -56,8 +56,11 @@ export RAFT_KMEANS_CANARY=$PWD/result/lib/libkmeans_canary.so   # nix develop se
 
 ## Licences
 
-rkt-raft is Apache-2.0 (`LICENSE`). The repository holds only its own code and
-does not redistribute what it builds on:
+rkt-raft is Apache-2.0 (`LICENSE`). The repository holds only its own code.
+The `raft-x86_64-linux` package on GitHub Releases redistributes, unmodified,
+`librmm.so` and `librapids_logger.so` (Apache-2.0) and, statically linked into
+`libraftrkt.so`, the CUDA runtime (`cudart_static`, under NVIDIA's CUDA EULA;
+`raft-x86_64-linux/NOTICE`). What rkt-raft builds on:
 
 - RAFT, RMM, cuML and cuVS, from NVIDIA's RAPIDS wheels on PyPI, with
   `rapids-logger`, which RAFT and RMM use, and nvForest, which cuML loads:
