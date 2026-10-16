@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# shellcheck disable=SC2329
 set -euo pipefail
 export LC_ALL=C
 
@@ -7,21 +8,26 @@ here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 . "$here/pins.sh"
 racket_abi_source="$here/../../raft/private/foreign/library.rkt"
 
+gate_names="files runpath nix-store glibc glibcxx needed companion-needed architectures abi checksums"
+
 if [ $# -lt 1 ]; then
-  echo "usage: gates.sh DIR [GATE...]" >&2
+  echo "usage: gates.sh DIR [GATE...] (gates: $gate_names)" >&2
   exit 2
 fi
 dir=$1
 shift
-all_gates="files runpath nix-store glibc glibcxx needed companion-needed architectures abi checksums"
-gates=${*:-$all_gates}
+gates=${*:-$gate_names}
 
 failed=0
+gate_failed=0
 # shellcheck disable=SC2016
 origin='$ORIGIN'
-ok() { printf 'ok   %s: %s\n' "$1" "$2"; }
+ok() { [ "$gate_failed" -eq 1 ] || printf 'ok   %s: %s\n' "$1" "$2"; }
 fail() {
-  printf 'FAIL %s: %s\n' "$1" "$2"
+  local gate=$1 file=$2 message="$1 gate: $3"
+  echo "$file: $message"
+  [ -z "${GITHUB_ACTIONS:-}" ] || echo "::error file=$file::$message"
+  gate_failed=1
   failed=1
 }
 
@@ -33,6 +39,7 @@ present() {
 }
 dynamic() { readelf -d "$1" | sed -n "s/.*($2).*\[\(.*\)\]\$/\1/p"; }
 words() { tr ' ' '\n' <<<"$1" | sed '/^$/d' | sort -u; }
+line() { tr '\n' ' ' <<<"$1" | sed 's/ $//'; }
 required_versions() {
   objdump -p "$1" | awk -v p="$2_" '
     /^Version References:/ { r = 1; next }
@@ -41,71 +48,103 @@ required_versions() {
 }
 version_le() { [ "$(printf '%s\n%s\n' "$1" "$2" | sort -V | tail -n1)" = "$2" ]; }
 
-gate_files() {
-  local f missing=""
-  for f in $RELEASE_SHIPPED; do
-    [ -f "$dir/$f" ] || missing="$missing $f"
+version_floor() {
+  local gate=$1 prefix=$2 limit=$3 f v highest="" worst=""
+  for f in $(present); do
+    v=$(required_versions "$f" "$prefix" | sort -V | tail -n1)
+    [ -n "$v" ] || continue
+    if [ -z "$highest" ] || ! version_le "$v" "$highest"; then
+      highest=$v
+      worst=$f
+    fi
   done
-  if [ -n "$missing" ]; then fail files "missing$missing"; else ok files "$RELEASE_SHIPPED"; fi
+  if [ -z "$highest" ]; then
+    fail "$gate" "$dir" "no ${prefix}_ version references"
+  elif ! version_le "$highest" "$limit"; then
+    fail "$gate" "$worst" "${prefix}_$highest > $limit"
+  fi
+  ok "$gate" "${prefix}_$highest <= $limit"
+}
+
+gate_files() {
+  local want actual f
+  want=$(words "$RELEASE_SHIPPED $RELEASE_LICENSES manifest.json SHA256SUMS")
+  actual=$(find "$dir" -mindepth 1 -maxdepth 1 -printf '%f\n' | sort -u)
+  for f in $(comm -23 <(printf '%s\n' "$want") <(printf '%s\n' "$actual")); do
+    fail files "$dir" "missing $f"
+  done
+  for f in $(comm -13 <(printf '%s\n' "$want") <(printf '%s\n' "$actual")); do
+    fail files "$dir/$f" "not a release file"
+  done
+  ok files "$(line "$want")"
 }
 
 gate_runpath() {
-  local f bad=""
+  local f runpath rpath
   for f in $(present); do
-    [ "$(dynamic "$f" RUNPATH)" = "$origin" ] && [ -z "$(dynamic "$f" RPATH)" ] ||
-      bad="$bad ${f##*/}=[$(dynamic "$f" RUNPATH)$(dynamic "$f" RPATH)]"
+    runpath=$(dynamic "$f" RUNPATH)
+    rpath=$(dynamic "$f" RPATH)
+    [ "$runpath" = "$origin" ] && [ -z "$rpath" ] ||
+      fail runpath "$f" "RUNPATH [$runpath] RPATH [$rpath], want RUNPATH \$ORIGIN only"
   done
-  if [ -n "$bad" ]; then fail runpath "not \$ORIGIN only:$bad"; else ok runpath "$origin"; fi
+  ok runpath "$origin"
 }
 
 gate_nix_store() {
-  local f bad=""
+  local f
   for f in $(present); do
-    if grep -aq /nix/store "$f"; then bad="$bad ${f##*/}"; fi
+    if grep -aq /nix/store "$f"; then fail nix-store "$f" "names /nix/store"; fi
   done
-  if [ -n "$bad" ]; then fail nix-store "/nix/store in$bad"; else ok nix-store "absent"; fi
+  ok nix-store "absent"
 }
 
-gate_version_floor() {
-  local gate=$1 prefix=$2 limit=$3 f highest
-  highest=$(for f in $(present); do required_versions "$f" "$prefix"; done | sort -V | tail -n1)
-  if [ -z "$highest" ]; then
-    fail "$gate" "no ${prefix}_ version references"
-  elif version_le "$highest" "$limit"; then
-    ok "$gate" "${prefix}_$highest <= $limit"
-  else
-    fail "$gate" "${prefix}_$highest > $limit"
-  fi
-}
+gate_glibc() { version_floor glibc GLIBC "$RELEASE_GLIBC_MAX"; }
+gate_glibcxx() { version_floor glibcxx GLIBCXX "$RELEASE_GLIBCXX_MAX"; }
 
 gate_needed() {
   local lib="$dir/libraftrkt.so" actual extra
   if [ ! -f "$lib" ]; then
-    fail needed "no libraftrkt.so"
+    fail needed "$lib" "missing"
     return
   fi
   actual=$(dynamic "$lib" NEEDED | sort -u)
   extra=$(comm -23 <(printf '%s\n' "$actual") <(words "$RELEASE_LIBC_FAMILY"))
-  if [ "$extra" = "$(words "$RELEASE_SHIM_NEEDED")" ]; then
-    ok needed "$(tr '\n' ' ' <<<"$actual")"
-  else
-    fail needed "outside the libc family: $(tr '\n' ' ' <<<"$extra")(want $RELEASE_SHIM_NEEDED)"
-  fi
+  [ "$extra" = "$(words "$RELEASE_SHIM_NEEDED")" ] ||
+    fail needed "$lib" "outside the libc family: [$(line "$extra")], want [$RELEASE_SHIM_NEEDED]"
+  ok needed "$(line "$actual")"
 }
 
 gate_companion_needed() {
-  local f name stray bad=""
+  local f name stray
   for name in $RELEASE_SHIPPED; do
     f="$dir/$name"
     [ "$name" != libraftrkt.so ] && [ -f "$f" ] || continue
     stray=$(comm -23 <(dynamic "$f" NEEDED | sort -u) <(words "$RELEASE_SHIPPED $RELEASE_LIBC_FAMILY"))
-    [ -z "$stray" ] || bad="$bad $name needs $(tr '\n' ' ' <<<"$stray")"
+    [ -z "$stray" ] || fail companion-needed "$f" "needs $(line "$stray") outside the shipped set and the libc family"
   done
-  if [ -n "$bad" ]; then fail companion-needed "$bad"; else ok companion-needed "shipped set and libc family"; fi
+  ok companion-needed "shipped set and libc family"
+}
+
+fatbin_modules() {
+  local lib=$1 work=$2 size offset=0 n=0 header fat
+  objcopy -O binary --only-section=.nv_fatbin "$lib" "$work/nv_fatbin" 2>/dev/null || return 0
+  size=$(stat -c %s "$work/nv_fatbin")
+  while [ "$offset" -lt "$size" ]; do
+    if [ "$(od -An -t x4 -j "$offset" -N 4 "$work/nv_fatbin" | tr -d ' ')" != ba55ed50 ]; then
+      offset=$((offset + 8))
+      continue
+    fi
+    header=$(od -An -t u2 -j $((offset + 6)) -N 2 "$work/nv_fatbin" | tr -d ' ')
+    fat=$(od -An -t u8 -j $((offset + 8)) -N 8 "$work/nv_fatbin" | tr -d ' ')
+    n=$((n + 1))
+    tail -c +$((offset + 1)) "$work/nv_fatbin" | head -c $((header + fat)) >"$work/module-$n.fatbin"
+    printf '%s\n' "$work/module-$n.fatbin"
+    offset=$((offset + header + fat))
+  done
 }
 
 gate_architectures() {
-  local lib="$dir/libraftrkt.so" a want_elf="" want_ptx="" embedded elf ptx
+  local lib="$dir/libraftrkt.so" a want_elf="" want_ptx="" work module n=0 embedded elf ptx
   for a in ${RELEASE_CUDA_ARCHITECTURES//;/ }; do
     case $a in
       *-real) want_elf="$want_elf sm_${a%-real}" ;;
@@ -116,65 +155,64 @@ gate_architectures() {
         ;;
     esac
   done
-  embedded=$(cuobjdump -elf -ptx "$lib" 2>&1 |
-    awk '/^Fatbin (elf|ptx) code:$/ { kind = $2 } /^arch = / && kind { print kind, $3; kind = "" }' || true)
-  elf=$(sed -n 's/^elf //p' <<<"$embedded" | sort -u)
-  ptx=$(sed -n 's/^ptx //p' <<<"$embedded" | sort -u)
-  if [ "$elf" = "$(words "$want_elf")" ] && [ "$ptx" = "$(words "$want_ptx")" ]; then
-    ok architectures "elf $(tr '\n' ' ' <<<"$elf")ptx $(tr '\n' ' ' <<<"$ptx")"
-  else
-    fail architectures "elf [$(tr '\n' ' ' <<<"$elf")] ptx [$(tr '\n' ' ' <<<"$ptx")], want elf [${want_elf# }] ptx [${want_ptx# }]"
-  fi
+  want_elf=$(words "$want_elf")
+  want_ptx=$(words "$want_ptx")
+  work=$(mktemp -d)
+  for module in $(fatbin_modules "$lib" "$work"); do
+    n=$((n + 1))
+    embedded=$(cuobjdump -elf -ptx "$module" 2>&1 |
+      awk '/^Fatbin (elf|ptx) code:$/ { kind = $2 } /^arch = / && kind { print kind, $3; kind = "" }' || true)
+    elf=$(sed -n 's/^elf //p' <<<"$embedded" | sort -u)
+    ptx=$(sed -n 's/^ptx //p' <<<"$embedded" | sort -u)
+    [ "$elf" = "$want_elf" ] && [ "$ptx" = "$want_ptx" ] ||
+      fail architectures "$lib" "fatbin module $n has elf [$(line "$elf")] ptx [$(line "$ptx")], want elf [$(line "$want_elf")] ptx [$(line "$want_ptx")]"
+  done
+  rm -rf "$work"
+  [ "$n" -gt 0 ] || fail architectures "$lib" "no .nv_fatbin module"
+  ok architectures "$n fatbin module(s), each elf $(line "$want_elf") ptx $(line "$want_ptx")"
 }
 
 gate_abi() {
-  local want work found
+  local lib="$dir/libraftrkt.so" want work found=""
   want=$(sed -n 's/^(define abi-version \([0-9]*\))$/\1/p' "$racket_abi_source")
+  if [ -z "$want" ]; then
+    fail abi "$racket_abi_source" "no (define abi-version N)"
+    return
+  fi
   work=$(mktemp -d)
   if ! "${CC:-cc}" -o "$work/abi-probe" "$here/abi-probe.c" -ldl; then
-    fail abi "the probe does not compile"
-  elif ! found=$("$work/abi-probe" "$dir/libraftrkt.so" 2>&1); then
-    fail abi "does not load: $found"
-  elif [ -n "$want" ] && [ "$found" = "$want" ]; then
-    ok abi "rr_abi $found = raft $want"
-  else
-    fail abi "rr_abi $found, raft wants ${want:-nothing (no abi-version in $racket_abi_source)}"
+    fail abi "$here/abi-probe.c" "the probe does not compile"
+  elif ! found=$("$work/abi-probe" "$lib" 2>&1); then
+    fail abi "$lib" "does not load: $found"
+  elif [ "$found" != "$want" ]; then
+    fail abi "$lib" "rr_abi $found, raft wants $want"
   fi
   rm -rf "$work"
+  ok abi "rr_abi $found = raft $want"
 }
 
 gate_checksums() {
-  local sums="$dir/SHA256SUMS" listed
+  local sums="$dir/SHA256SUMS" listed want
   if [ ! -f "$sums" ]; then
-    fail checksums "no SHA256SUMS"
+    fail checksums "$sums" "missing"
     return
   fi
   listed=$(awk '{ print $2 }' "$sums" | sort -u)
-  if [ "$listed" != "$(words "$RELEASE_SHIPPED manifest.json")" ]; then
-    fail checksums "SHA256SUMS lists $(tr '\n' ' ' <<<"$listed")"
-  elif (cd "$dir" && sha256sum -c --quiet SHA256SUMS >/dev/null 2>&1); then
-    ok checksums "$(wc -l <"$sums") files"
-  else
-    fail checksums "$(cd "$dir" && sha256sum -c --quiet SHA256SUMS 2>&1 | tr '\n' ' ')"
+  want=$(words "$RELEASE_SHIPPED $RELEASE_LICENSES manifest.json")
+  if [ "$listed" != "$want" ]; then
+    fail checksums "$sums" "lists [$(line "$listed")], want [$(line "$want")]"
+  elif ! (cd "$dir" && sha256sum -c --quiet SHA256SUMS >/dev/null 2>&1); then
+    fail checksums "$sums" "$(cd "$dir" && sha256sum -c --quiet SHA256SUMS 2>&1 | tr '\n' ' ' | sed 's/ $//')"
   fi
+  ok checksums "$(wc -l <"$sums") files"
 }
 
 for gate in $gates; do
-  case $gate in
-    files) gate_files ;;
-    runpath) gate_runpath ;;
-    nix-store) gate_nix_store ;;
-    glibc) gate_version_floor glibc GLIBC "$RELEASE_GLIBC_MAX" ;;
-    glibcxx) gate_version_floor glibcxx GLIBCXX "$RELEASE_GLIBCXX_MAX" ;;
-    needed) gate_needed ;;
-    companion-needed) gate_companion_needed ;;
-    architectures) gate_architectures ;;
-    abi) gate_abi ;;
-    checksums) gate_checksums ;;
-    *)
-      echo "gates.sh: no gate $gate (gates: $all_gates)" >&2
-      exit 2
-      ;;
-  esac
+  if ! [[ " $gate_names " == *" $gate "* ]]; then
+    echo "gates.sh: no gate $gate (gates: $gate_names)" >&2
+    exit 2
+  fi
+  gate_failed=0
+  "gate_${gate//-/_}"
 done
 exit "$failed"
