@@ -1,6 +1,7 @@
 #include "detail/executor.hpp"
 
 #include <sys/eventfd.h>
+#include <sys/syscall.h>
 #include <unistd.h>
 
 #include <atomic>
@@ -378,6 +379,6 @@ int64_t rr_executor_threads(void) {
 }
 
 uint64_t rr_os_thread_id(void) {
-  return static_cast<uint64_t>(gettid());
+  return static_cast<uint64_t>(syscall(SYS_gettid));
 }
 }
