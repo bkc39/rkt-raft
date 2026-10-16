@@ -100,9 +100,27 @@ fixture notelf "$dev"
 echo "not a library" >"$work/notelf/librapids_logger.so"
 sums notelf
 gates notelf
-want_fail notelf "$work/notelf/librapids_logger.so" files "not an ELF shared object"
+want_fail notelf "$work/notelf/librapids_logger.so" files "not an x86-64 ELF64 shared object"
 want_fail notelf "$work/notelf/librapids_logger.so" runpath "RUNPATH [] RPATH []"
 want_ok notelf checksums
+
+fixture pie "$dev"
+"${CC:-cc}" -fPIE -pie -o "$work/pie/librmm.so" "$here/abi-probe.c" -ldl
+sums pie
+gates pie files
+want_fail pie "$work/pie/librmm.so" files "has a PT_INTERP: an executable, not a shared object"
+
+patch_byte() { printf '%b' "\\x$3" | dd of="$1" bs=1 seek="$2" conv=notrunc status=none; }
+fixture elf32 "$dev"
+patch_byte "$work/elf32/librmm.so" 4 01
+sums elf32
+gates elf32 files
+want_fail elf32 "$work/elf32/librmm.so" files "not an x86-64 ELF64 shared object"
+fixture aarch64 "$dev"
+patch_byte "$work/aarch64/librmm.so" 18 b7
+sums aarch64
+gates aarch64 files
+want_fail aarch64 "$work/aarch64/librmm.so" files "not an x86-64 ELF64 shared object"
 
 fixture stray "$dev"
 cp "$dev" "$work/stray/libraftrkt.so.old"

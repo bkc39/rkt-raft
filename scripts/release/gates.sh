@@ -59,7 +59,17 @@ present() {
     [ -f "$dir/$f" ] && printf '%s\n' "$dir/$f"
   done
 }
-elf_shared() { readelf -h "$1" 2>/dev/null | grep '^ *Type: *DYN ' >/dev/null; }
+elf_problem() {
+  local header segments
+  header=$(readelf -h "$1" 2>/dev/null) || true
+  segments=$(readelf -l "$1" 2>/dev/null) || true
+  if ! grep -q '^ *Class: *ELF64$' <<<"$header" || ! grep -q '^ *Type: *DYN ' <<<"$header" ||
+    ! grep -q '^ *Machine: *Advanced Micro Devices X86-64$' <<<"$header"; then
+    echo "not an x86-64 ELF64 shared object"
+  elif grep -q '^ *INTERP ' <<<"$segments"; then
+    echo "has a PT_INTERP: an executable, not a shared object"
+  fi
+}
 dynamic() { { readelf -d "$1" 2>/dev/null || true; } | sed -n "s/.*($2).*\[\(.*\)\]\$/\1/p"; }
 words() { tr ' ' '\n' <<<"$1" | sed '/^$/d' | sort -u; }
 line() { tr '\n' ' ' <<<"$1" | sed 's/ $//'; }
@@ -90,7 +100,7 @@ version_floor() {
 }
 
 gate_files() {
-  local want actual f
+  local want actual f problem
   want=$(words "$RELEASE_SHIPPED $RELEASE_LICENSES manifest.json SHA256SUMS")
   actual=$(find "$dir" -mindepth 1 -maxdepth 1 -printf '%f\n' | sort -u)
   for f in $(comm -23 <(printf '%s\n' "$want") <(printf '%s\n' "$actual")); do
@@ -100,7 +110,8 @@ gate_files() {
     fail files "$dir/$f" "not a release file"
   done
   for f in $(present); do
-    elf_shared "$f" || fail files "$f" "not an ELF shared object"
+    problem=$(elf_problem "$f")
+    [ -z "$problem" ] || fail files "$f" "$problem"
   done
   ok files "$(line "$want")"
 }
