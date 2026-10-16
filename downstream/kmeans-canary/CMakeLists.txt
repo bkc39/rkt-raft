@@ -72,7 +72,7 @@ if(BUILD_TESTING)
   kc_strict(kmeans_canary_tests)
   include(GoogleTest)
   set(kc_gtest_timeout_seconds 2)
-  gtest_discover_tests(kmeans_canary_tests DISCOVERY_MODE PRE_TEST
+  gtest_discover_tests(kmeans_canary_tests DISCOVERY_MODE PRE_TEST DISCOVERY_TIMEOUT 60
     PROPERTIES TIMEOUT ${kc_gtest_timeout_seconds})
   list(APPEND kc_tidy_sources tests/canary_test.cpp tests/members_test.cpp)
 endif()
