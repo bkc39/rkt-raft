@@ -86,8 +86,8 @@
 (define (ensure-cublas location native-kind)
   (match* (location native-kind)
     [((cublas-location 'override dir) _) (load-cublas dir)]
-    [((cublas-location 'fetched dir) 'package) (load-cublas dir)]
-    [((cublas-location 'fetched _) (or 'override 'staged)) (void)]
+    [((cublas-location 'fetched dir) (or 'package 'override)) (load-cublas dir)]
+    [((cublas-location 'fetched _) 'staged) (void)]
     [((cublas-location 'system _) _) (void)]
     [((cublas-location 'bad-override dir) _) (raise-load-failure (cublas-error 'override dir))]
     [((cublas-location 'missing _) 'package)

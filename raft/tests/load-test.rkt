@@ -232,15 +232,15 @@
    (outcome-message o))
   (check-regexp-match #rx"`racket -l- raft/fetch-cuda`" (outcome-message o)))
 
-(test-case "a fetched cuBLAS is preloaded for the native package only"
+(test-case "a fetched cuBLAS is preloaded for the package and RAFT_NATIVE_LIB_PATH, not staging"
   (with-release ([dir (make-temporary-directory "raft-load-~a") delete-directory/files])
     (for ([name (in-list '("libcublasLt.so.13" "libcublas.so.13"))])
       (write-garbage-to (build-path dir name)))
     (define fetched (cublas-location 'fetched dir))
     (check-equal? (ensure-cublas fetched 'staged) (void))
-    (check-equal? (ensure-cublas fetched 'override) (void))
-    (check-exn #rx"^raft: libcublasLt[.]so[.]13 would not load\n  found in: "
-               (lambda () (ensure-cublas fetched 'package)))
+    (for ([kind (in-list '(package override))])
+      (check-exn #rx"^raft: libcublasLt[.]so[.]13 would not load\n  found in: "
+                 (lambda () (ensure-cublas fetched kind))))
     (check-exn #rx"^raft: libcublasLt[.]so[.]13 would not load"
                (lambda () (ensure-cublas (cublas-location 'override dir) 'staged)))))
 
