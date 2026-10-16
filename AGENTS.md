@@ -592,30 +592,13 @@ plans/scoping-plan.md         the approved plan (revision 5), as Markdown
   (`catalog-test.sh` asserts it), and `--unused-pkg-deps` warns about it,
   which in Racket 9.3 is only a warning. Off x86_64 Linux the missing-library
   advice is the override alone; no message names Nix (#41, #43).
-- cuBLAS (#44): `private/cuda-wheels.rktd` pins the `nvidia-cublas` wheel
-  (version, URL, sha256, size, the libraries inside, in load order);
-  `private/cuda-wheels.rkt` turns a pin into a directory,
-  `<root>/rapids/cu13/<wheel>-<version>/lib/`, with root the addon dir (user
-  scope) or the installation's share dir, room for rkt-cuml's wheels beside
-  it. `ensure-cuda-wheel` downloads into `<wheel>-<version>.part/`, checks
-  size then sha256, unzips only the pinned libraries and renames the
-  directory into place, so a failed or killed fetch never counts as present.
-  `private/cublas.rkt`: `locate-cublas` takes `RAFT_CUDA_LIB_PATH`, then a
-  system CUDA 13 (`ffi-lib "libcublasLt" '("13")`, injectable as
-  `#:system?`), then the fetched directory in either root. The loader loads
-  cublasLt then cublas by absolute path before libraftrkt, so its `NEEDED`
-  is met by soname; it never sets `LD_LIBRARY_PATH` and never downloads. A
-  missing cuBLAS is fatal only for the native package (a staged or
-  `RAFT_NATIVE_LIB_PATH` library finds Nix's by RUNPATH); a
-  `RAFT_CUDA_LIB_PATH` without the libraries always is. The pre-install hook
-  fetches only for the native package, on x86_64 Linux, when none of the
-  three is there; a failure is a warning naming the cause and
-  `racket -l- raft/fetch-cuda` (`raft/fetch-cuda.rkt`, into the addon dir),
-  never a failed `raco setup`. `RAFT_CUDA_WHEEL_URL_BASE` replaces the
-  wheel URL's directory (`file:///cache` in the catalog test, a local HTTP
-  server or file in `cuda-wheels-test.rkt`); it is for tests and CI and is
-  not in the manual. `release-gates` fails when the pin differs from
-  `pins.sh` (`check-pins.sh`'s sixth argument).
+- cuBLAS (#44): the pin is `private/cuda-wheels.rktd` (`release-gates`
+  checks it against `pins.sh`); `cuda-wheels.rkt` locates a fetched wheel,
+  `cuda-wheel-fetch.rkt` fetches one (loaded lazily, so `(require raft)` never
+  maps OpenSSL), `cublas.rkt` holds the order and the messages.
+  `RAFT_CUDA_LIB_PATH` names a directory holding the libraries;
+  `RAFT_CUDA_WHEEL_URL_BASE` replaces the wheel URL's directory, for tests and
+  CI only.
 - Tests: `tests/private/gpu.rkt` (`gpu-available?`, `test-gpu`),
   `tests/private/probe.rkt` (the probe library, from `RAFT_SHIM_PROBE`,
   its jobs bound with `define-job`, `gate-job`, `test-host-probe`, which
