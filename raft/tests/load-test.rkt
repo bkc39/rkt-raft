@@ -135,7 +135,9 @@
   (check-regexp-match #rx"^raft: the package raft-x86_64-linux holds no libraftrkt\n"
                       (outcome-message o))
   (check-regexp-match (path-line "looked in" (outcome-package o)) (outcome-message o))
-  (check-regexp-match #rx"reinstall raft" (outcome-message o)))
+  (check-regexp-match
+   #rx"`raco pkg remove --force raft-x86_64-linux` and `raco pkg install raft-x86_64-linux`"
+   (outcome-message o)))
 
 (test-case "a native package of another version is refused before its library loads"
   (define o (load-outcome #:package (native-package "0.1" write-garbage)))

@@ -105,7 +105,7 @@
      (format "the package ~a holds no libraftrkt\n  looked in: ~a\n  ~a"
              native-package
              where
-             native-library-advice)]
+             broken-package-advice)]
     ['unloadable
      (format
       "libraftrkt was found but would not load\n  found in: ~a\n  the loader said: ~a\n  check that LD_LIBRARY_PATH holds no other CUDA, or ~a"
