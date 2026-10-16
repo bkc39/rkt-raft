@@ -1,0 +1,14 @@
+name: Free disk space
+description: >-
+  Remove the hosted runner's preinstalled SDKs that no job here uses, then
+  print what is free on /.
+
+runs:
+  using: composite
+  steps:
+    - name: Free disk space
+      shell: bash
+      run: |
+        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+          /opt/hostedtoolcache/CodeQL
+        df -h /
