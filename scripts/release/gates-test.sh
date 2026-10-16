@@ -156,6 +156,17 @@ gates arch-short architectures
 want_fail arch-short "$work/arch-short/libraftrkt.so" architectures "fatbin module 2 has elf [sm_86] ptx []"
 ! grep -qF .nvFatBinSegment "$work/arch-short.out" || problem "arch-short: 2 modules and 2 wrappers reported a mismatch"
 
+fixture arch-many "$arch/full.so"
+objcopy --dump-section .nv_fatbin="$work/one.nv_fatbin" "$work/arch-many/libraftrkt.so"
+many=$((2 + 131072 / $(stat -c %s "$work/one.nv_fatbin")))
+for ((i = 0; i < many; i++)); do cat "$work/one.nv_fatbin"; done >"$work/many.nv_fatbin"
+head -c $((24 * many)) /dev/zero >"$work/many-wrappers"
+objcopy --update-section .nv_fatbin="$work/many.nv_fatbin" --update-section .nvFatBinSegment="$work/many-wrappers" \
+  "$arch/full.so" "$work/arch-many/libraftrkt.so"
+gates arch-many architectures
+grep -q "^ok   architectures: $many fatbin module(s), " "$work/arch-many.out" || problem "arch-many: want ok architectures, $many modules"
+[ "$(cat "$work/arch-many.status")" = 0 ] || problem "arch-many: gates.sh exited $(cat "$work/arch-many.status"), want 0"
+
 fixture arch-zero "$arch/full.so"
 printf '\x50\xed\x55\xba\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00' >"$work/zero-header"
 objcopy --update-section .nv_fatbin="$work/zero-header" "$arch/full.so" "$work/arch-zero/libraftrkt.so"

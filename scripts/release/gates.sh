@@ -184,7 +184,7 @@ fatbin_modules() {
       return 0
     fi
     n=$((n + 1))
-    tail -c +$((offset + 1)) "$work/nv_fatbin" | head -c $((header + fat)) >"$work/module-$n.fatbin"
+    head -c $((offset + header + fat)) "$work/nv_fatbin" | tail -c $((header + fat)) >"$work/module-$n.fatbin"
     printf '%s\n' "$work/module-$n.fatbin" >>"$work/modules"
     offset=$((offset + header + fat))
   done
