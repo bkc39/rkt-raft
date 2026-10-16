@@ -3,7 +3,7 @@ set -euo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
-dirs=(downstream lint raft scripts)
+dirs=(downstream lint raft raft-x86_64-linux scripts)
 before='(^|[^-[:alnum:]!?*<>=/+.$%&^~_])'
 after='([^-[:alnum:]!?*<>=/+:.$%&^~_]|$)'
 

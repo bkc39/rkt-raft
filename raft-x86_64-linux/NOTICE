@@ -1,0 +1,20 @@
+rkt-raft native libraries: notices
+
+libraftrkt.so statically links the NVIDIA CUDA Runtime (libcudart_static.a,
+CUDA Toolkit 13.2). The CUDA Runtime is NVIDIA's, redistributed unmodified in
+object code form under the NVIDIA CUDA Toolkit End User License Agreement
+(https://docs.nvidia.com/cuda/eula/index.html), whose Attachment A lists it as
+distributable:
+
+    CUDA Runtime ... Linux: libcudart.so, libcudart_static.a, libcudadevrt.a
+
+The Apache License 2.0 that covers rkt-raft does not cover the CUDA Runtime;
+the Agreement's terms do, including section 1.1.2, item 2:
+
+    The distributable portions of the SDK shall only be accessed by your
+    application.
+
+librmm.so and librapids_logger.so are RAPIDS libraries, unmodified from their
+PyPI wheels, under the Apache License 2.0 (LICENSE.librmm,
+LICENSE.rapids_logger). rkt-raft's own code is under the Apache License 2.0
+(LICENSE).

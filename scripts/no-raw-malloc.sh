@@ -7,7 +7,7 @@ allowed=raft/private/resource.rkt
 non_moving=raft/private/foreign/host.rkt
 pattern='\((malloc|free)([[:space:]]|\)|$)'
 
-hits=$(grep -rnE --include='*.rkt' --include='*.scrbl' "$pattern" downstream lint raft scripts |
+hits=$(grep -rnE --include='*.rkt' --include='*.scrbl' "$pattern" downstream lint raft raft-x86_64-linux scripts |
   grep -v -e "^$allowed:" -e "^$non_moving:" || true)
 
 if [ -n "$hits" ]; then

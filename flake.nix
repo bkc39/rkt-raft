@@ -210,14 +210,15 @@
           runHook preBuild
           export HOME=$TMPDIR/home
           export PLTUSERHOME=$TMPDIR/racket-home
-          export RAFT_NATIVE_LIB_PATH=${shim}
           mkdir -p $PLTUSERHOME
           ${stageNativeLibs shim}
           [ "$_stage_failed" = 0 ] || exit 1
           ${installDocsDeps ""}
           raco pkg install --batch --deps fail --no-setup --copy --scope user \
+            --name raft-x86_64-linux ./raft-x86_64-linux
+          raco pkg install --batch --deps fail --no-setup --copy --scope user \
             --name raft ./raft
-          raco setup --no-docs --check-pkg-deps --unused-pkg-deps --pkgs raft
+          raco setup --no-docs --check-pkg-deps --unused-pkg-deps --pkgs raft-x86_64-linux raft
           runHook postBuild
         '';
         doCheck = true;
@@ -398,8 +399,10 @@
           raco pkg install --batch --no-docs --no-setup --deps fail --scope user \
             --link --name raft-lint ./lint
           raco pkg install --batch --no-docs --no-setup --deps fail --scope user \
+            --link --name raft-x86_64-linux ./raft-x86_64-linux
+          raco pkg install --batch --no-docs --no-setup --deps fail --scope user \
             --link --name raft ./raft
-          raco setup --no-docs --pkgs raft raft-lint
+          raco setup --no-docs --pkgs raft-x86_64-linux raft raft-lint
           bash scripts/review.sh
           runHook postBuild
         '';
@@ -442,7 +445,9 @@
               root = ./.;
               fileset = lib.fileset.unions [
                 ./scripts/release
+                ./raft/info.rkt
                 ./raft/private/foreign/library.rkt
+                ./raft-x86_64-linux/info.rkt
               ];
             };
             nativeBuildInputs = [
@@ -450,14 +455,16 @@
               pkgs.curl
               pkgs.stdenv.cc
               cudaPackages.cuda_cuobjdump
+              racket
             ];
           }
           ''
+            export HOME=$TMPDIR/home PLTUSERHOME=$TMPDIR/racket-home
             ${pkgs.bash}/bin/bash $src/scripts/release/check-pins.sh \
               "${rapids.libraft.wheel.url} ${rapids.libraft.wheel.sha256}" \
               "${rapids.librmm.wheel.url} ${rapids.librmm.wheel.sha256}" \
               "${rapids.rapids-logger.wheel.url} ${rapids.rapids-logger.wheel.sha256}" \
-              ${cudaPackages.libcublas.version}
+              ${cudaPackages.libcublas.version} ${minRacketVersion}
             timeout 900 ${pkgs.bash}/bin/bash $src/scripts/release/gates-test.sh ${shim}/lib/libraftrkt.so \
               ${shim.tests}/lib/libraftrkt_stale_abi.so ${rapids.core}/lib64 ${releaseArchFixtures}
             touch $out
@@ -503,23 +510,25 @@
       '';
 
       provisionRacket = ''
-        export RAFT_NATIVE_LIB_PATH=${shim}
         ${stageNativeLibs shim}
         if [ "$_stage_failed" != 0 ]; then
           echo "  *** libraftrkt was NOT staged; raft will load a stale shim or none." >&2
         fi
         _canary_pkg="$PWD/downstream/kmeans-canary/kmeans-canary"
-        _info_hash=$(cat raft/info.rkt "$_canary_pkg/info.rkt" | sha256sum | cut -c1-16)
+        _info_hash=$(cat raft/info.rkt raft-x86_64-linux/info.rkt "$_canary_pkg/info.rkt" \
+          | sha256sum | cut -c1-16)
         _pkg_stamp="$PLTUSERHOME/.raft-installed-$_info_hash"
         if [ ! -f "$_pkg_stamp" ]; then
           echo "Installing raft and kmeans-canary into $PLTUSERHOME (link mode)"
           rm -f "$PLTUSERHOME"/.raft-installed-* 2>/dev/null || true
           ${installDocsDeps "--skip-installed"}
           if raco pkg install --batch --auto --no-setup --link --scope user \
-               --skip-installed --name raft "$PWD/raft" \
+               --skip-installed --name raft-x86_64-linux "$PWD/raft-x86_64-linux" \
+             && raco pkg install --batch --auto --no-setup --link --scope user \
+                  --skip-installed --name raft "$PWD/raft" \
              && raco pkg install --batch --auto --no-setup --link --scope user \
                   --skip-installed --name kmeans-canary "$_canary_pkg" \
-             && raco setup --no-docs --pkgs raft kmeans-canary; then
+             && raco setup --no-docs --pkgs raft-x86_64-linux raft kmeans-canary; then
             touch "$_pkg_stamp"
           else
             echo "raft setup FAILED; not stamped, so the next shell entry retries" >&2
