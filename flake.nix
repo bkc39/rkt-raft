@@ -418,6 +418,51 @@
             touch $out
           '';
 
+      releaseArchFixtures = cudaPackages.backendStdenv.mkDerivation {
+        name = "rkt-raft-release-arch-fixtures";
+        src = lib.fileset.toSource {
+          root = ./.;
+          fileset = lib.fileset.unions [
+            ./scripts/release/pins.sh
+            ./scripts/release/fixtures
+          ];
+        };
+        nativeBuildInputs = [ cudaPackages.cuda_nvcc ];
+        buildInputs = [ cudaPackages.cuda_cudart ];
+        buildPhase = ''
+          bash scripts/release/fixtures/arch-fixtures.sh $out
+        '';
+        dontInstall = true;
+      };
+
+      releaseGates =
+        pkgs.runCommand "rkt-raft-release-gates"
+          {
+            src = lib.fileset.toSource {
+              root = ./.;
+              fileset = lib.fileset.unions [
+                ./scripts/release
+                ./raft/private/foreign/library.rkt
+              ];
+            };
+            nativeBuildInputs = [
+              pkgs.binutils
+              pkgs.curl
+              pkgs.stdenv.cc
+              cudaPackages.cuda_cuobjdump
+            ];
+          }
+          ''
+            ${pkgs.bash}/bin/bash $src/scripts/release/check-pins.sh \
+              "${rapids.libraft.wheel.url} ${rapids.libraft.wheel.sha256}" \
+              "${rapids.librmm.wheel.url} ${rapids.librmm.wheel.sha256}" \
+              "${rapids.rapids-logger.wheel.url} ${rapids.rapids-logger.wheel.sha256}" \
+              ${cudaPackages.libcublas.version}
+            timeout 900 ${pkgs.bash}/bin/bash $src/scripts/release/gates-test.sh ${shim}/lib/libraftrkt.so \
+              ${shim.tests}/lib/libraftrkt_stale_abi.so ${rapids.core}/lib64 ${releaseArchFixtures}
+            touch $out
+          '';
+
       racketVersion =
         pkgs.runCommand "rkt-raft-racket-version"
           {
@@ -597,6 +642,7 @@
         kmeans-canary = kmeansCanary;
         line-count = lineCount;
         racket-version = racketVersion;
+        release-gates = releaseGates;
         no-syntax-rule = grepGate "no-syntax-rule" "no-syntax-rule.sh";
         no-raw-malloc = grepGate "no-raw-malloc" "no-raw-malloc.sh";
         bounded-death-tests = grepGate "bounded-death-tests" "bounded-death-tests.sh";

@@ -1,0 +1,239 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+# shellcheck source=scripts/release/pins.sh
+. "$here/pins.sh"
+if [ $# -ne 4 ]; then
+  echo "usage: gates-test.sh DEV-LIBRAFTRKT STALE-ABI-LIBRARY RAPIDS-LIBDIR ARCH-FIXTURES" >&2
+  exit 2
+fi
+dev=$1
+stale=$2
+rapids=$3
+arch=$4
+work=$(mktemp -d)
+trap 'rm -rf "$work"' EXIT
+
+failures=0
+problem() {
+  echo "gates-test: $*" >&2
+  failures=1
+}
+
+sums() {
+  local listed
+  read -ra listed <<<"$RELEASE_SHIPPED $RELEASE_LICENSES manifest.json"
+  (cd "$work/$1" && sha256sum "${listed[@]}" >SHA256SUMS)
+}
+fixture() {
+  local name=$1 shim=$2 f
+  mkdir -p "$work/$name"
+  cp "$shim" "$work/$name/libraftrkt.so"
+  cp "$rapids/librmm.so" "$rapids/librapids_logger.so" "$work/$name/"
+  for f in $RELEASE_LICENSES; do echo "Apache-2.0" >"$work/$name/$f"; done
+  printf '{}\n' >"$work/$name/manifest.json"
+  chmod u+w "$work/$name"/*
+  sums "$name"
+}
+
+gates() {
+  local name=$1 status=0
+  shift
+  timeout 60 bash "${tree:-$here/../..}/scripts/release/gates.sh" "$work/$name" "$@" >"$work/$name.out" 2>&1 || status=$?
+  echo "$status" >"$work/$name.status"
+  [ "$status" -ne 124 ] || problem "$name: gates.sh timed out"
+  sed "s|$work/||; s|^|$name: |" "$work/$name.out"
+}
+want_ok() {
+  local name=$1 gate=$2
+  grep -q "^ok *$gate: " "$work/$name.out" || problem "$name: want ok $gate"
+}
+want_fail() {
+  local name=$1 file=$2 gate=$3 reason=$4
+  grep -F "$file: $gate gate: " "$work/$name.out" | grep -F -- "$reason" >/dev/null ||
+    problem "$name: want $file: $gate gate: ...$reason..."
+  [ "$(cat "$work/$name.status")" = 1 ] || problem "$name: gates.sh exited $(cat "$work/$name.status"), want 1"
+}
+
+fixture dev "$dev"
+gates dev
+# shellcheck disable=SC2016
+want_fail dev "$work/dev/libraftrkt.so" runpath 'want RUNPATH $ORIGIN only'
+want_fail dev "$work/dev/libraftrkt.so" nix-store "names /nix/store"
+want_fail dev "$work/dev/libraftrkt.so" glibc "> $RELEASE_GLIBC_MAX"
+want_fail dev "$work/dev/libraftrkt.so" glibcxx "> $RELEASE_GLIBCXX_MAX"
+want_fail dev "$work/dev/libraftrkt.so" architectures "fatbin module 1 has elf [sm_86] ptx [sm_86],"
+for gate in files needed companion-needed abi checksums; do want_ok dev "$gate"; done
+
+fixture stale "$stale"
+gates stale
+want_fail stale "$work/stale/libraftrkt.so" needed "outside the libc family"
+want_fail stale "$work/stale/libraftrkt.so" abi "raft wants "
+want_fail stale "$work/stale/libraftrkt.so" architectures "no .nv_fatbin module"
+want_ok stale checksums
+
+fixture corrupt "$dev"
+awk '$2 == "librmm.so" { $1 = sprintf("%064d", 0) } { print $1 "  " $2 }' \
+  "$work/corrupt/SHA256SUMS" >"$work/sums" && mv "$work/sums" "$work/corrupt/SHA256SUMS"
+gates corrupt checksums
+want_fail corrupt "$work/corrupt/SHA256SUMS" checksums "librmm.so: FAILED"
+
+fixture dropped "$dev"
+sed -i '/ librmm\.so$/d' "$work/dropped/SHA256SUMS"
+gates dropped checksums
+want_fail dropped "$work/dropped/SHA256SUMS" checksums "lists [LICENSE LICENSE.librmm LICENSE.rapids_logger libraftrkt.so librapids_logger.so manifest.json]"
+
+fixture no-logger "$dev"
+rm "$work/no-logger/librapids_logger.so"
+gates no-logger files
+want_fail no-logger "$work/no-logger" files "missing librapids_logger.so"
+
+for licence in LICENSE LICENSE.librmm LICENSE.rapids_logger; do
+  fixture "no-$licence" "$dev"
+  rm -f "$work/no-$licence/$licence"
+  gates "no-$licence" files
+  want_fail "no-$licence" "$work/no-$licence" files "missing $licence"
+done
+
+fixture notelf "$dev"
+echo "not a library" >"$work/notelf/librapids_logger.so"
+sums notelf
+gates notelf
+want_fail notelf "$work/notelf/librapids_logger.so" files "not an x86-64 ELF64 shared object"
+want_fail notelf "$work/notelf/librapids_logger.so" runpath "RUNPATH [] RPATH []"
+want_ok notelf checksums
+
+fixture pie "$dev"
+"${CC:-cc}" -fPIE -pie -o "$work/pie/librmm.so" "$here/abi-probe.c" -ldl
+sums pie
+gates pie files
+want_fail pie "$work/pie/librmm.so" files "has a PT_INTERP: an executable, not a shared object"
+
+patch_byte() { printf '%b' "\\x$3" | dd of="$1" bs=1 seek="$2" conv=notrunc status=none; }
+fixture elf32 "$dev"
+patch_byte "$work/elf32/librmm.so" 4 01
+sums elf32
+gates elf32 files
+want_fail elf32 "$work/elf32/librmm.so" files "not an x86-64 ELF64 shared object"
+fixture aarch64 "$dev"
+patch_byte "$work/aarch64/librmm.so" 18 b7
+sums aarch64
+gates aarch64 files
+want_fail aarch64 "$work/aarch64/librmm.so" files "not an x86-64 ELF64 shared object"
+
+fixture stray "$dev"
+cp "$dev" "$work/stray/libraftrkt.so.old"
+gates stray files
+want_fail stray "$work/stray/libraftrkt.so.old" files "not a release file"
+
+fixture companion "$dev"
+cp "$dev" "$work/companion/librmm.so"
+gates companion companion-needed
+want_fail companion "$work/companion/librmm.so" companion-needed "needs libcublas.so.13"
+
+fixture unloadable "$dev"
+echo "not a library" >"$work/unloadable/libraftrkt.so"
+gates unloadable abi
+want_fail unloadable "$work/unloadable/libraftrkt.so" abi "does not load: dlopen: "
+
+tree=$work/tree
+mkdir -p "$tree/scripts/release" "$tree/raft/private/foreign"
+cp "$here/gates.sh" "$here/pins.sh" "$here/abi-probe.c" "$tree/scripts/release/"
+echo "#lang racket/base" >"$tree/raft/private/foreign/library.rkt"
+fixture no-abi-version "$dev"
+GITHUB_ACTIONS=true gates no-abi-version abi
+want_fail no-abi-version "$tree/raft/private/foreign/library.rkt" abi "no (define abi-version N)"
+grep -qxF "::error file=raft/private/foreign/library.rkt::abi gate: no (define abi-version N)" "$work/no-abi-version.out" ||
+  problem "no-abi-version: want a repo-relative ::error file= annotation"
+unset tree
+
+fixture arch-full "$arch/full.so"
+gates arch-full architectures
+grep -q "^ok   architectures: 1 fatbin module(s), " "$work/arch-full.out" || problem "arch-full: want ok architectures, 1 module"
+fixture arch-short "$arch/short.so"
+gates arch-short architectures
+want_fail arch-short "$work/arch-short/libraftrkt.so" architectures "fatbin module 2 has elf [sm_86] ptx []"
+! grep -qF .nvFatBinSegment "$work/arch-short.out" || problem "arch-short: 2 modules and 2 wrappers reported a mismatch"
+
+fixture arch-many "$arch/full.so"
+objcopy --dump-section .nv_fatbin="$work/one.nv_fatbin" "$work/arch-many/libraftrkt.so"
+many=$((2 + 131072 / $(stat -c %s "$work/one.nv_fatbin")))
+for ((i = 0; i < many; i++)); do cat "$work/one.nv_fatbin"; done >"$work/many.nv_fatbin"
+head -c $((24 * many)) /dev/zero >"$work/many-wrappers"
+objcopy --update-section .nv_fatbin="$work/many.nv_fatbin" --update-section .nvFatBinSegment="$work/many-wrappers" \
+  "$arch/full.so" "$work/arch-many/libraftrkt.so"
+gates arch-many architectures
+grep -q "^ok   architectures: $many fatbin module(s), " "$work/arch-many.out" || problem "arch-many: want ok architectures, $many modules"
+[ "$(cat "$work/arch-many.status")" = 0 ] || problem "arch-many: gates.sh exited $(cat "$work/arch-many.status"), want 0"
+
+fixture arch-zero "$arch/full.so"
+printf '\x50\xed\x55\xba\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00' >"$work/zero-header"
+objcopy --update-section .nv_fatbin="$work/zero-header" "$arch/full.so" "$work/arch-zero/libraftrkt.so"
+gates arch-zero architectures
+want_fail arch-zero "$work/arch-zero/libraftrkt.so" architectures "fatbin header at 0: header 0, size 0"
+
+fatbin_fixture() {
+  local name=$1 bytes=$2
+  fixture "$name" "$arch/full.so"
+  printf '%b' "$bytes" >"$work/$name.nv_fatbin"
+  objcopy --update-section .nv_fatbin="$work/$name.nv_fatbin" "$arch/full.so" "$work/$name/libraftrkt.so"
+  sums "$name"
+}
+magic='\x50\xed\x55\xba\x01\x00\x10\x00'
+fatbin_fixture arch-truncated-4 '\x50\xed\x55\xba'
+fatbin_fixture arch-truncated-12 "$magic\x00\x00\x00\x00"
+for name in arch-truncated-4 arch-truncated-12; do
+  gates "$name" architectures checksums
+  want_fail "$name" "$work/$name/libraftrkt.so" architectures "fatbin header at 0: header none, size none"
+  want_ok "$name" checksums
+done
+fatbin_fixture arch-overrun "$magic\x01\x00\x00\x00\x00\x00\x00\x00"
+gates arch-overrun architectures
+want_fail arch-overrun "$work/arch-overrun/libraftrkt.so" architectures "fatbin header at 0: header 16, size 1"
+fatbin_fixture arch-huge "$magic\xff\xff\xff\xff\xff\xff\xff\xff"
+gates arch-huge architectures
+want_fail arch-huge "$work/arch-huge/libraftrkt.so" architectures "fatbin header at 0: header 16, size 18446744073709551615"
+
+fixture arch-segment "$arch/short.so"
+head -c 24 /dev/zero >"$work/one-wrapper"
+objcopy --update-section .nvFatBinSegment="$work/one-wrapper" "$arch/short.so" "$work/arch-segment/libraftrkt.so"
+gates arch-segment architectures
+want_fail arch-segment "$work/arch-segment/libraftrkt.so" architectures \
+  "2 fatbin module(s) in .nv_fatbin, 24 bytes of .nvFatBinSegment hold 1"
+
+gha="gha:%,"
+fixture "$gha" "$arch/short.so"
+GITHUB_ACTIONS=true gates "$gha" architectures abi
+message=$(sed -n "s|^$work/$gha/libraftrkt.so: \(architectures gate: fatbin module 2 .*\)\$|\1|p" "$work/$gha.out")
+grep -qxF "::error title=$work/gha%3A%25%2C/libraftrkt.so::$message" "$work/$gha.out" ||
+  problem "$gha: want an escaped ::error title= annotation for module 2"
+grep -qF "::error title=$work/gha%3A%25%2C/libraftrkt.so::abi gate: does not load: dlopen: $work/gha:%25,/libraftrkt.so: " "$work/$gha.out" ||
+  problem "$gha: want the abi message's % escaped"
+
+mkdir -p "$work/fetch/cache"
+echo "wheel" >"$work/fetch/remote.whl"
+sha=$(sha256sum "$work/fetch/remote.whl" | cut -d' ' -f1)
+if fetched=$(release_fetch "file://$work/fetch/remote.whl" "$(printf '%064d' 0)" "$work/fetch/cache" 2>"$work/fetch.err"); then
+  problem "release_fetch: a wrong pin returned 0"
+fi
+[ -z "$fetched" ] || problem "release_fetch: a wrong pin printed $fetched"
+[ -z "$(ls -A "$work/fetch/cache")" ] || problem "release_fetch: a wrong pin left $(ls -A "$work/fetch/cache")"
+grep -qF "sha256 is not" "$work/fetch.err" || problem "release_fetch: a wrong pin said $(cat "$work/fetch.err")"
+fetched=$(release_fetch "file://$work/fetch/remote.whl" "$sha" "$work/fetch/cache") ||
+  problem "release_fetch: the right pin failed"
+[ "$fetched" = "$work/fetch/cache/remote.whl" ] && [ -f "$fetched" ] ||
+  problem "release_fetch: the right pin printed [$fetched]"
+
+pins=("$RELEASE_WHEEL_LIBRAFT $RELEASE_WHEEL_LIBRAFT_SHA256"
+  "$RELEASE_WHEEL_LIBRMM $RELEASE_WHEEL_LIBRMM_SHA256"
+  "$RELEASE_WHEEL_RAPIDS_LOGGER $RELEASE_WHEEL_RAPIDS_LOGGER_SHA256")
+bash "$here/check-pins.sh" "${pins[@]}" "$(release_wheel_version "$RELEASE_WHEEL_CUBLAS")" >/dev/null ||
+  problem "check-pins: the pins' own values failed"
+if bash "$here/check-pins.sh" "${pins[@]}" 0.0.0 >"$work/pins.out"; then
+  problem "check-pins: a cuBLAS 0.0.0 flake passed"
+fi
+grep -qF "scripts/release/pins.sh: pins the cuBLAS wheel version as" "$work/pins.out" ||
+  problem "check-pins: a cuBLAS 0.0.0 flake said $(cat "$work/pins.out")"
+
+exit "$failures"

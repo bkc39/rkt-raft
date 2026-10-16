@@ -27,3 +27,14 @@ function(raftrkt_apply_nix_cflags target)
     endif()
   endforeach()
 endfunction()
+
+function(raftrkt_apply_release_rpath target)
+  if(RAFTRKT_RELEASE)
+    set_target_properties(${target} PROPERTIES
+      BUILD_WITH_INSTALL_RPATH ON
+      INSTALL_RPATH "$ORIGIN"
+      INSTALL_RPATH_USE_LINK_PATH OFF
+    )
+    target_link_options(${target} PRIVATE "LINKER:--enable-new-dtags")
+  endif()
+endfunction()

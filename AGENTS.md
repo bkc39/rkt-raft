@@ -627,7 +627,17 @@ nix run --max-jobs 1 --cores 4 .#copy-native-libs   # restage the shim after a C
 cmake -S shim -B shim/build -G Ninja -DBUILD_TESTING=ON   # the shim's inner loop
 nix build --max-jobs 1 --cores 4 .#kmeans-canary  # the canary (lib/, and tests/bin in .tests)
 raco test downstream/kmeans-canary/kmeans-canary  # the canary's Racket tests, twin included
+scripts/release.sh build <dir>      # the release libraftrkt in docker, then its gates
+scripts/release.sh load-check <dir> # dlopen it in manylinux_2_28 beside the cuBLAS wheel
 ```
+
+**The release build** (#42) is what a catalog install ships; the dev build
+is untouched. Its pins (images, wheels, tools) are in
+`scripts/release/pins.sh`; downloads are cached in `RELEASE_CACHE` (default
+`~/.cache/rkt-raft-release`) and `RELEASE_JOBS` (default 4) caps the
+compile. Flake check `release-gates` fails when the wheel pins differ from
+`nix/rapids.nix` or the cuBLAS wheel from `cudaPackages.libcublas`, and runs
+`scripts/release/gates-test.sh`, the gates' own tests.
 
 `nix develop` does this on entry, from the checkout's root only:
 
@@ -673,6 +683,8 @@ The lab host has 62 GB of RAM shared with other sessions, and a global OOM on
   instantiation) peaks at 730–760 MB. The cap keeps a build near 3 GB; keep
   `buildJobs` × peak RSS under about 24 GB, and measure again when a heavier
   header family (`linalg/svd`, `sparse`, `cluster`) arrives.
+- The release build (seven architectures, four jobs): 89 s, largest process
+  823 MB, container 1.9 GB.
 - Check `free -g` before a heavy build; with less than 30 GB available, wait
   and retry rather than start.
 
@@ -771,7 +783,7 @@ recorded prints `resyntax: unchanged since a green run` and exits 0;
 `RESYNTAX_NO_CACHE=1` forces the analysis. An explicit base, as CI passes,
 always runs in full and records nothing.
 
-`nix flake check` runs fifteen checks: `shim` (build plus both gtest
+`nix flake check` runs sixteen checks: `shim` (build plus both gtest
 binaries), `shim-sanitizers` (both gtest binaries under ASAN and UBSAN),
 `c-headers` (the umbrella header compiled as C11 with `-Werror`),
 `clang-tidy`, `kmeans-canary` (the canary's build against `packages.raft-dev`
@@ -780,8 +792,9 @@ and `packages.rapids`, plus its gtests), `clang-tidy-canary`, `line-count`
 (treefmt), `racket` (the package build, `raco setup --check-pkg-deps
 --unused-pkg-deps`, `raco test raft`, the manual compiled but not rendered,
 the binding census), `racket-review`, `racket-version` (at least 9.3),
-`no-syntax-rule`, `no-raw-malloc`, `bounded-death-tests` and
-`gpu-suite-signals`.
+`release-gates` (the release pins against the flake, and the release
+gates' own tests), `no-syntax-rule`, `no-raw-malloc`,
+`bounded-death-tests` and `gpu-suite-signals`.
 
 ## Tooling
 
@@ -804,6 +817,7 @@ the binding census), `racket-review`, `racket-version` (at least 9.3),
 | clang-tidy (`shim/.clang-tidy`, `downstream/kmeans-canary/.clang-tidy`) | every `.cpp` under `shim/src`, `shim/tests` and the canary's `src` and `tests`, warnings as errors: `bugprone-*`, `performance-*`, `readability-*` except `identifier-length` (below), `modernize-use-nullptr`, `modernize-use-override` | flake checks `clang-tidy`, `clang-tidy-canary` | by hand |
 | `c-headers`, `line-count` | the umbrella header as C11; 500 lines per C/C++/CUDA file | flake checks | by hand |
 | ASAN and UBSAN (`-DRAFTRKT_SANITIZE=ON`) | host memory errors, leaks and undefined behaviour in both gtest binaries (not signed overflow: the nix stdenv's `strictoverflow` hardening builds with `-fno-strict-overflow`), and in every death-test child; the leak check runs only in a child that reaches normal exit, not one whose drain skipped (its exit ends in `_exit`) or that calls `_exit`/`std::_Exit`; the exit and deposit-job death tests' children send ASan and LSan reports to stdout, UBSan's to stderr, and fail by exit status | flake check `shim-sanitizers` (GPU cases SKIP); the GPU suite (GPU cases run); gate `sanitizers` | by hand |
+| release gates (`scripts/release/gates.sh`) | the artifact: exactly the shipped files, each library an x86-64 ELF64 shared object with no `PT_INTERP`, `RUNPATH` `$ORIGIN` only, no `/nix/store`, `GLIBC_` ≤ 2.28, `GLIBCXX_` ≤ 3.4.25, the shim's `NEEDED`, the companions' `NEEDED`, every architecture in each fatbin module and as many modules as `.nvFatBinSegment` bytes / 24, the ABI version against `library.rkt`, `SHA256SUMS` | `release.yml`; flake check `release-gates` (`scripts/release/gates-test.sh`) | by hand |
 | compute-sanitizer memcheck | device memory errors, device leaks (`--leak-check full`) and failing CUDA calls (`--report-api-errors explicit`) in both gtest binaries and the canary's | the GPU suite (gate `gpu`, `gpu.yml`) | by hand |
 
 - **raco fmt** formats `.rkt` files only. It crashes on Scribble's
@@ -902,6 +916,15 @@ the binding census), `racket-review`, `racket-version` (at least 9.3),
   host and their counts go in the review packet. The `if:` is not a security
   boundary: a fork's PR runs workflow files it controls, so keeping forks off
   the runner is the runner group's job (#9 lists the settings).
+- `.github/workflows/release.yml`, one job on `ubuntu-latest`: the release
+  build (`scripts/release.sh build`), the `manylinux_2_28` load check
+  (`scripts/release.sh load-check`), then the artifact
+  `libraftrkt-x86_64-linux` (the three libraries, `LICENSE`, the companions'
+  licences, `manifest.json`, `SHA256SUMS`). It runs on pull requests touching
+  `shim/`, `nix/rapids.nix`, `raft/private/foreign/library.rkt`, the release
+  scripts, the workflow, `.github/actions/free-disk/**` or `flake.nix`, on `v*` tags and by dispatch; only a pull
+  request's run is cancelled by a newer one. Compile only: no GPU (#9).
+  Adds `actions/upload-artifact@v7`.
 - No docs build in GitHub CI: doc examples need the GPU.
 
 ## Documentation

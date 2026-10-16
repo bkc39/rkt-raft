@@ -1,6 +1,11 @@
 cmake_minimum_required(VERSION 3.30)
 
+option(RAFTRKT_RELEASE "Build the shipped library" OFF)
+
 if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
+  if(RAFTRKT_RELEASE)
+    message(FATAL_ERROR "RAFTRKT_RELEASE needs CMAKE_CUDA_ARCHITECTURES on the command line")
+  endif()
   set(CMAKE_CUDA_ARCHITECTURES 86)
 endif()
 
@@ -76,6 +81,7 @@ target_link_options(raftrkt PRIVATE
 )
 raftrkt_enable_warnings(raftrkt)
 raftrkt_apply_nix_cflags(raftrkt)
+raftrkt_apply_release_rpath(raftrkt)
 
 raftrkt_add_tidy_target(tidy raftrkt)
 

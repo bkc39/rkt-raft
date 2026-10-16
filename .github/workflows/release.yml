@@ -1,0 +1,43 @@
+name: Release build
+
+on:
+  pull_request:
+    paths:
+      - shim/**
+      - nix/rapids.nix
+      - raft/private/foreign/library.rkt
+      - scripts/release.sh
+      - scripts/release/**
+      - .github/workflows/release.yml
+      - .github/actions/free-disk/**
+      - flake.nix
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  libraftrkt:
+    name: libraftrkt for glibc 2.28, every RAPIDS architecture
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/free-disk
+      - name: Build in the CUDA 13 rockylinux8 image and gate the result
+        run: scripts/release.sh build "$RUNNER_TEMP/libraftrkt"
+      - name: dlopen in manylinux_2_28 with the pinned cuBLAS wheel, no GPU
+        run: scripts/release.sh load-check "$RUNNER_TEMP/libraftrkt"
+      - name: Manifest
+        run: cat "$RUNNER_TEMP/libraftrkt/manifest.json"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: libraftrkt-x86_64-linux
+          path: ${{ runner.temp }}/libraftrkt
+          if-no-files-found: error
