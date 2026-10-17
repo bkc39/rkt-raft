@@ -27,6 +27,22 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  plan:
+    name: The native release a tag drafts
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      tag: ${{ steps.plan.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.CHECKOUT_REF }}
+      - id: plan
+        name: Draft only for v<raft-x86_64-linux's version>
+        env:
+          TAG: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
+        run: scripts/release/draft-tag.sh "$TAG" >>"$GITHUB_OUTPUT"
+
   libraftrkt:
     name: libraftrkt for glibc 2.28, every RAPIDS architecture
     runs-on: ubuntu-latest
@@ -50,7 +66,7 @@ jobs:
 
   native-package:
     name: raft-x86_64-linux, installed from a local catalog with no GPU
-    needs: libraftrkt
+    needs: [plan, libraftrkt]
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -63,7 +79,7 @@ jobs:
           path: ${{ runner.temp }}/libraftrkt
       - name: Package
         env:
-          RELEASE_TAG: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
+          RELEASE_TAG: ${{ needs.plan.outputs.tag }}
         run: scripts/release.sh package "$RUNNER_TEMP/libraftrkt" "$RUNNER_TEMP/dist"
       - name: Catalog test
         run: scripts/release.sh catalog-test "$RUNNER_TEMP/libraftrkt" "$RUNNER_TEMP/dist"
@@ -75,8 +91,8 @@ jobs:
 
   draft-release:
     name: Draft the GitHub Release
-    if: github.ref_type == 'tag'
-    needs: [libraftrkt, native-package]
+    if: needs.plan.outputs.tag != ''
+    needs: [plan, libraftrkt, native-package]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:

@@ -267,14 +267,19 @@ want_refused() {
     problem "$name: want a refusal saying $reason, got status $(cat "$work/$name.status"): $(cat "$work/$name.out")"
   fi
 }
+native_version=$(sed -n 's/^(define version "\(.*\)")$/\1/p' "$here/../../$RELEASE_NATIVE_PACKAGE/info.rkt")
 version_check versions-repo "$here/../../$RELEASE_NATIVE_PACKAGE" "$here/../../raft" ""
-want_version versions-repo "$(sed -n 's/^(define version "\(.*\)")$/\1/p' "$here/../../raft/info.rkt")"
+want_version versions-repo "$native_version"
+grep -qxF "(define native-version \"$native_version\")" "$versions/raft/info.rkt" ||
+  problem "$versions/raft/info.rkt: native-version is not $native_version, $RELEASE_NATIVE_PACKAGE's version"
+[ -f "$versions/$native_version/$RELEASE_NATIVE_PACKAGE/info.rkt" ] ||
+  problem "$versions: no $native_version/$RELEASE_NATIVE_PACKAGE, $RELEASE_NATIVE_PACKAGE's version"
 version_check versions-same "$versions/0.2/$RELEASE_NATIVE_PACKAGE" "$versions/raft" ""
 want_version versions-same 0.2
 version_check versions-tag "$versions/0.2/$RELEASE_NATIVE_PACKAGE" "$versions/raft" v0.2
 want_version versions-tag 0.2
 version_check versions-older "$versions/0.1/$RELEASE_NATIVE_PACKAGE" "$versions/raft" ""
-want_refused versions-older "$RELEASE_NATIVE_PACKAGE is version 0.1, raft is version 0.2"
+want_refused versions-older "$RELEASE_NATIVE_PACKAGE is version 0.1, raft needs version 0.2"
 version_check versions-dependency "$versions/0.2/$RELEASE_NATIVE_PACKAGE" "$versions/raft-dep-0.1" ""
 want_refused versions-dependency "raft depends on $RELEASE_NATIVE_PACKAGE #:version 0.1, not 0.2"
 version_check versions-wrong-tag "$versions/0.2/$RELEASE_NATIVE_PACKAGE" "$versions/raft" v0.3
@@ -303,6 +308,17 @@ license_case() {
 }
 license_case license-no-mit "'(Apache-2.0 AND LicenseRef-NVIDIA-CUDA-EULA)" "lacks (MIT), which NOTICE names"
 license_case license-n-ary "'(Apache-2.0 AND MIT AND LicenseRef-NVIDIA-CUDA-EULA)" "is not a license S-expression"
+
+draft_case() {
+  local tag=$1 want=$2 got
+  got=$(bash "$here/draft-tag.sh" "$tag" 2>/dev/null) || got="exit $?"
+  [ "$got" = "tag=$want" ] || problem "draft-tag: ${tag:-no tag} said $got, want tag=$want"
+}
+draft_case "v$native_version" "v$native_version"
+draft_case "v$native_version.1" ""
+draft_case "" ""
+grep -qF "needs.plan.outputs.tag != ''" "$here/../../.github/workflows/release.yml" ||
+  problem "release.yml: draft-release does not wait for a tag that draft-tag.sh names"
 
 for path in "raft/**" "$RELEASE_NATIVE_PACKAGE/**"; do
   grep -qxF "      - $path" "$here/../../.github/workflows/release.yml" ||

@@ -1,7 +1,7 @@
 #lang scribble/manual
 @(require "../utils.rkt")
 
-@(define ev (make-downstream-eval))
+@(define ev (make-downstream-eval "reference-unsafe"))
 
 @title[#:tag "ref-unsafe"]{Downstream interface: @racketmodname[raft/unsafe]}
 

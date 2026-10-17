@@ -2,7 +2,7 @@
 @(require "../utils.rkt"
           "lifetime-diagram.rkt")
 
-@(define ev (make-raft-eval))
+@(define ev (make-raft-eval "guide-concepts"))
 
 @title[#:tag "concepts"]{Concepts}
 

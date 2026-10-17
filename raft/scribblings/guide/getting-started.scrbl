@@ -1,7 +1,7 @@
 #lang scribble/manual
 @(require "../utils.rkt")
 
-@(define ev (make-raft-eval))
+@(define ev (make-raft-eval "guide-getting-started"))
 
 @title[#:tag "getting-started"]{Getting started}
 

@@ -30,6 +30,16 @@
       [(list (== name) _ ... '#:version version _ ...) version] ;; noqa
       [_ #f])))
 
+(define (dependency-name dep)
+  (match dep
+    [(? string?) dep]
+    [(cons name _) name]))
+
+(define (dependencies-except dir name)
+  (for/list ([dep (in-list (append (info-ref dir 'deps) (info-ref dir 'build-deps)))]
+             #:unless (equal? (dependency-name dep) name))
+    (dependency-name dep)))
+
 (define (refuse-or problem value)
   (match problem
     [#f value]
@@ -75,12 +85,12 @@
 (define (check-version native raft tag)
   (define name (package-name native))
   (define version (info-ref native 'version))
-  (define raft-version (info-ref raft 'version))
+  (define needed (info-ref raft 'native-version))
   (define wanted (dependency-version (info-ref raft 'deps) name))
   (define problem
     (cond
-      [(not (equal? version raft-version))
-       (format "~a is version ~a, raft is version ~a" name version raft-version)]
+      [(not (equal? version needed))
+       (format "~a is version ~a, raft needs version ~a" name version needed)]
       [(not (equal? wanted version))
        (format "raft depends on ~a #:version ~a, not ~a" name wanted version)]
       [(and (not (equal? tag "")) (not (equal? tag (string-append "v" version))))
@@ -94,7 +104,8 @@
     [(vector "check" native raft tag) (displayln (check-version native raft tag))]
     [(vector "license" native) (displayln (check-license native))]
     [(vector "entry" dir zip source) (pretty-write (entry dir zip source))]
+    [(vector "deps-except" dir name) (for-each displayln (dependencies-except dir name))]
     [_
      (raise-user-error
       'catalog
-      "usage: catalog.rkt check NATIVE RAFT TAG | license NATIVE | entry DIR ZIP SOURCE")]))
+      "usage: catalog.rkt check NATIVE RAFT TAG | license NATIVE | entry DIR ZIP SOURCE | deps-except DIR NAME")]))

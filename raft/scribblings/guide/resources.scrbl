@@ -1,7 +1,7 @@
 #lang scribble/manual
 @(require "../utils.rkt")
 
-@(define ev (make-raft-eval))
+@(define ev (make-raft-eval "guide-resources"))
 
 @title[#:tag "resources"]{Resources and the GPU}
 

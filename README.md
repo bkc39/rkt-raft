@@ -31,7 +31,12 @@ nix develop
 raco test raft                 # the Racket tests
 scripts/gpu-suite.sh           # everything that needs the GPU, parity with Python included
 scripts/render-docs.sh <dir>   # the manual, red on any warning or broken link
+scripts/record-docs.sh         # re-record the manual's examples, then commit raft/scribblings/logs
 ```
+
+The manual's examples run live in the shell (`RAFT_DOCS=live`). Everywhere
+else, `raco setup` included, they replay from `raft/scribblings/logs`, so the
+manual builds without a GPU.
 
 A test that cannot run prints a line starting with `SKIP:`; a green run with
 SKIP lines has not tested what was skipped. Contributors and agents:

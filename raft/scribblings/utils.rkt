@@ -34,6 +34,8 @@
                     racket/port
                     racket/string
                     racket/vector)
+         ;; whole-module: define-runtime-path needs bindings only-in strips
+         racket/runtime-path
          (only-in racket/sandbox
                   sandbox-error-output
                   sandbox-eval-limits
@@ -43,7 +45,8 @@
                   sandbox-security-guard)
          ;; whole-module: both are re-exported to every chapter
          scribble/example
-         scribble/manual)
+         scribble/manual
+         (only-in "logged-eval.rkt" docs-mode make-logged-eval))
 
 (provide (all-from-out scribble/example)
          (all-from-out scribble/manual)
@@ -70,7 +73,12 @@
          make-downstream-eval
          make-raft-eval)
 
-(define (make-raft-eval)
+(define-runtime-path logs-dir "logs")
+
+(define (chapter-log name)
+  (build-path logs-dir (format "~a.rktd" name)))
+
+(define (live-raft-eval)
   (parameterize ([sandbox-output 'string]
                  [sandbox-error-output 'string]
                  [sandbox-memory-limit #f]
@@ -84,13 +92,19 @@
                               racket/match
                               racket/string))))
 
-(define (make-downstream-eval)
-  (define ev (make-raft-eval))
+(define (live-downstream-eval)
+  (define ev (live-raft-eval))
   (ev '(require ffi/unsafe
                 ffi/unsafe/define
                 ffi/unsafe/define/conventions
                 raft/unsafe))
   ev)
+
+(define (make-raft-eval name)
+  (make-logged-eval (docs-mode) (chapter-log name) live-raft-eval))
+
+(define (make-downstream-eval name)
+  (make-logged-eval (docs-mode) (chapter-log name) live-downstream-eval))
 
 (define (listing language . lines)
   (nested #:style 'code-inset (para (italic language)) (apply verbatim lines)))

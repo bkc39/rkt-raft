@@ -1,7 +1,7 @@
 #lang scribble/manual
 @(require "../utils.rkt")
 
-@(define ev (make-raft-eval))
+@(define ev (make-raft-eval "reference-core"))
 
 @title[#:tag "ref-core"]{Resources, devices and errors: @racketmodname[raft/core]}
 

@@ -31,7 +31,7 @@
                   native-library-problem
                   native-location-dir
                   native-location-kind
-                  package-version))
+                  required-native-version))
 
 (provide define-raft
          ensure-cublas ;; noqa
@@ -112,7 +112,7 @@
 (define native-library-dir (native-location-dir location))
 
 (define native-library
-  (match (native-library-problem location (package-version (path-only raft-info)))
+  (match (native-library-problem location (required-native-version (path-only raft-info)))
     [#f
      (ensure-cublas (locate-cublas) (native-location-kind location))
      (load-checked-library native-library-dir)]

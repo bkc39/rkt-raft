@@ -1,7 +1,7 @@
 #lang scribble/manual
 @(require "../utils.rkt")
 
-@(define ev (make-raft-eval))
+@(define ev (make-raft-eval "reference-array"))
 
 @title[#:tag "ref-array"]{Device arrays: @racketmodname[raft/array]}
 
