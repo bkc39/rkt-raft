@@ -13,8 +13,12 @@ problem() {
 
 repo=$work/repo
 mkdir -p "$repo/scripts" "$repo/raft/scribblings"
-cp "$here/record-docs.sh" "$here/fixtures/record-docs/render-docs.sh" "$here/fixtures/record-docs/chapter.rkt" \
-  "$repo/scripts/"
+cp "$here/record-docs.sh" "$here/fixtures/record-docs/chapter.rkt" "$repo/scripts/"
+{
+  echo "#!$BASH"
+  tail -n +2 "$here/fixtures/record-docs/render-docs.sh"
+} >"$repo/scripts/render-docs.sh"
+chmod +x "$repo/scripts/render-docs.sh"
 cp "$here/../raft/scribblings/logged-eval.rkt" "$repo/raft/scribblings/"
 git -C "$repo" init -q
 export RAFT_KMEANS_CANARY=unused
