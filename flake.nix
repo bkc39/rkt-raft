@@ -415,7 +415,10 @@
         pname = "rkt-raft-docs-replay";
         inherit version;
         src = lib.cleanSource ./.;
-        nativeBuildInputs = [ racket ];
+        nativeBuildInputs = [
+          racket
+          pkgs.git
+        ];
         dontConfigure = true;
         buildPhase = ''
           runHook preBuild
@@ -429,6 +432,7 @@
           raco setup --no-docs --pkgs raft-x86_64-linux raft
           unset RAFT_DOCS
           bash scripts/render-docs.sh $TMPDIR/docs
+          bash scripts/record-docs-test.sh
           runHook postBuild
         '';
         installPhase = "cp -r $TMPDIR/docs $out";

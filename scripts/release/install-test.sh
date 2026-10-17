@@ -12,7 +12,7 @@ raft_src=${3:?$usage}
 work=${4:?$usage}
 cache=${RELEASE_CACHE:-/cache}
 case $phase in
-  pkg-build-test) release_on_exit ;;
+  pkg-build-test) release_on_exit "$work" ;;
   *) release_on_exit "$work" "$cache" ;;
 esac
 
@@ -90,7 +90,11 @@ case $phase in
       say "the network is reachable; run this phase with --network none"
       exit 1
     fi
-    say "raco test --drdr --package raft, offline"
+    if [ "$(id -u)" -ne 0 ]; then
+      say "running as uid $(id -u); pkg-build runs the tests as root"
+      exit 1
+    fi
+    say "raco test --drdr --package raft, offline, as root"
     status=0
     raco test --drdr --package raft >"$work/test.log" 2>&1 || status=$?
     grep -E "tests? passed|test failures?|non-zero exit|timeout" "$work/test.log" | sort | uniq -c | sort -rn | head -n 20

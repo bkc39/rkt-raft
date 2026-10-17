@@ -21,31 +21,31 @@
 (define license 'Apache-2.0)
 (define pre-install-collection "private/install-native.rkt")
 (define test-omit-paths
-  (if (getenv "PLT_PKG_BUILD_SERVICE")
-      '("scribblings" "tests/python"
-                      "tests/gpu"
-                      "tests/private"
-                      "array.rkt"
-                      "compat.rkt"
-                      "core.rkt"
-                      "main.rkt"
-                      "unsafe.rkt"
-                      "private/abi.rkt"
-                      "private/array.rkt"
-                      "private/deposit.rkt"
-                      "private/dtype.rkt"
-                      "private/error.rkt"
-                      "private/exit.rkt"
-                      "private/foreign/array-api.rkt"
-                      "private/foreign/array.rkt"
-                      "private/foreign/core.rkt"
-                      "private/foreign/deposit-api.rkt"
-                      "private/foreign/internal.rkt"
-                      "private/foreign/job-api.rkt"
-                      "private/foreign/library.rkt"
-                      "private/foreign/memory.rkt"
-                      "private/job.rkt"
-                      "private/pack.rkt"
-                      "private/resources.rkt")
-      '("scribblings" "tests/python")))
+  (append '("scribblings" "tests/python")
+          (if (getenv "PLT_PKG_BUILD_SERVICE")
+              (list "tests/gpu"
+                    "tests/private"
+                    "array.rkt"
+                    "compat.rkt"
+                    "core.rkt"
+                    "main.rkt"
+                    "unsafe.rkt"
+                    "private/abi.rkt"
+                    "private/array.rkt"
+                    "private/deposit.rkt"
+                    "private/dtype.rkt"
+                    "private/error.rkt"
+                    "private/exit.rkt"
+                    "private/foreign/array-api.rkt"
+                    "private/foreign/array.rkt"
+                    "private/foreign/core.rkt"
+                    "private/foreign/deposit-api.rkt"
+                    "private/foreign/internal.rkt"
+                    "private/foreign/job-api.rkt"
+                    "private/foreign/library.rkt"
+                    "private/foreign/memory.rkt"
+                    "private/job.rkt"
+                    "private/pack.rkt"
+                    "private/resources.rkt")
+              '())))
 (define test-timeouts '(("tests/gpu/exit-test.rkt" 360)))

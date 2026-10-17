@@ -11,8 +11,7 @@
          (only-in "../../private/cuda-wheels.rkt" cuda-wheel wheel-member)
          (only-in "../../private/resource.rkt" with-release))
 
-(provide call-with-env
-         call-with-server
+(provide call-with-server
          call-with-temp
          closed-port-base
          file-base
@@ -27,15 +26,6 @@
 (define (call-with-temp proc)
   (with-release ([dir (make-temporary-directory "raft-cuda-~a") delete-directory/files])
     (proc dir)))
-
-(define (call-with-env bindings thunk)
-  (parameterize ([current-environment-variables
-                  (environment-variables-copy (current-environment-variables))])
-    (for ([binding (in-list bindings)])
-      (environment-variables-set! (current-environment-variables)
-                                  (string->bytes/utf-8 (car binding))
-                                  (and (cdr binding) (string->bytes/utf-8 (cdr binding)))))
-    (thunk)))
 
 (define (sized-file! file size)
   (call-with-output-file file #:exists 'truncate (lambda (out) (file-truncate out size)))

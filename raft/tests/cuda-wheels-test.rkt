@@ -36,7 +36,8 @@
                   installed
                   libraries
                   make-wheel!
-                  sized-file!))
+                  sized-file!)
+         (only-in "private/skip.rkt" test-unless-skipped))
 
 (define-runtime-path cuda-wheels-module "../private/cuda-wheels.rkt")
 (define-runtime-path cuda-wheels "../private/cuda-wheels.rktd")
@@ -237,7 +238,17 @@
      (check-not-false (fetch wheel root (file-base dir)))
      (check-equal? (installed root) (list home)))))
 
-(test-case "a stale part that cannot be deleted does not block the fetch"
+(define read-only-skip
+  (call-with-temp (lambda (dir)
+                    (file-or-directory-permissions dir #o555)
+                    (define writes?
+                      (with-handlers ([exn:fail:filesystem? (lambda (_) #f)])
+                        (call-with-output-file (build-path dir "probe") void)
+                        #t))
+                    (file-or-directory-permissions dir #o755)
+                    (and writes? "this user writes into a mode 555 directory, as root does"))))
+
+(test-unless-skipped read-only-skip "a stale part that cannot be deleted does not block the fetch"
   (call-with-temp (lambda (dir)
                     (define wheel (make-wheel! dir))
                     (define root (build-path dir "root"))

@@ -1,18 +1,30 @@
 #!/usr/bin/env bash
-#
-# Re-records raft/scribblings/logs/, the evaluations the manual replays where
-# no GPU is (RAFT_DOCS unset), by rendering it live once. Run inside
-# `nix develop` on the GPU host, with the k-means canary built. Fails when the
-# manual replayed from the new logs differs from the live render; with --check,
-# also when the logs differ from the committed ones.
 set -euo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
+usage() {
+  cat <<'USAGE'
+usage: scripts/record-docs.sh [--check]
+
+Re-records raft/scribblings/logs/ by rendering the manual once with
+RAFT_DOCS=record (every example evaluated live, its output written to its
+chapter's log), then renders it again with RAFT_DOCS=replay and fails unless
+the two manuals are byte for byte the same. Run it inside `nix develop` on
+the GPU host, then commit the logs.
+
+--check also fails when the new logs differ from the committed ones: an
+example whose output changed while its expression did not.
+USAGE
+}
 case ${1:-} in
   "" | --check) ;;
+  -h | --help)
+    usage
+    exit 0
+    ;;
   *)
-    echo "usage: scripts/record-docs.sh [--check]" >&2
+    usage >&2
     exit 2
     ;;
 esac
@@ -30,7 +42,7 @@ echo "record-docs: the replayed manual is the live one, byte for byte"
 logs=raft/scribblings/logs
 git status --short -- "$logs"
 if [ "${1:-}" = --check ] && [ -n "$(git status --porcelain -- "$logs")" ]; then
-  git diff --stat -- "$logs"
+  git --no-pager diff -- "$logs" | head -n 60 || true
   echo "record-docs: the manual's output differs from $logs; re-record with scripts/record-docs.sh and commit it" >&2
   exit 1
 fi

@@ -117,3 +117,5 @@ r
 
 @secref["ref-core"] documents every operation, and @secref["resources"]
 builds a program around them.
+
+@(close-eval ev)

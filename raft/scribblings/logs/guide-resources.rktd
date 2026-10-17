@@ -29,10 +29,13 @@
  (values "")
  ""
  "")
-((timed r (lambda () (process-batch '((1.0 2.0) (3.0 4.0)))))
- (values "2\n" "0.029541015625\n")
+((define-values
+  (rows ms)
+  (timed r (lambda () (process-batch '((1.0 2.0) (3.0 4.0))))))
+ (values "")
  ""
  "")
+((list rows (real? ms)) (values "'(2 #t)\n") "" "")
 ((define (run-worker device batches)
    (with-device-resources
     ((r (device-resources #:device device)))
@@ -43,8 +46,8 @@
  (values "")
  ""
  "")
-((run-worker 0 (list '((1.0 2.0) (3.0 4.0)) '((5.0 6.0))))
- (values "'((2 0.017822265625) (1 0.002685546875))\n")
+((map first (run-worker 0 (list '((1.0 2.0) (3.0 4.0)) '((5.0 6.0)))))
+ (values "'(2 1)\n")
  ""
  "")
 ((define (run-workers worker jobs)
@@ -80,8 +83,8 @@
     ((batches (in-list results)) (i (in-naturals)))
     (for
      ((batch (in-list batches)))
-     (match-define (list n ms) batch)
-     (printf "worker ~a: ~a rows in ~a ms\n" i n (~r ms #:precision '(= 2))))))
+     (match-define (list n _ms) batch)
+     (printf "worker ~a: ~a rows\n" i n))))
  (values "")
  ""
  "")
@@ -102,7 +105,7 @@
  "")
 ((report (run-workers run-worker jobs))
  (values "")
- "worker 0: 2 rows in 0.00 ms\nworker 0: 1 rows in 0.00 ms\nworker 1: 1 rows in 0.00 ms\nworker 2: 2 rows in 0.02 ms\n"
+ "worker 0: 2 rows\nworker 0: 1 rows\nworker 1: 1 rows\nworker 2: 2 rows\n"
  "")
 ((define (run-worker/caught device batches)
    (with-handlers ((exn:fail:raft? values)) (run-worker device batches)))

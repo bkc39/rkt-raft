@@ -129,9 +129,16 @@
   (format "the package ~a is version ~a, but this raft needs version ~a\n  found in: ~a\n  ~a"
           native-package
           (or found "unknown")
-          (or wanted "unknown")
+          wanted
           where
           (format "update both with `raco pkg update raft ~a`" native-package)))
+
+(define (unknown-native-version-error where)
+  (format
+   "this raft's info.rkt names no native-version, so the package ~a cannot be checked\n  found in: ~a\n  ~a"
+   native-package
+   where
+   (format "reinstall both with `raco pkg update raft ~a`" native-package)))
 
 (define (native-library-problem location wanted)
   (match location
@@ -140,6 +147,9 @@
     [(native-location (and kind (or 'override 'package)) dir _ _)
      #:when (not (staged? dir))
      (native-library-error kind dir)]
+    [(native-location 'package dir _ _)
+     #:when (not wanted)
+     (unknown-native-version-error dir)]
     [(native-location 'package dir found _)
      #:when (not (equal? found wanted))
      (native-version-error found wanted dir)]

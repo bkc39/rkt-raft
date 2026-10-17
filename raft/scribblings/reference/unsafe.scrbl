@@ -685,3 +685,5 @@ states, @tt{rr_release_fn}, @tt{deposit.hpp}, @racket[deposit],
 @tt{job.hpp}, @racket[define-job], and the rule that a call that can run long
 is a job; a downstream detects them by requiring @racketmodname[raft] version
 0.2, or with @tt{__has_include}.
+
+@(close-eval ev)

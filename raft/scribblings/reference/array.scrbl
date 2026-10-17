@@ -578,3 +578,5 @@ Into flonum code:
 (define v (device-vector->flvector (list->device-vector '(3.0 4.0))))
 (flsqrt (for/fold ([sum 0.0]) ([x (in-flvector v)]) (fl+ sum (fl* x x))))
 ]}
+
+@(close-eval ev)

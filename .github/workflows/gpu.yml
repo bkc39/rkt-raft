@@ -15,10 +15,30 @@ jobs:
       (github.event_name == 'workflow_dispatch' ||
        github.event.pull_request.user.login == 'bkc39')
     runs-on: [self-hosted, linux, gpu]
-    timeout-minutes: 60
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v7
       - name: Shim gtests, LD_BIND_NOW load, Racket tests, twin parity, census
         run: nix develop --max-jobs 1 --cores 4 --command scripts/gpu-suite.sh
       - name: Manual, with every example evaluated
         run: nix develop --max-jobs 1 --cores 4 --command scripts/render-docs.sh "$RUNNER_TEMP/rkt-raft-docs"
+      - name: The logs hold what the examples print now
+        timeout-minutes: 20
+        run: nix develop --max-jobs 1 --cores 4 --command scripts/record-docs.sh --check
+      - name: Fetch the raft-x86_64-linux release raft's native-version names
+        id: native
+        run: |
+          native=$(sed -n 's/^(define native-version "\(.*\)")$/\1/p' raft/info.rkt)
+          mkdir -p "$RUNNER_TEMP/dist"
+          status=0
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/dist/raft-x86_64-linux.zip" \
+            "https://github.com/$GITHUB_REPOSITORY/releases/download/v$native/raft-x86_64-linux.zip" || status=$?
+          case $status in
+            0) echo "found=true" >>"$GITHUB_OUTPUT" ;;
+            22) echo "SKIP: no v$native release yet, so the GPU install test cannot run" ;;
+            *) exit "$status" ;;
+          esac
+      - name: Install raft and that release with docs in a clean container on the GPU, no canary
+        if: steps.native.outputs.found == 'true'
+        timeout-minutes: 20
+        run: scripts/release.sh install-test gpu "$RUNNER_TEMP/dist"

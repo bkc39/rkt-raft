@@ -2,13 +2,14 @@
 
 (require (only-in file/convertible convertible?)
          (only-in racket/file file->list make-directory*)
-         (only-in racket/match == match match-lambda)
+         (only-in racket/match == match)
          (only-in racket/path path-only)
          (only-in racket/pretty pretty-print-print-hook pretty-print-size-hook pretty-write)
          (only-in racket/sandbox call-in-sandbox-context)
-         (only-in scribble/example make-base-eval))
+         (only-in scribble/example close-eval make-base-eval))
 
-(provide docs-mode
+(provide close-logged-eval
+         docs-mode
          make-logged-eval)
 
 (define (docs-mode)
@@ -21,11 +22,35 @@
                        "RAFT_DOCS is ~s; want live, record or replay (the default when unset)"
                        other)]))
 
+(struct ledger (log [pending #:mutable] [problem #:mutable]))
+
+(define ledgers (make-weak-hasheq))
+
+(define (keep-ledger! ev l)
+  (hash-set! ledgers ev l)
+  ev)
+
+(define (ledger-fail! l message)
+  (set-ledger-problem! l (or (ledger-problem l) message))
+  (raise-user-error 'raft-docs "~a" message))
+
 (define (make-logged-eval mode log make-live)
   (match mode
     ['live (make-live)]
-    ['record (recording-eval (make-live) log)]
-    ['replay (replaying-eval log)]))
+    ['record (recording-eval (make-live) (ledger log '() #f))]
+    ['replay (replaying-eval (ledger log (file->list log) #f))]))
+
+(define (close-logged-eval ev)
+  (close-eval ev)
+  (match (hash-ref ledgers ev #f)
+    [(ledger _ _ (? string? problem)) (raise-user-error 'raft-docs "~a" problem)]
+    [(ledger log (cons (cons expr _) _) #f)
+     (raise-user-error
+      'raft-docs
+      "~a has evaluations no example replayed, from ~.s on; re-record it with RAFT_DOCS=record"
+      log
+      expr)]
+    [_ ""]))
 
 (struct recorded (text)
   #:property prop:custom-write
@@ -39,78 +64,78 @@
 (define (output-since port start)
   (bytes->string/utf-8 (get-output-bytes port #f start) #\?))
 
-(define (refuse-convertible obj _mode _out)
-  (raise-user-error 'raft-docs "cannot record ~e: it renders as an image, not text" obj))
-
-(define (print->string v)
-  (define out (open-output-string))
-  (parameterize ([current-output-port out]
-                 [pretty-print-size-hook (lambda (obj _mode _out) (and (convertible? obj) 1))]
-                 [pretty-print-print-hook refuse-convertible])
-    ((current-print) v))
-  (get-output-string out))
-
-(define (raised->message e)
-  (match e
-    [(? exn?) (exn-message e)]
-    [_ (format "uncaught exception: ~s" e)]))
-
-(define (append-entry! log entry)
-  (with-output-to-file log #:exists 'append (lambda () (pretty-write entry))))
-
-(define inside-example? (make-parameter #f))
-
-(define ((recording-handler log live-eval) form)
-  (match (inside-example?)
-    [#t (live-eval form)]
-    [#f
-     (parameterize ([inside-example? #t])
-       (record-example log live-eval form))]))
-
-(define (record-example log live-eval form)
-  (define expr (form->expr form))
+(define (call-with-captured-output proc)
   (define out (current-output-port))
   (define err (current-error-port))
   (define out-start (file-position out))
   (define err-start (file-position err))
-  (define (record! result)
-    (append-entry! log (list expr result (output-since out out-start) (output-since err err-start))))
-  (define results
-    (with-handlers ([(lambda (e) (not (exn:break? e))) (lambda (e)
-                                                         (record! (list 'raise (raised->message e)))
-                                                         (raise e))])
-      (call-with-values (lambda () (live-eval form)) list)))
-  (record! (cons 'values (map print->string results)))
-  (apply values results))
+  (proc (lambda () (list (output-since out out-start) (output-since err err-start)))))
 
-(define (recording-eval ev log)
+(define ((refuse-convertible l) obj _mode _out)
+  (ledger-fail! l (format "cannot record ~e: it renders as an image, not text" obj)))
+
+(define ((print->string l) v)
+  (define out (open-output-string))
+  (parameterize ([current-output-port out]
+                 [pretty-print-size-hook (lambda (obj _mode _out) (and (convertible? obj) 1))]
+                 [pretty-print-print-hook (refuse-convertible l)])
+    ((current-print) v))
+  (get-output-string out))
+
+(define (raised->message e)
+  (cond
+    [(exn? e) (exn-message e)]
+    [else (format "uncaught exception: ~s" e)]))
+
+(define (not-a-break? raised)
+  (not (exn:break? raised)))
+
+(define (append-entry! log entry)
+  (with-output-to-file log #:exists 'append (lambda () (pretty-write entry))))
+
+(define ((recording-handler l live-eval) form)
+  (call-with-captured-output (lambda (captured)
+                               (define (record! result)
+                                 (append-entry! (ledger-log l)
+                                                (list* (form->expr form) result (captured))))
+                               (define (record-raise! raised)
+                                 (record! (list 'raise (raised->message raised)))
+                                 (raise raised))
+                               (define results
+                                 (with-handlers ([not-a-break? record-raise!])
+                                   (parameterize ([current-eval live-eval])
+                                     (call-with-values (lambda () (live-eval form)) list))))
+                               (record! (cons 'values (map (print->string l) results)))
+                               (apply values results))))
+
+(define (recording-eval ev l)
+  (define log (ledger-log l))
   (make-directory* (path-only (path->complete-path log)))
   (with-output-to-file log #:exists 'truncate void)
-  (call-in-sandbox-context ev (lambda () (current-eval (recording-handler log (current-eval)))))
-  ev)
+  (call-in-sandbox-context ev (lambda () (current-eval (recording-handler l (current-eval)))))
+  (keep-ledger! ev l))
 
-(define ((replaying-handler log entries) form)
+(define ((replaying-handler l) form)
   (define expr (form->expr form))
-  (match (unbox entries)
+  (match (ledger-pending l)
     [(cons (list (== expr) result out err) rest)
-     (set-box! entries rest)
+     (set-ledger-pending! l rest)
      (write-string out (current-output-port))
      (write-string err (current-error-port))
      (match result
        [(cons 'values texts) (apply values (map recorded texts))]
        [(list 'raise message) (raise (exn:fail message (current-continuation-marks)))])]
     [_
-     (raise-user-error 'raft-docs
-                       "~a has no recorded evaluation of ~.s next; re-record it with RAFT_DOCS=record"
-                       log
-                       expr)]))
+     (ledger-fail!
+      l
+      (format "~a has no recorded evaluation of ~.s next; re-record it with RAFT_DOCS=record"
+              (ledger-log l)
+              expr))]))
 
-(define (replaying-eval log)
-  (define entries (box (file->list log)))
+(define (replaying-eval l)
   (define ev (make-base-eval))
   (call-in-sandbox-context ev
                            (lambda ()
-                             (current-print (match-lambda
-                                              [(? recorded? v) (write v)]))
-                             (current-eval (replaying-handler log entries))))
-  ev)
+                             (current-print write)
+                             (current-eval (replaying-handler l))))
+  (keep-ledger! ev l))

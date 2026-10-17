@@ -1,7 +1,6 @@
 #lang racket/base
 
-(require (only-in racket/format ~r)
-         (only-in racket/list make-list range)
+(require (only-in racket/list make-list range)
          (only-in racket/match match-define)
          (only-in racket/port with-output-to-string)
          (only-in racket/string string-split)
@@ -88,8 +87,8 @@
   (for ([batches (in-list results)]
         [i (in-naturals)])
     (for ([batch (in-list batches)])
-      (match-define (list n ms) batch)
-      (printf "worker ~a: ~a rows in ~a ms\n" i n (~r ms #:precision '(= 2))))))
+      (match-define (list n _ms) batch)
+      (printf "worker ~a: ~a rows\n" i n))))
 
 (define all-batches
   (list (list '((1.0 2.0) (3.0 4.0)) '((5.0 6.0)))
@@ -172,7 +171,7 @@
       (list (device-for-worker i) batches)))
   (define results (run-workers run-worker jobs))
   (check-batch-times results '((2 1) (1) (2)))
-  (check-regexp-match #px"^(worker [0-2]: [12] rows in [0-9.]+ ms\n){4}$"
+  (check-regexp-match #px"^(worker [0-2]: [12] rows\n){4}$"
                       (with-output-to-string (lambda () (report results))))
   (check-exn #rx"^process-batch: row"
              (lambda () (run-workers run-worker (list (list 0 (list '((1.0)))))))))

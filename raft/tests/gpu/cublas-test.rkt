@@ -25,12 +25,12 @@
                   wheel-member-name
                   wheel-member-size)
          (only-in "../private/cuda-wheels.rkt"
-                  call-with-env
                   call-with-temp
                   closed-port-base
                   installed
                   libraries
                   sized-file!)
+         (only-in "../private/env.rkt" call-with-environment-variables)
          (only-in "../private/native-package.rkt" cublas-dir))
 
 (define-runtime-path cuda-wheels "../../private/cuda-wheels.rktd")
@@ -55,10 +55,11 @@
   dir)
 
 (define (located dir #:override (override #f) #:system? system?)
-  (call-with-env (cublas-env #:override override)
-                 (lambda ()
-                   (define location (locate-cublas #:system? (lambda () system?) #:roots (list dir)))
-                   (list (cublas-location-kind location) (cublas-location-dir location)))))
+  (call-with-environment-variables
+   (cublas-env #:override override)
+   (lambda ()
+     (define location (locate-cublas #:system? (lambda () system?) #:roots (list dir)))
+     (list (cublas-location-kind location) (cublas-location-dir location)))))
 
 (test-case "RAFT_CUDA_LIB_PATH wins over a system CUDA 13, which wins over the fetched copy"
   (call-with-temp (lambda (dir)
@@ -80,14 +81,14 @@
                       #:base base)
   (define out (open-output-string))
   (define warning
-    (call-with-env (cublas-env #:base base)
-                   (lambda ()
-                     (parameterize ([current-output-port out]
-                                    [cuda-wheel-roots roots])
-                       (cublas-setup-warning root
-                                             #:user-specific? user-specific?
-                                             #:platform platform
-                                             #:system? (lambda () #f))))))
+    (call-with-environment-variables (cublas-env #:base base)
+                                     (lambda ()
+                                       (parameterize ([current-output-port out]
+                                                      [cuda-wheel-roots roots])
+                                         (cublas-setup-warning root
+                                                               #:user-specific? user-specific?
+                                                               #:platform platform
+                                                               #:system? (lambda () #f))))))
   (list warning (get-output-string out)))
 
 (test-case "offline, setup warns with the cause and the retry command and does not raise"
@@ -179,9 +180,9 @@
                   (write (list kind lt-mapped?)))
                out)))
      (define-values (process stdout stdin stderr)
-       (call-with-env (list (cons "LD_LIBRARY_PATH" (path->string library-path))
-                            (cons "RAFT_CUDA_LIB_PATH" #f))
-                      (lambda () (subprocess #f #f #f (find-exe) program))))
+       (call-with-environment-variables (list (cons "LD_LIBRARY_PATH" (path->string library-path))
+                                              (cons "RAFT_CUDA_LIB_PATH" #f))
+                                        (lambda () (subprocess #f #f #f (find-exe) program))))
      (close-output-port stdin)
      (define err (thread (lambda () (port->string stderr #:close? #t)) #:keep 'results))
      (define finished? (sync/timeout probe-seconds process))

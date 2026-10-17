@@ -1,5 +1,8 @@
 #lang racket/base
 
+(require (for-syntax racket/base
+                     (only-in compiler/cm-accomplice register-external-file)))
+
 (require (for-label (only-in ffi/unsafe
                              _bytes/nul-terminated
                              _double
@@ -46,9 +49,12 @@
          ;; whole-module: both are re-exported to every chapter
          scribble/example
          scribble/manual
-         (only-in "logged-eval.rkt" docs-mode make-logged-eval))
+         ;; whole-module: its syntax classes come with it
+         syntax/parse/define
+         (only-in "logged-eval.rkt" close-logged-eval docs-mode make-logged-eval))
 
-(provide (all-from-out scribble/example)
+(provide (except-out (all-from-out scribble/example) close-eval)
+         (rename-out [close-logged-eval close-eval]) ;; noqa
          (all-from-out scribble/manual)
          (for-label (all-from-out ffi/unsafe
                                   ffi/unsafe/define
@@ -73,10 +79,12 @@
          make-downstream-eval
          make-raft-eval)
 
-(define-runtime-path logs-dir "logs")
+(define-runtime-path logs-dir "logs") ;; noqa
 
-(define (chapter-log name)
-  (build-path logs-dir (format "~a.rktd" name)))
+(define-for-syntax (chapter-log-source chapter) ;; noqa
+  (define-values (dir _name _dir?)
+    (split-path (variable-reference->module-source (#%variable-reference))))
+  (build-path dir "logs" (string-append chapter ".rktd")))
 
 (define (live-raft-eval)
   (parameterize ([sandbox-output 'string]
@@ -92,7 +100,7 @@
                               racket/match
                               racket/string))))
 
-(define (live-downstream-eval)
+(define (live-downstream-eval) ;; noqa
   (define ev (live-raft-eval))
   (ev '(require ffi/unsafe
                 ffi/unsafe/define
@@ -100,11 +108,15 @@
                 raft/unsafe))
   ev)
 
-(define (make-raft-eval name)
-  (make-logged-eval (docs-mode) (chapter-log name) live-raft-eval))
+(define-syntax-parse-rule (chapter-eval chapter:str live:id) ;; noqa
+  #:do [(register-external-file (chapter-log-source (syntax-e #'chapter)))]
+  (make-logged-eval (docs-mode) (build-path logs-dir (string-append chapter ".rktd")) live))
 
-(define (make-downstream-eval name)
-  (make-logged-eval (docs-mode) (chapter-log name) live-downstream-eval))
+(define-syntax-parse-rule (make-raft-eval chapter:str)
+  (chapter-eval chapter live-raft-eval))
+
+(define-syntax-parse-rule (make-downstream-eval chapter:str)
+  (chapter-eval chapter live-downstream-eval))
 
 (define (listing language . lines)
   (nested #:style 'code-inset (para (italic language)) (apply verbatim lines)))

@@ -114,7 +114,7 @@ Timing GPU work, which returns once queued:
   (thunk)
   (resources-sync! r)
   (- (current-inexact-milliseconds) start))
-(milliseconds-on trainer void)
+(real? (milliseconds-on trainer void))
 ]
 
 Waiting in a thread of its own:
@@ -505,3 +505,5 @@ The predicate and the fields of an ABI tag, a transparent structure:
 (equal? abi (raft-abi))
 (equal? abi (struct-copy raft-abi abi [rmm "26.10.00"]))
 ]}
+
+@(close-eval ev)

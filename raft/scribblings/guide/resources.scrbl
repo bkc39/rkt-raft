@@ -67,8 +67,12 @@ queueing:
   (define result (thunk))
   (resources-sync! r)
   (values result (- (current-inexact-milliseconds) start)))
-(timed r (lambda () (process-batch '((1.0 2.0) (3.0 4.0)))))
+(define-values (rows ms) (timed r (lambda () (process-batch '((1.0 2.0) (3.0 4.0))))))
+(list rows (real? ms))
 ]
+
+The milliseconds differ from run to run, so the examples here show the rows
+and leave the times out.
 
 @racket[resources-sync!] polls rather than blocking its OS thread, so other
 threads keep running and a break ends the wait.
@@ -84,7 +88,7 @@ each batch on them:
     (for/list ([rows (in-list batches)])
       (define-values (n ms) (timed r (lambda () (process-batch rows))))
       (list n ms))))
-(run-worker 0 (list '((1.0 2.0) (3.0 4.0)) '((5.0 6.0))))
+(map first (run-worker 0 (list '((1.0 2.0) (3.0 4.0)) '((5.0 6.0)))))
 ]
 
 The finalizer alone would be correct: it releases resources once they are
@@ -123,9 +127,8 @@ watches for a thread that dies without answering:
   (for ([batches (in-list results)]
         [i (in-naturals)])
     (for ([batch (in-list batches)])
-      (match-define (list n ms) batch)
-      (printf "worker ~a: ~a rows in ~a ms\n"
-              i n (~r ms #:precision '(= 2))))))
+      (match-define (list n _ms) batch)
+      (printf "worker ~a: ~a rows\n" i n))))
 (define all-batches
   (list (list '((1.0 2.0) (3.0 4.0)) '((5.0 6.0)))
         (list '((7.0 8.0)))
@@ -163,3 +166,5 @@ return it as its result; here the second job names a missing GPU:
 ]
 
 One exception type covers every layer, with the kind as a field.
+
+@(close-eval ev)

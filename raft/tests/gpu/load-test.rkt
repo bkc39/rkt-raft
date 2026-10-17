@@ -52,22 +52,27 @@
      (stage! (build-path dir "lib"))
      (path->string dir)]))
 
-(define (write-raft-info! root version)
+(define (write-raft-info! root version wanted)
+  (define wanted-field
+    (match wanted
+      [#f '()]
+      [_ `((define native-version ,wanted))]))
   (with-output-to-file (build-path root "info.rkt")
                        #:exists 'truncate
                        (lambda ()
                          (write `(module info setup/infotab
                                    (define version ,version)
-                                   (define native-version ,native-version))))))
+                                   ,@wanted-field)))))
 
 (define (load-outcome #:override (override #f)
                       #:staged [stage! void]
                       #:package [package void]
                       #:cuda [cuda cublas-dir]
-                      #:raft-version [raft-version (package-version raft-dir)])
+                      #:raft-version [raft-version (package-version raft-dir)]
+                      #:native-version [wanted native-version])
   (with-release ([root (make-temporary-directory "raft-load-~a") delete-directory/files])
     (copy-loader! root)
-    (write-raft-info! root raft-version)
+    (write-raft-info! root raft-version wanted)
     (make-directory* (build-path root "native-libs"))
     (stage! (build-path root "native-libs"))
     (define exn-module (build-path root "private" "exn.rkt"))
@@ -181,6 +186,18 @@
   (check-equal? (outcome-message refused)
                 (format "raft: ~a"
                         (native-version-error "9.9" native-version (outcome-package refused)))))
+
+(test-case "a raft whose info.rkt names no native-version refuses an unversioned native package"
+  (define o
+    (load-outcome #:native-version #f
+                  #:package (native-package #f
+                                            (link-library real-library)
+                                            #:info '(module info setup/infotab
+                                                      (define collection "raft-x86_64-linux")))))
+  (check-regexp-match
+   #rx"^raft: this raft's info.rkt names no native-version, so the package raft-x86_64-linux cannot be checked\n"
+   (outcome-message o))
+  (check-regexp-match (path-line "found in" (outcome-package o)) (outcome-message o)))
 
 (test-case "a pre-install with RAFT_NATIVE_LIB_PATH set leaves a later load to the native package"
   (define o

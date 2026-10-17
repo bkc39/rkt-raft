@@ -88,3 +88,5 @@ no device; the message says which), nothing else in this manual will run. To
 name the GPU, ask the driver:
 
 @commandline{nvidia-smi --query-gpu=name,driver_version,compute_cap --format=csv}
+
+@(close-eval ev)

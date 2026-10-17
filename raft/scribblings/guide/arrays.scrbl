@@ -210,3 +210,5 @@ bytes}, so GPU memory held brings collections sooner:
 ]
 
 The memory comes back at a collection after the last use.
+
+@(close-eval ev)

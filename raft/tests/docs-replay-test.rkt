@@ -1,13 +1,18 @@
 #lang racket/base
 
 (require (only-in racket/file delete-directory/files file->list file->string make-temporary-directory)
+         ;; whole-module: define-runtime-path needs bindings only-in strips
+         racket/runtime-path
          (only-in rackunit check-equal? check-exn test-case)
          (only-in scribble/core part style)
          (only-in scribble/example examples make-base-eval)
          (only-in scribble/html-render render-mixin)
          (only-in scribble/render render)
          (only-in "../private/resource.rkt" with-release)
-         (only-in "../scribblings/logged-eval.rkt" docs-mode make-logged-eval))
+         (only-in "../scribblings/logged-eval.rkt" close-logged-eval docs-mode make-logged-eval)
+         (only-in "private/env.rkt" with-environment-variables))
+
+(define-runtime-path exit-log "fixtures/replay-exit.rktd")
 
 (define (sample ev)
   (examples #:eval ev
@@ -34,77 +39,105 @@
           #:dest-dir dir)
   (file->string (build-path dir "sample.html")))
 
-(define (call-with-scratch proc)
+(define (call-with-log proc)
   (with-release ([dir (make-temporary-directory "raft-docs-replay-~a") delete-directory/files])
-    (proc dir)))
+    (proc (build-path dir "logs" "sample.rktd") dir)))
+
+(define (logged mode log)
+  (make-logged-eval mode log make-base-eval))
 
 (define (rendered mode log dir)
-  (render->string (sample (make-logged-eval mode log make-base-eval)) dir))
+  (define ev (logged mode log))
+  (define page (render->string (sample ev) dir))
+  (check-equal? (close-logged-eval ev) "")
+  page)
 
-(define (with-docs-env value thunk)
-  (parameterize ([current-environment-variables
-                  (environment-variables-copy (current-environment-variables))])
-    (environment-variables-set! (current-environment-variables)
-                                #"RAFT_DOCS"
-                                (and value (string->bytes/utf-8 value)))
-    (thunk)))
+(define (record-log! log . exprs)
+  (define recorder (logged 'record log))
+  (for-each recorder exprs)
+  (close-logged-eval recorder))
+
+(define (docs-mode-for value)
+  (with-environment-variables (["RAFT_DOCS" value]) (docs-mode)))
 
 (test-case "a recorded chapter replays to the same page as a live one"
-  (call-with-scratch (lambda (dir)
-                       (define log (build-path dir "logs" "sample.rktd"))
-                       (define live (rendered 'live log (build-path dir "live")))
-                       (define recorded (rendered 'record log (build-path dir "record")))
-                       (define replayed (rendered 'replay log (build-path dir "replay")))
-                       (check-equal? (length (file->list log)) sample-count)
-                       (check-equal? recorded live)
-                       (check-equal? replayed live))))
+  (call-with-log (lambda (log dir)
+                   (define live (rendered 'live log (build-path dir "live")))
+                   (define recorded (rendered 'record log (build-path dir "record")))
+                   (define replayed (rendered 'replay log (build-path dir "replay")))
+                   (check-equal? (length (file->list log)) sample-count)
+                   (check-equal? recorded live)
+                   (check-equal? replayed live))))
 
 (test-case "recording again starts the log afresh"
-  (call-with-scratch (lambda (dir)
-                       (define log (build-path dir "sample.rktd"))
-                       (rendered 'record log (build-path dir "first"))
-                       (rendered 'record log (build-path dir "second"))
-                       (check-equal? (length (file->list log)) sample-count))))
+  (call-with-log (lambda (log dir)
+                   (rendered 'record log (build-path dir "first"))
+                   (rendered 'record log (build-path dir "second"))
+                   (check-equal? (length (file->list log)) sample-count))))
+
+(test-case "a stale eval:error example replays green but fails its chapter's close"
+  (call-with-log (lambda (log _dir)
+                   (record-log! log '(+ 1 2))
+                   (define ev (logged 'replay log))
+                   (examples #:eval ev (eval:error (car 1)) (+ 1 2))
+                   (check-exn #rx"has no recorded evaluation of \\(car 1\\) next"
+                              (lambda () (close-logged-eval ev))))))
+
+(test-case "evaluations no example replayed fail the chapter's close"
+  (call-with-log
+   (lambda (log _dir)
+     (record-log! log '(+ 1 2) '(+ 3 4))
+     (define ev (logged 'replay log))
+     (examples #:eval ev (+ 1 2))
+     (check-exn
+      #rx"has evaluations no example replayed, from \\(\\+ 3 4\\) on; re-record it with RAFT_DOCS=record"
+      (lambda () (close-logged-eval ev))))))
+
+(test-case "an eval:error example whose value cannot be recorded fails the chapter's close"
+  (call-with-log
+   (lambda (log _dir)
+     (define ev (logged 'record log))
+     (examples #:eval ev
+               (require file/convertible)
+               (struct picture () #:property prop:convertible (lambda (_v _request default) default))
+               (eval:error (picture)))
+     (check-exn #rx"cannot record .*: it renders as an image, not text"
+                (lambda () (close-logged-eval ev))))))
 
 (test-case "an example the log does not hold next stops the replay"
-  (call-with-scratch
-   (lambda (dir)
-     (define log (build-path dir "short.rktd"))
-     (define recorder (make-logged-eval 'record log make-base-eval))
+  (call-with-log
+   (lambda (log _dir)
+     (define recorder (logged 'record log))
      (check-equal? (recorder '(+ 1 2)) 3)
-     (define replayer (make-logged-eval 'replay log make-base-eval))
+     (define replayer (logged 'replay log))
      (check-exn
       #rx"has no recorded evaluation of \\(\\+ 1 3\\) next; re-record it with RAFT_DOCS=record"
       (lambda () (replayer '(+ 1 3))))
-     (define again (make-logged-eval 'replay log make-base-eval))
+     (define again (logged 'replay log))
      (check-equal? (format "~a" (again '(+ 1 2))) "3\n")
      (check-exn #rx"has no recorded evaluation of \\(\\+ 1 2\\) next" (lambda () (again '(+ 1 2)))))))
 
 (test-case "a replay never runs the expression"
-  (call-with-scratch
-   (lambda (dir)
-     (define log (build-path dir "effect.rktd"))
-     (call-with-output-file log (lambda (out) (write '((exit 7) (values "'done\n") "" "") out)))
-     (define replayer (make-logged-eval 'replay log make-base-eval))
-     (check-equal? (format "~a" (replayer '(exit 7))) "'done\n"))))
+  (define replayer (logged 'replay exit-log))
+  (check-equal? (format "~a" (replayer '(exit 7))) "'done\n"))
 
 (test-case "a value that renders as an image cannot be recorded"
-  (call-with-scratch
-   (lambda (dir)
-     (define recorder (make-logged-eval 'record (build-path dir "image.rktd") make-base-eval))
+  (call-with-log
+   (lambda (log _dir)
+     (define recorder (logged 'record log))
      (recorder '(require file/convertible))
      (recorder '(struct picture () #:property prop:convertible (lambda (v request default) default)))
      (check-exn #rx"cannot record .*: it renders as an image, not text"
                 (lambda () (recorder '(picture)))))))
 
 (test-case "RAFT_DOCS picks the mode, replay when unset"
-  (check-equal? (with-docs-env #f docs-mode) 'replay)
-  (check-equal? (with-docs-env "replay" docs-mode) 'replay)
-  (check-equal? (with-docs-env "record" docs-mode) 'record)
-  (check-equal? (with-docs-env "live" docs-mode) 'live))
+  (check-equal? (docs-mode-for #f) 'replay)
+  (check-equal? (docs-mode-for "replay") 'replay)
+  (check-equal? (docs-mode-for "record") 'record)
+  (check-equal? (docs-mode-for "live") 'live))
 
 (test-case "any other RAFT_DOCS is refused with the values it may take"
   (check-exn
    #rx"^raft-docs: RAFT_DOCS is \"Live\"; want live, record or replay \\(the default when unset\\)$"
-   (lambda () (with-docs-env "Live" docs-mode)))
-  (check-exn #rx"^raft-docs: RAFT_DOCS is \"\";" (lambda () (with-docs-env "" docs-mode))))
+   (lambda () (docs-mode-for "Live")))
+  (check-exn #rx"^raft-docs: RAFT_DOCS is \"\";" (lambda () (docs-mode-for ""))))

@@ -105,7 +105,7 @@ install_test() {
     pkg-build)
       run pkg-build-install "${mounts[@]}" "${pkg_build_env[@]}" \
         "$RELEASE_LOAD_IMAGE" "${script[@]}" pkg-build-install /dist /raft /work
-      run pkg-build-test --network none --user "$(id -u):$(id -g)" -e HOME=/work \
+      run pkg-build-test --network none -e HOME=/work \
         "${mounts[@]}" "${pkg_build_env[@]}" \
         "$RELEASE_LOAD_IMAGE" "${script[@]}" pkg-build-test /dist /raft /work
       ;;

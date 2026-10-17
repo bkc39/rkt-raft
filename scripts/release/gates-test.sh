@@ -314,9 +314,18 @@ draft_case() {
   got=$(bash "$here/draft-tag.sh" "$tag" 2>/dev/null) || got="exit $?"
   [ "$got" = "tag=$want" ] || problem "draft-tag: ${tag:-no tag} said $got, want tag=$want"
 }
+raft_version=$(sed -n 's/^(define version "\(.*\)")$/\1/p' "$here/../../raft/info.rkt")
 draft_case "v$native_version" "v$native_version"
-draft_case "v$native_version.1" ""
+draft_case "v$raft_version" ""
 draft_case "" ""
+draft_refused() {
+  local tag=$1 got status=0
+  got=$(bash "$here/draft-tag.sh" "$tag" 2>&1) || status=$?
+  [ "$status" = 1 ] && [[ $got == *"$tag names neither"* ]] ||
+    problem "draft-tag: $tag exited $status saying $got, want exit 1 naming neither version"
+}
+draft_refused "v$native_version.0"
+draft_refused "v$native_version-rc1"
 grep -qF "needs.plan.outputs.tag != ''" "$here/../../.github/workflows/release.yml" ||
   problem "release.yml: draft-release does not wait for a tag that draft-tag.sh names"
 

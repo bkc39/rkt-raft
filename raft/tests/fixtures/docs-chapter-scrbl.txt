@@ -1,0 +1,8 @@
+#lang scribble/manual
+@(require "utils.rkt")
+
+@(define ev (make-raft-eval "guide-getting-started"))
+
+@title{A chapter}
+
+@(close-eval ev)

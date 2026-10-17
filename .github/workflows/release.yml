@@ -68,7 +68,7 @@ jobs:
     name: raft-x86_64-linux, installed from a local catalog with no GPU
     needs: [plan, libraftrkt]
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v7
         with:
@@ -83,6 +83,9 @@ jobs:
         run: scripts/release.sh package "$RUNNER_TEMP/libraftrkt" "$RUNNER_TEMP/dist"
       - name: Catalog test
         run: scripts/release.sh catalog-test "$RUNNER_TEMP/libraftrkt" "$RUNNER_TEMP/dist"
+      - name: Install with docs and test offline as root, as pkg-build does
+        timeout-minutes: 25
+        run: scripts/release.sh install-test pkg-build "$RUNNER_TEMP/dist"
       - uses: actions/upload-artifact@v7
         with:
           name: raft-x86_64-linux

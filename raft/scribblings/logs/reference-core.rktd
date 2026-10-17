@@ -44,7 +44,7 @@
  (values "")
  ""
  "")
-((milliseconds-on trainer void) (values "0.015625\n") "" "")
+((real? (milliseconds-on trainer void)) (values "#t\n") "" "")
 ((thread-wait
   (thread
    (lambda ()
