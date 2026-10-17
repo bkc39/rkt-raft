@@ -86,6 +86,19 @@
      (check-regexp-match #rx"^raft: the package raft-x86_64-linux holds no libraftrkt\n"
                          (pre-installer-output collection (native-package raft-version void))))))
 
+(test-case "the pre-installer leaves cuBLAS alone while the native package is broken"
+  (call-with-collection
+   (lambda (collection)
+     (check-equal? (pre-installer-output collection
+                                         (native-package raft-version void)
+                                         #:cuda "/nonexistent/raft-cuda")
+                   (format "raft: ~a\n"
+                           (native-library-error 'package
+                                                 (simplify-path (build-path collection
+                                                                            "collects"
+                                                                            "raft-x86_64-linux"
+                                                                            "native-libs"))))))))
+
 (test-case "the pre-installer prints the loader's message for a native package of another version"
   (call-with-collection
    (lambda (collection)
