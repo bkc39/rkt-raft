@@ -267,14 +267,19 @@ want_refused() {
     problem "$name: want a refusal saying $reason, got status $(cat "$work/$name.status"): $(cat "$work/$name.out")"
   fi
 }
+native_version=$(sed -n 's/^(define version "\(.*\)")$/\1/p' "$here/../../$RELEASE_NATIVE_PACKAGE/info.rkt")
 version_check versions-repo "$here/../../$RELEASE_NATIVE_PACKAGE" "$here/../../raft" ""
-want_version versions-repo "$(sed -n 's/^(define version "\(.*\)")$/\1/p' "$here/../../raft/info.rkt")"
+want_version versions-repo "$native_version"
+grep -qxF "(define native-version \"$native_version\")" "$versions/raft/info.rkt" ||
+  problem "$versions/raft/info.rkt: native-version is not $native_version, $RELEASE_NATIVE_PACKAGE's version"
+[ -f "$versions/$native_version/$RELEASE_NATIVE_PACKAGE/info.rkt" ] ||
+  problem "$versions: no $native_version/$RELEASE_NATIVE_PACKAGE, $RELEASE_NATIVE_PACKAGE's version"
 version_check versions-same "$versions/0.2/$RELEASE_NATIVE_PACKAGE" "$versions/raft" ""
 want_version versions-same 0.2
 version_check versions-tag "$versions/0.2/$RELEASE_NATIVE_PACKAGE" "$versions/raft" v0.2
 want_version versions-tag 0.2
 version_check versions-older "$versions/0.1/$RELEASE_NATIVE_PACKAGE" "$versions/raft" ""
-want_refused versions-older "$RELEASE_NATIVE_PACKAGE is version 0.1, raft is version 0.2"
+want_refused versions-older "$RELEASE_NATIVE_PACKAGE is version 0.1, raft needs version 0.2"
 version_check versions-dependency "$versions/0.2/$RELEASE_NATIVE_PACKAGE" "$versions/raft-dep-0.1" ""
 want_refused versions-dependency "raft depends on $RELEASE_NATIVE_PACKAGE #:version 0.1, not 0.2"
 version_check versions-wrong-tag "$versions/0.2/$RELEASE_NATIVE_PACKAGE" "$versions/raft" v0.3
@@ -303,6 +308,67 @@ license_case() {
 }
 license_case license-no-mit "'(Apache-2.0 AND LicenseRef-NVIDIA-CUDA-EULA)" "lacks (MIT), which NOTICE names"
 license_case license-n-ary "'(Apache-2.0 AND MIT AND LicenseRef-NVIDIA-CUDA-EULA)" "is not a license S-expression"
+
+draft_case() {
+  local tag=$1 want=$2 got
+  got=$(bash "$here/draft-tag.sh" "$tag" 2>/dev/null) || got="exit $?"
+  [ "$got" = "tag=$want" ] || problem "draft-tag: ${tag:-no tag} said $got, want tag=$want"
+}
+raft_version=$(sed -n 's/^(define version "\(.*\)")$/\1/p' "$here/../../raft/info.rkt")
+draft_case "v$native_version" "v$native_version"
+draft_case "v$raft_version" ""
+draft_case "" ""
+draft_refused() {
+  local tag=$1 got status=0
+  got=$(bash "$here/draft-tag.sh" "$tag" 2>&1) || status=$?
+  [ "$status" = 1 ] && [[ $got == *"$tag names neither"* ]] ||
+    problem "draft-tag: $tag exited $status saying $got, want exit 1 naming neither version"
+}
+draft_refused "v$native_version.0"
+draft_refused "v$native_version-rc1"
+grep -qF "needs.plan.outputs.tag != ''" "$here/../../.github/workflows/release.yml" ||
+  problem "release.yml: draft-release does not wait for a tag that draft-tag.sh names"
+
+mkdir -p "$work/stub-bin" "$work/no-native"
+{
+  echo "#!$BASH"
+  cat <<'STUB'
+out=
+while [ $# -gt 1 ]; do
+  [ "$1" != -o ] || out=$2
+  shift
+done
+printf '%s' "$1" >"$out"
+printf '%s' "$STUB_HTTP_CODE"
+exit "${STUB_EXIT:-0}"
+STUB
+} >"$work/stub-bin/curl"
+chmod +x "$work/stub-bin/curl"
+printf '#lang info\n(define version "%s")\n' "$raft_version" >"$work/no-native/info.rkt"
+fetch_case() {
+  local name=$1 code=$2 info=$3 want_status=$4 want_out=$5 status=0
+  STUB_HTTP_CODE=$code STUB_EXIT=${STUB_EXIT:-0} PATH="$work/stub-bin:$PATH" bash "$here/fetch-native.sh" "$info" owner/repo "$work/$name" \
+    >"$work/$name.out" 2>"$work/$name.err" || status=$?
+  [ "$status" = "$want_status" ] && [ "$(cat "$work/$name.out")" = "$want_out" ] ||
+    problem "fetch-native: $name exited $status printing '$(cat "$work/$name.out")', want $want_status and '$want_out': $(cat "$work/$name.err")"
+}
+fetch_case fetch-found 200 "$here/../../raft/info.rkt" 0 found=true
+[ "$(cat "$work/fetch-found/$RELEASE_NATIVE_PACKAGE.zip")" = \
+  "https://github.com/owner/repo/releases/download/v$native_version/$RELEASE_NATIVE_PACKAGE.zip" ] ||
+  problem "fetch-native: fetched $(cat "$work/fetch-found/$RELEASE_NATIVE_PACKAGE.zip"), not raft's native-version"
+fetch_case fetch-404 404 "$here/../../raft/info.rkt" 0 ""
+grep -qF "SKIP: no v$native_version release yet" "$work/fetch-404.err" ||
+  problem "fetch-native: a 404 did not say SKIP: $(cat "$work/fetch-404.err")"
+[ ! -e "$work/fetch-404/$RELEASE_NATIVE_PACKAGE.zip" ] || problem "fetch-native: a 404 left its body as the zip"
+fetch_case fetch-503 503 "$here/../../raft/info.rkt" 1 ""
+grep -qF "answered HTTP 503" "$work/fetch-503.err" || problem "fetch-native: a 503 did not name its status"
+STUB_EXIT=7 fetch_case fetch-unreachable 000 "$here/../../raft/info.rkt" 7 ""
+[ ! -e "$work/fetch-unreachable/$RELEASE_NATIVE_PACKAGE.zip" ] || problem "fetch-native: a failed curl left a zip"
+STUB_EXIT=18 fetch_case fetch-truncated 200 "$here/../../raft/info.rkt" 18 ""
+[ ! -e "$work/fetch-truncated/$RELEASE_NATIVE_PACKAGE.zip" ] || problem "fetch-native: a truncated download left a zip"
+fetch_case fetch-no-native 200 "$work/no-native/info.rkt" 1 ""
+grep -qF "has no (define native-version" "$work/fetch-no-native.err" ||
+  problem "fetch-native: a missing native-version was not named: $(cat "$work/fetch-no-native.err")"
 
 for path in "raft/**" "$RELEASE_NATIVE_PACKAGE/**"; do
   grep -qxF "      - $path" "$here/../../.github/workflows/release.yml" ||

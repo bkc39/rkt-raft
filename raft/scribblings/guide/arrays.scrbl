@@ -1,7 +1,7 @@
 #lang scribble/manual
 @(require "../utils.rkt")
 
-@(define ev (make-raft-eval))
+@(define ev (make-raft-eval "guide-arrays"))
 
 @title[#:tag "arrays"]{Device arrays}
 
@@ -210,3 +210,5 @@ bytes}, so GPU memory held brings collections sooner:
 ]
 
 The memory comes back at a collection after the last use.
+
+@(close-eval ev)

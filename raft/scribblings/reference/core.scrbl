@@ -1,7 +1,7 @@
 #lang scribble/manual
 @(require "../utils.rkt")
 
-@(define ev (make-raft-eval))
+@(define ev (make-raft-eval "reference-core"))
 
 @title[#:tag "ref-core"]{Resources, devices and errors: @racketmodname[raft/core]}
 
@@ -114,7 +114,7 @@ Timing GPU work, which returns once queued:
   (thunk)
   (resources-sync! r)
   (- (current-inexact-milliseconds) start))
-(milliseconds-on trainer void)
+(real? (milliseconds-on trainer void))
 ]
 
 Waiting in a thread of its own:
@@ -505,3 +505,5 @@ The predicate and the fields of an ABI tag, a transparent structure:
 (equal? abi (raft-abi))
 (equal? abi (struct-copy raft-abi abi [rmm "26.10.00"]))
 ]}
+
+@(close-eval ev)

@@ -9,3 +9,4 @@ raft/doc/
 .claude/worktrees/
 .scratch/
 raft-x86_64-linux/native-libs/
+*.rktd.recording

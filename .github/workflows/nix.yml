@@ -44,6 +44,19 @@ jobs:
       - name: Build, test, sanitize and lint (GPU cases print SKIP)
         run: nix flake check --max-jobs 1 --keep-going --print-build-logs
 
+  docs:
+    name: Manual, replayed with no GPU and no libraftrkt
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/nix-cache
+        with:
+          ts-oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          ts-oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+      - name: Render the manual from raft/scribblings/logs; a stale log fails it
+        run: nix build --print-build-logs .#checks.x86_64-linux.docs-replay
+
   resyntax:
     name: Resyntax lint
     runs-on: ubuntu-latest

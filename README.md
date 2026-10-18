@@ -31,6 +31,7 @@ nix develop
 raco test raft                 # the Racket tests
 scripts/gpu-suite.sh           # everything that needs the GPU, parity with Python included
 scripts/render-docs.sh <dir>   # the manual, red on any warning or broken link
+scripts/record-docs.sh         # re-record the manual's examples, then commit raft/scribblings/logs
 ```
 
 A test that cannot run prints a line starting with `SKIP:`; a green run with

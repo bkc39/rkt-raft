@@ -1,15 +1,15 @@
 #lang racket/base
 
-(require (only-in rackunit test-case)
-         ;; whole-module: its syntax classes come with it
-         syntax/parse/define
+;; whole-module: its syntax classes come with it
+(require syntax/parse/define
          (only-in "../../private/error.rkt" call/raft exn:fail:raft?)
-         (only-in "../../private/foreign/core.rkt" rr-device-count))
+         (only-in "../../private/foreign/core.rkt" rr-device-count)
+         (only-in "skip.rkt" test-unless-skipped))
 
-(provide gpu-available?
+(provide (all-from-out "skip.rkt")
+         gpu-available?
          gpu-skip
          test-gpu
-         test-unless-skipped
          test-without-gpu)
 
 (define gpu-skip-reason
@@ -20,13 +20,6 @@
 
 (define (gpu-available?)
   (not gpu-skip-reason))
-
-(define-syntax-parse-rule (test-unless-skipped reason:expr name:expr body:expr ...+)
-  (let ([why reason])
-    (if why
-        (printf "SKIP: ~a: ~a\n" why name)
-        (test-case name
-          body ...))))
 
 (define-syntax-parse-rule (test-gpu name:expr body:expr ...+)
   (test-unless-skipped gpu-skip name body ...))

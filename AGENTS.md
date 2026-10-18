@@ -83,8 +83,10 @@ raft/                         the Racket package and collection
   unsafe.rkt                  raft/unsafe, the frozen interface for native bindings
   private/{abi,error,resource,resources,install-native,deposit}.rkt
   private/{array,dtype,pack,print}.rkt   arrays over buffers, the tables, packing, printing
-  scribblings/                the manual: guide/ chapters, reference/ sections
-  tests/                      raco tests; tests/private/ the harness; tests/python/ the twins
+  scribblings/                the manual: guide/ chapters, reference/ sections, logs/ the
+                                recorded examples
+  tests/                      raco tests that need no libraftrkt; tests/gpu/ those that do;
+                                tests/private/ the harness; tests/python/ the twins
 raft-x86_64-linux/            the native package: info.rkt, main.rkt (native-libs-dir), NOTICE;
                                 release.sh package adds the libraries (never committed)
 scripts/                      gates, the GPU suite, the docs render, the binding census
@@ -240,7 +242,7 @@ plans/scoping-plan.md         the approved plan (revision 5), as Markdown
     `cudaPackages_13`. The flake asserts the twins' version equals the
     shim's. Twins are compared by machine, never by eye.
 14. **Every doc example is a test** (rkt-polars #152): the behaviour each
-    manual example shows is pinned in `raft/tests/docs-*test.rkt`
+    manual example shows is pinned in `raft/tests/gpu/docs-*test.rkt`
     (`docs-test.rkt` for leg 0's pages, `docs-core-test.rkt` for
     `raft/core`'s reference and the *Resources and the GPU* chapter,
     `docs-array-test.rkt` for `raft/array`'s and *Device arrays*,
@@ -584,8 +586,8 @@ plans/scoping-plan.md         the approved plan (revision 5), as Markdown
   `device-array: used after its release` (#16).
   `private/resource.rkt`: `with-release`. `private/install-native.rkt`:
   `locate-native-library` (a `native-location`), `native-library-problem`
-  (the message, or `#f`; the package's version must equal raft's, since
-  `#:version` in `deps` is only a minimum) and the pre-install hook, which
+  (the message, or `#f`; the package's version must equal `native-version`
+  in raft's `info.rkt`, since `#:version` in `deps` is only a minimum) and the pre-install hook, which
   prints that message and copies nothing. No module requires
   `raft-x86_64-linux`: it is found by `collection-file-path` and
   `dynamic-require`, so `raco setup` of raft compiles without it
@@ -635,6 +637,7 @@ scripts/gpu-suite.sh               # in the shell, on the GPU host: gtests, LD_B
 raco test raft                     # the Racket tests
 racket scripts/check-bindings.rkt  # rr_ exports against the bindings
 scripts/render-docs.sh <dir>       # the manual, red on any warning or broken link
+scripts/record-docs.sh             # re-record the manual's examples (GPU, canary)
 nix fmt                            # format and lint everything; `-- --ci` fails on a change
 scripts/review.sh                  # raco review over every .rkt
 scripts/resyntax.sh                # Resyntax against the PR's base, red on any suggestion
@@ -646,7 +649,18 @@ scripts/release.sh build <dir>      # the release libraftrkt in docker, then its
 scripts/release.sh load-check <dir> # dlopen it in manylinux_2_28 beside the cuBLAS wheel
 scripts/release.sh package <dir> <dist>       # raft-x86_64-linux.zip, its CHECKSUM, catalog-entry.rktd
 scripts/release.sh catalog-test <dir> <dist>  # raco pkg install raft from a directory catalog
+scripts/release.sh install-test pkg-build|gpu <dist>  # the pkg-build install, or one on the GPU
 ```
+
+**On pkg-build** (no GPU, no network, no `raft-x86_64-linux`, tests run as
+root), `info.rkt` omits `tests/gpu/`, `tests/private/` and the modules that
+load libraftrkt under `PLT_PKG_BUILD_SERVICE`; `tests/build-service-test.rkt`
+keeps that list exact. A test that needs libraftrkt, even through a helper,
+goes in `tests/gpu/`. `install-test pkg-build` reproduces pkg-build
+(`release.yml`); `install-test gpu` installs raft and the native release on
+the lab GPU without the canary (`gpu.yml`), from the release
+`scripts/release/fetch-native.sh` fetches for raft's `native-version`: a
+404 is a SKIP, any other failure is red.
 
 **The release build** (#42) is what a catalog install ships; the dev build
 is untouched. Its pins (images, wheels, tools) are in
@@ -658,8 +672,11 @@ own pin (`raft/private/cuda-wheels.rktd`), and runs
 `scripts/release/gates-test.sh`, the gates' own tests.
 
 **The native package** (#43) is the artifact plus `raft-x86_64-linux/`'s
-files, versioned with raft (`package` refuses a mismatch or a tag other
-than `v<version>`; tested in `gates-test.sh`). `catalog-test`, in
+files, at the version `raft/info.rkt` names as `native-version` (`deps`
+requires it, the loader checks it; `package` refuses a mismatch). raft's
+own `version` moves alone. Tag `v<native version>` to draft a native
+release, `v<raft version>` for a raft-only one; `draft-tag.sh` refuses any
+other tag. `catalog-test`, in
 `manylinux_2_28` with Racket 9.3 and no nix, serves it and raft from a
 directory catalog ahead of the official ones; what it asserts is in
 Tooling. `CATALOG_TEST_OMIT_NATIVE=1` leaves the package out, keeps only
@@ -683,6 +700,8 @@ for want of `raft-x86_64-linux`.
   in the store, loaded from there: it is never staged), `RAFT_KMEANS_CANARY_TESTS`
   (its gtests) and `RAFT_RAPIDS_PREFIX` (`packages.rapids`, for the
   `libcuml.so` symbol check).
+- **Sets `RAFT_DOCS=live`**, so the docs gate and the GPU workflow evaluate
+  every example.
 - **Gives each checkout its own `PLTUSERHOME`** under
   `~/.cache/rkt-raft-devshell/<hash of the path>`, installs
   `raft-x86_64-linux` (no libraries: the staged shim wins), `raft` and
@@ -847,6 +866,7 @@ gates' own tests), `no-syntax-rule`, `no-raw-malloc`,
 | ASAN and UBSAN (`-DRAFTRKT_SANITIZE=ON`) | host memory errors, leaks and undefined behaviour in both gtest binaries (not signed overflow: the nix stdenv's `strictoverflow` hardening builds with `-fno-strict-overflow`), and in every death-test child; the leak check runs only in a child that reaches normal exit, not one whose drain skipped (its exit ends in `_exit`) or that calls `_exit`/`std::_Exit`; the exit and deposit-job death tests' children send ASan and LSan reports to stdout, UBSan's to stderr, and fail by exit status | flake check `shim-sanitizers` (GPU cases SKIP); the GPU suite (GPU cases run); gate `sanitizers` | by hand |
 | release gates (`scripts/release/gates.sh`) | the artifact: exactly the shipped files, each library an x86-64 ELF64 shared object with no `PT_INTERP`, `RUNPATH` `$ORIGIN` only, no `/nix/store`, `GLIBC_` ≤ 2.28, `GLIBCXX_` ≤ 3.4.25, the shim's `NEEDED`, the companions' `NEEDED`, every architecture in each fatbin module and as many modules as `.nvFatBinSegment` bytes / 24, the ABI version against `library.rkt`, `SHA256SUMS` | `release.yml`; flake check `release-gates` (`scripts/release/gates-test.sh`) | by hand |
 | catalog test (`scripts/release/catalog-test.sh`, `catalog-check.rkt`) | `raco pkg install raft` from a directory catalog, no GPU or nix: libraries mapped from `raft-x86_64-linux` and equal to the manifest, cuBLAS mapped once from the directory the pre-install hook fetched (the cached, verified wheel served by `file://`, no `LD_LIBRARY_PATH`), `racket -l- raft/fetch-cuda` finding it, one `librmm.so`; with the package removed, the load message, `raco setup --pkgs raft` exiting 0 and printing it; installation scope offline (a warning, exit 0, the missing-cuBLAS message), then fetched into the share dir by `raco setup` | `release.yml` job `native-package`; `scripts/release.sh catalog-test` | by hand |
+| `docs-replay` | the manual rendered from `raft/scribblings/logs` with no GPU and no libraftrkt; `scripts/record-docs-test.sh` | flake check `docs-replay`; CI "Manual, replayed" | `scripts/record-docs.sh` on the GPU host, then commit the logs |
 | compute-sanitizer memcheck | device memory errors, device leaks (`--leak-check full`) and failing CUDA calls (`--report-api-errors explicit`) in both gtest binaries and the canary's | the GPU suite (gate `gpu`, `gpu.yml`) | by hand |
 
 - **raco fmt** formats `.rkt` files only. It crashes on Scribble's
@@ -926,7 +946,7 @@ gates' own tests), `no-syntax-rule`, `no-raw-malloc`,
 
 ## CI
 
-- `.github/workflows/nix.yml`, three jobs on `ubuntu-latest`: "Format and
+- `.github/workflows/nix.yml`, four jobs on `ubuntu-latest`: "Format and
   lint" (the `formatting`, `racket-review`, grep, `line-count` and
   `racket-version` checks, which need no CUDA, so it reports in minutes);
   `nix flake check` (after freeing disk: the CUDA 13 redistributables are
@@ -952,13 +972,16 @@ gates' own tests), `no-syntax-rule`, `no-raw-malloc`,
   on pull requests touching what the jobs build or install (its `paths`;
   `gates-test.sh` checks `raft/**` and `raft-x86_64-linux/**` are there),
   on tags and by dispatch. No GPU (#9).
-- No docs build in GitHub CI: doc examples need the GPU.
+- `nix.yml`'s "Manual, replayed" job builds flake check `docs-replay`.
+  `gpu.yml` also runs `record-docs.sh --check` and `install-test gpu`;
+  `release.yml`'s `native-package` runs `install-test pkg-build`.
 
 ## Documentation
 
 - One manual, `raft/scribblings/raft.scrbl`: a guide (chapters under
   `guide/`) and a reference (one section per module under `reference/`).
-  `utils.rkt` holds `make-raft-eval`, `make-downstream-eval` and `listing`.
+  `utils.rkt` holds `make-raft-eval`, `make-downstream-eval` and `listing`;
+  `logged-eval.rkt` records and replays their evaluations.
   Nothing in the manual reads a repository file: a catalog install has none
   (#23).
 - **The manual assumes a catalog install** (`raco pkg install raft`; what
@@ -996,7 +1019,23 @@ gates' own tests), `no-syntax-rule`, `no-raw-malloc`,
 - Every exported name gets a `@defproc`/`@defform`/`@defthing` with prose and
   at least three live examples showing real use, not trivial calls.
 - Examples run through `scribble/example`; output is never pasted by hand.
-  Each one's behaviour is pinned in `raft/tests/docs-*test.rkt`.
+  Each one's behaviour is pinned in `raft/tests/gpu/docs-*test.rkt`.
+- **Examples replay from `raft/scribblings/logs/`** (#45). `RAFT_DOCS` is
+  `live` (the dev shell sets it), `record` (live, rewriting the chapter's
+  log) or `replay` (the default; no GPU, no raft loaded). After changing an
+  example or what it prints, run `scripts/record-docs.sh` on the GPU host
+  and commit the logs. A record writes `<log>.recording` and replaces the
+  log only when the chapter closes clean. Every evaluator is a top-level
+  `@(define ev (make-raft-eval "chapter"))` in a `.scrbl`, several per
+  chapter allowed, each naming its own log; the chapter ends with
+  `@(close-eval ev)` for each (in any order), which fails the build on an
+  example its log does not hold, `eval:error` ones included, and on log
+  entries no example replayed. `logs/*.rktd` are exactly the evaluators'
+  names. A new chapter compiles and renders live or recording before its
+  log exists; its replay and `tests/docs-chapters-test.rkt` fail until the
+  log is recorded and committed. A replay cannot see that an example now
+  prints something else; `record-docs.sh --check`, in `gpu.yml`, can. An
+  example prints nothing that varies between runs (times, addresses).
 - Render after the leg's final commit with
   `scripts/render-docs.sh ~/dev/rkt/rkt-raft-docs/<leg-slug>`
   (`l0`, `l1a`, `l1b`, `l1c`, `l1d`); it fails on `undefined tag`,

@@ -1,0 +1,14 @@
+#lang scribble/manual
+@(require "utils.rkt")
+
+@(define ev (make-raft-eval "quoted"))
+
+@title{Quoted code}
+
+@racketblock[(define ev2 (make-raft-eval "shown"))
+             (examples (+ 1 2))]
+@racket[(make-base-eval '(require raft))]
+
+@examples[#:eval ev (+ 1 2)]
+
+@(close-eval ev)

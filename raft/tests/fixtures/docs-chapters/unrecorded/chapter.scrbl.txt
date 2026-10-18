@@ -1,0 +1,8 @@
+#lang scribble/manual
+@(require "utils.rkt")
+
+@(define ev (make-raft-eval "unrecorded"))
+
+@title{A chapter not recorded yet}
+
+@(close-eval ev)

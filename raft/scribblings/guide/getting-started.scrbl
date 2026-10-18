@@ -1,7 +1,7 @@
 #lang scribble/manual
 @(require "../utils.rkt")
 
-@(define ev (make-raft-eval))
+@(define ev (make-raft-eval "guide-getting-started"))
 
 @title[#:tag "getting-started"]{Getting started}
 
@@ -88,3 +88,5 @@ no device; the message says which), nothing else in this manual will run. To
 name the GPU, ask the driver:
 
 @commandline{nvidia-smi --query-gpu=name,driver_version,compute_cap --format=csv}
+
+@(close-eval ev)

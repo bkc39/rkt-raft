@@ -1,7 +1,7 @@
 #lang scribble/manual
 @(require "../utils.rkt")
 
-@(define ev (make-raft-eval))
+@(define ev (make-raft-eval "reference-compat"))
 
 @examples[#:eval ev #:hidden
 (require ffi/vector
@@ -682,3 +682,5 @@ Re-exported from @secref["ref-array-convert"]:
  @item{@racket[list*->device-matrix] and @racket[device-matrix->list*]}
  @item{@racket[flvector->device-vector] and @racket[device-vector->flvector]}
 ]
+
+@(close-eval ev)

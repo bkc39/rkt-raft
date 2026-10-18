@@ -411,6 +411,33 @@
         installPhase = "touch $out";
       };
 
+      docsReplay = pkgs.stdenv.mkDerivation {
+        pname = "rkt-raft-docs-replay";
+        inherit version;
+        src = lib.cleanSource ./.;
+        nativeBuildInputs = [
+          racket
+          pkgs.git
+        ];
+        dontConfigure = true;
+        buildPhase = ''
+          runHook preBuild
+          export HOME=$TMPDIR/home
+          export PLTUSERHOME=$TMPDIR/racket-home
+          mkdir -p $PLTUSERHOME
+          ${installDocsDeps ""}
+          ${installNativePackage "--link"}
+          raco pkg install --batch --no-docs --no-setup --deps fail --scope user \
+            --link --name raft ./raft
+          raco setup --no-docs --pkgs raft-x86_64-linux raft
+          unset RAFT_DOCS
+          bash scripts/render-docs.sh $TMPDIR/docs
+          bash scripts/record-docs-test.sh
+          runHook postBuild
+        '';
+        installPhase = "cp -r $TMPDIR/docs $out";
+      };
+
       cHeaders =
         pkgs.runCommand "rkt-raft-c-headers"
           {
@@ -611,6 +638,7 @@
         export RAFT_ASAN_OPTIONS="${sanitizerOptions.asan}"
         export RAFT_UBSAN_OPTIONS="${sanitizerOptions.ubsan}"
         export CMAKE_BUILD_PARALLEL_LEVEL=${toString buildJobs}
+        export RAFT_DOCS=live
       '';
     in
     {
@@ -649,6 +677,7 @@
         inherit shim;
         racket = racketPackage;
         racket-review = racketReview;
+        docs-replay = docsReplay;
         shim-sanitizers = shimSanitizers;
         formatting = treefmtEval.config.build.check self;
         c-headers = cHeaders;

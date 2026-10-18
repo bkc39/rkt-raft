@@ -1,5 +1,8 @@
 #lang racket/base
 
+(require (for-syntax racket/base
+                     (only-in compiler/cm-accomplice register-external-file)))
+
 (require (for-label (only-in ffi/unsafe
                              _bytes/nul-terminated
                              _double
@@ -34,6 +37,8 @@
                     racket/port
                     racket/string
                     racket/vector)
+         ;; whole-module: define-runtime-path needs bindings only-in strips
+         racket/runtime-path
          (only-in racket/sandbox
                   sandbox-error-output
                   sandbox-eval-limits
@@ -43,9 +48,13 @@
                   sandbox-security-guard)
          ;; whole-module: both are re-exported to every chapter
          scribble/example
-         scribble/manual)
+         scribble/manual
+         ;; whole-module: its syntax classes come with it
+         syntax/parse/define
+         (only-in "logged-eval.rkt" close-logged-eval docs-mode make-logged-eval))
 
-(provide (all-from-out scribble/example)
+(provide (except-out (all-from-out scribble/example) close-eval)
+         (rename-out [close-logged-eval close-eval]) ;; noqa
          (all-from-out scribble/manual)
          (for-label (all-from-out ffi/unsafe
                                   ffi/unsafe/define
@@ -70,7 +79,14 @@
          make-downstream-eval
          make-raft-eval)
 
-(define (make-raft-eval)
+(define-runtime-path logs-dir "logs") ;; noqa
+
+(define-for-syntax (chapter-log-source chapter) ;; noqa
+  (define-values (dir _name _dir?)
+    (split-path (variable-reference->module-source (#%variable-reference))))
+  (build-path dir "logs" (string-append chapter ".rktd")))
+
+(define (live-raft-eval)
   (parameterize ([sandbox-output 'string]
                  [sandbox-error-output 'string]
                  [sandbox-memory-limit #f]
@@ -84,13 +100,25 @@
                               racket/match
                               racket/string))))
 
-(define (make-downstream-eval)
-  (define ev (make-raft-eval))
+(define (live-downstream-eval) ;; noqa
+  (define ev (live-raft-eval))
   (ev '(require ffi/unsafe
                 ffi/unsafe/define
                 ffi/unsafe/define/conventions
                 raft/unsafe))
   ev)
+
+(define-syntax-parse-rule (chapter-eval chapter:str live:id) ;; noqa
+  #:do [(define log (chapter-log-source (syntax-e #'chapter)))
+        (when (file-exists? log)
+          (register-external-file log))]
+  (make-logged-eval (docs-mode) (build-path logs-dir (string-append chapter ".rktd")) live))
+
+(define-syntax-parse-rule (make-raft-eval chapter:str)
+  (chapter-eval chapter live-raft-eval))
+
+(define-syntax-parse-rule (make-downstream-eval chapter:str)
+  (chapter-eval chapter live-downstream-eval))
 
 (define (listing language . lines)
   (nested #:style 'code-inset (para (italic language)) (apply verbatim lines)))
