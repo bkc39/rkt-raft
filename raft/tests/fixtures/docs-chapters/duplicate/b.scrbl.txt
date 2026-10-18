@@ -1,0 +1,8 @@
+#lang scribble/manual
+@(require "utils.rkt")
+
+@(define ev (make-raft-eval "same"))
+
+@title{B}
+
+@(close-eval ev)

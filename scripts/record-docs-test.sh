@@ -52,4 +52,13 @@ want_status changed 1
 grep -qF "the manual's output differs from raft/scribblings/logs" "$work/changed.out" ||
   problem "changed: --check did not name the stale logs: $(cat "$work/changed.out")"
 
+git -C "$repo" checkout -q -- raft/scribblings/logs
+cp "$repo/raft/scribblings/logs/sample.rktd" "$work/sample.rktd"
+SAMPLE_RAISE=1 record raised "no such row"
+want_status raised 1
+cmp -s "$work/sample.rktd" "$repo/raft/scribblings/logs/sample.rktd" ||
+  problem "raised: a failed record rewrote the log"
+leftover=$(find "$repo/raft/scribblings/logs" -name '*.recording')
+[ -z "$leftover" ] || problem "raised: a failed record left $leftover"
+
 exit "$failures"

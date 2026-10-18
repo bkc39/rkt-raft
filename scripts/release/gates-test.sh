@@ -329,6 +329,42 @@ draft_refused "v$native_version-rc1"
 grep -qF "needs.plan.outputs.tag != ''" "$here/../../.github/workflows/release.yml" ||
   problem "release.yml: draft-release does not wait for a tag that draft-tag.sh names"
 
+mkdir -p "$work/stub-bin" "$work/no-native"
+{
+  echo "#!$BASH"
+  cat <<'STUB'
+out=
+while [ $# -gt 1 ]; do
+  [ "$1" != -o ] || out=$2
+  shift
+done
+printf '%s' "$1" >"$out"
+printf '%s' "$STUB_HTTP_CODE"
+STUB
+} >"$work/stub-bin/curl"
+chmod +x "$work/stub-bin/curl"
+printf '#lang info\n(define version "%s")\n' "$raft_version" >"$work/no-native/info.rkt"
+fetch_case() {
+  local name=$1 code=$2 info=$3 want_status=$4 want_out=$5 status=0
+  STUB_HTTP_CODE=$code PATH="$work/stub-bin:$PATH" bash "$here/fetch-native.sh" "$info" owner/repo "$work/$name" \
+    >"$work/$name.out" 2>"$work/$name.err" || status=$?
+  [ "$status" = "$want_status" ] && [ "$(cat "$work/$name.out")" = "$want_out" ] ||
+    problem "fetch-native: $name exited $status printing '$(cat "$work/$name.out")', want $want_status and '$want_out': $(cat "$work/$name.err")"
+}
+fetch_case fetch-found 200 "$here/../../raft/info.rkt" 0 found=true
+[ "$(cat "$work/fetch-found/$RELEASE_NATIVE_PACKAGE.zip")" = \
+  "https://github.com/owner/repo/releases/download/v$native_version/$RELEASE_NATIVE_PACKAGE.zip" ] ||
+  problem "fetch-native: fetched $(cat "$work/fetch-found/$RELEASE_NATIVE_PACKAGE.zip"), not raft's native-version"
+fetch_case fetch-404 404 "$here/../../raft/info.rkt" 0 ""
+grep -qF "SKIP: no v$native_version release yet" "$work/fetch-404.err" ||
+  problem "fetch-native: a 404 did not say SKIP: $(cat "$work/fetch-404.err")"
+[ ! -e "$work/fetch-404/$RELEASE_NATIVE_PACKAGE.zip" ] || problem "fetch-native: a 404 left its body as the zip"
+fetch_case fetch-503 503 "$here/../../raft/info.rkt" 1 ""
+grep -qF "answered HTTP 503" "$work/fetch-503.err" || problem "fetch-native: a 503 did not name its status"
+fetch_case fetch-no-native 200 "$work/no-native/info.rkt" 1 ""
+grep -qF "has no (define native-version" "$work/fetch-no-native.err" ||
+  problem "fetch-native: a missing native-version was not named: $(cat "$work/fetch-no-native.err")"
+
 for path in "raft/**" "$RELEASE_NATIVE_PACKAGE/**"; do
   grep -qxF "      - $path" "$here/../../.github/workflows/release.yml" ||
     problem "release.yml: no pull_request path $path, which the catalog test installs"

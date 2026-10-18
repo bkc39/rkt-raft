@@ -1,0 +1,10 @@
+#lang scribble/manual
+@(require "utils.rkt")
+
+@(define ev (make-raft-eval "two-raft"))
+@(define downstream (make-downstream-eval "two-downstream"))
+
+@title{Two evaluators}
+
+@(close-eval downstream)
+@(close-eval ev)

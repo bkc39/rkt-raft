@@ -109,7 +109,9 @@
   ev)
 
 (define-syntax-parse-rule (chapter-eval chapter:str live:id) ;; noqa
-  #:do [(register-external-file (chapter-log-source (syntax-e #'chapter)))]
+  #:do [(define log (chapter-log-source (syntax-e #'chapter)))
+        (when (file-exists? log)
+          (register-external-file log))]
   (make-logged-eval (docs-mode) (build-path logs-dir (string-append chapter ".rktd")) live))
 
 (define-syntax-parse-rule (make-raft-eval chapter:str)

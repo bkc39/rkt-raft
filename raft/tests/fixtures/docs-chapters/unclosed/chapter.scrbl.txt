@@ -1,0 +1,14 @@
+#lang scribble/manual
+@(require "utils.rkt")
+
+@(define ev (make-raft-eval "unclosed-raft"))
+@(define downstream (make-downstream-eval "unclosed-downstream"))
+
+@title{One evaluator left open}
+
+@(close-eval ev)
+
+@section{After the close}
+
+@(close-eval downstream)
+@para{More text.}

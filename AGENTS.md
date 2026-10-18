@@ -658,7 +658,9 @@ load libraftrkt under `PLT_PKG_BUILD_SERVICE`; `tests/build-service-test.rkt`
 keeps that list exact. A test that needs libraftrkt, even through a helper,
 goes in `tests/gpu/`. `install-test pkg-build` reproduces pkg-build
 (`release.yml`); `install-test gpu` installs raft and the native release on
-the lab GPU without the canary (`gpu.yml`).
+the lab GPU without the canary (`gpu.yml`), from the release
+`scripts/release/fetch-native.sh` fetches for raft's `native-version`: a
+404 is a SKIP, any other failure is red.
 
 **The release build** (#42) is what a catalog install ships; the dev build
 is untouched. Its pins (images, wheels, tools) are in
@@ -1022,10 +1024,16 @@ gates' own tests), `no-syntax-rule`, `no-raw-malloc`,
   `live` (the dev shell sets it), `record` (live, rewriting the chapter's
   log) or `replay` (the default; no GPU, no raft loaded). After changing an
   example or what it prints, run `scripts/record-docs.sh` on the GPU host
-  and commit the logs. Every chapter ends with `@(close-eval ev)`
-  (`tests/docs-chapters-test.rkt` checks it), which fails the build on an
+  and commit the logs. A record writes `<log>.recording` and replaces the
+  log only when the chapter closes clean. Every evaluator is a top-level
+  `@(define ev (make-raft-eval "chapter"))` in a `.scrbl`, several per
+  chapter allowed, each naming its own log; the chapter ends with
+  `@(close-eval ev)` for each (in any order), which fails the build on an
   example its log does not hold, `eval:error` ones included, and on log
-  entries no example replayed. A replay cannot see that an example now
+  entries no example replayed. `logs/*.rktd` are exactly the evaluators'
+  names. A new chapter compiles and renders live or recording before its
+  log exists; its replay and `tests/docs-chapters-test.rkt` fail until the
+  log is recorded and committed. A replay cannot see that an example now
   prints something else; `record-docs.sh --check`, in `gpu.yml`, can. An
   example prints nothing that varies between runs (times, addresses).
 - Render after the leg's final commit with

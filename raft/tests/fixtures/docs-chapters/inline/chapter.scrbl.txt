@@ -1,0 +1,6 @@
+#lang scribble/manual
+@(require "utils.rkt")
+
+@title{Inline}
+
+@examples[#:eval (make-raft-eval "inline") (+ 1 2)]

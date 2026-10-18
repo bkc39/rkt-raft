@@ -1,0 +1,8 @@
+#lang racket/base
+
+(require "utils.rkt")
+
+(provide helper-eval)
+
+(define (helper-eval)
+  (make-raft-eval "helper"))

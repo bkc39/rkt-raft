@@ -1,6 +1,12 @@
 #lang racket/base
 
-(require (only-in racket/file delete-directory/files file->list file->string make-temporary-directory)
+(require (only-in racket/file
+                  delete-directory/files
+                  file->bytes
+                  file->list
+                  file->string
+                  make-temporary-directory)
+         (only-in racket/path file-name-from-path path-only)
          ;; whole-module: define-runtime-path needs bindings only-in strips
          racket/runtime-path
          (only-in rackunit check-equal? check-exn test-case)
@@ -109,6 +115,7 @@
    (lambda (log _dir)
      (define recorder (logged 'record log))
      (check-equal? (recorder '(+ 1 2)) 3)
+     (close-logged-eval recorder)
      (define replayer (logged 'replay log))
      (check-exn
       #rx"has no recorded evaluation of \\(\\+ 1 3\\) next; re-record it with RAFT_DOCS=record"
@@ -116,6 +123,47 @@
      (define again (logged 'replay log))
      (check-equal? (format "~a" (again '(+ 1 2))) "3\n")
      (check-exn #rx"has no recorded evaluation of \\(\\+ 1 2\\) next" (lambda () (again '(+ 1 2)))))))
+
+(test-case "an eval:check example records and replays green"
+  (call-with-log (lambda (log _dir)
+                   (define (checked ev)
+                     (examples #:eval ev (eval:check (+ 1 2) 3))
+                     (close-logged-eval ev))
+                   (checked (logged 'record log))
+                   (check-equal? (checked (logged 'replay log)) ""))))
+
+(define (call-with-recorded-log proc)
+  (call-with-log (lambda (log _dir)
+                   (record-log! log '(+ 1 2))
+                   (proc log (file->bytes log)))))
+
+(test-case "a record stopped by an example raising outside eval:error keeps the log as it was"
+  (call-with-recorded-log (lambda (log before)
+                            (define ev (logged 'record log))
+                            (check-exn #rx"exception raised in example"
+                                       (lambda () (examples #:eval ev (+ 1 2) (car 1))))
+                            (check-equal? (file->bytes log) before))))
+
+(test-case "a record whose close fails keeps the log and deletes its recording"
+  (call-with-recorded-log
+   (lambda (log before)
+     (define ev (logged 'record log))
+     (examples #:eval ev
+               (require file/convertible)
+               (struct picture () #:property prop:convertible (lambda (_v _request default) default))
+               (eval:error (picture)))
+     (check-exn #rx"cannot record" (lambda () (close-logged-eval ev)))
+     (check-equal? (file->bytes log) before)
+     (check-equal? (directory-list (path-only log)) (list (file-name-from-path log))))))
+
+(test-case "a replay of a chapter with no log names it and how to record it"
+  (call-with-log
+   (lambda (log _dir)
+     (check-exn
+      (regexp (string-append "^raft-docs: "
+                             (regexp-quote (path->string log))
+                             " does not exist; record it with scripts/record-docs.sh and commit it$"))
+      (lambda () (logged 'replay log))))))
 
 (test-case "a replay never runs the expression"
   (define replayer (logged 'replay exit-log))

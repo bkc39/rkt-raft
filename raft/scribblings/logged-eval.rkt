@@ -22,7 +22,7 @@
                        "RAFT_DOCS is ~s; want live, record or replay (the default when unset)"
                        other)]))
 
-(struct ledger (log [pending #:mutable] [problem #:mutable]))
+(struct ledger (log recording [pending #:mutable] [problem #:mutable]))
 
 (define ledgers (make-weak-hasheq))
 
@@ -34,25 +34,49 @@
   (set-ledger-problem! l (or (ledger-problem l) message))
   (raise-user-error 'raft-docs "~a" message))
 
+(define (recording-path log)
+  (string->path (string-append (path->string (path->complete-path log)) ".recording")))
+
+(define (recorded-entries log)
+  (cond
+    [(file-exists? log) (file->list log)]
+    [else
+     (raise-user-error 'raft-docs
+                       "~a does not exist; record it with scripts/record-docs.sh and commit it"
+                       log)]))
+
 (define (make-logged-eval mode log make-live)
   (match mode
     ['live (make-live)]
-    ['record (recording-eval (make-live) (ledger log '() #f))]
-    ['replay (replaying-eval (ledger log (file->list log) #f))]))
+    ['record (recording-eval (make-live) (ledger log (recording-path log) '() #f))]
+    ['replay (replaying-eval (ledger log #f (recorded-entries log) #f))]))
 
 (define (close-logged-eval ev)
   (close-eval ev)
-  (match (hash-ref ledgers ev #f)
-    [(ledger _ _ (? string? problem)) (raise-user-error 'raft-docs "~a" problem)]
-    [(ledger log (cons (cons expr _) _) #f)
+  (define l (hash-ref ledgers ev #f))
+  (hash-remove! ledgers ev)
+  (match l
+    [(ledger _ recording _ (? string? problem))
+     (discard-recording recording)
+     (raise-user-error 'raft-docs "~a" problem)]
+    [(ledger log #f (cons (cons expr _) _) #f)
      (raise-user-error
       'raft-docs
       "~a has evaluations no example replayed, from ~.s on; re-record it with RAFT_DOCS=record"
       log
       expr)]
+    [(ledger log (? path? recording) _ #f)
+     (rename-file-or-directory recording log #t)
+     ""]
     [_ ""]))
 
+(define (discard-recording recording)
+  (match recording
+    [(? path?) (delete-file recording)]
+    [#f (void)]))
+
 (struct recorded (text)
+  #:transparent
   #:property prop:custom-write
   (lambda (v out _mode) (write-string (recorded-text v) out)))
 
@@ -96,7 +120,7 @@
 (define ((recording-handler l live-eval) form)
   (call-with-captured-output (lambda (captured)
                                (define (record! result)
-                                 (append-entry! (ledger-log l)
+                                 (append-entry! (ledger-recording l)
                                                 (list* (form->expr form) result (captured))))
                                (define (record-raise! raised)
                                  (record! (list 'raise (raised->message raised)))
@@ -109,9 +133,9 @@
                                (apply values results))))
 
 (define (recording-eval ev l)
-  (define log (ledger-log l))
-  (make-directory* (path-only (path->complete-path log)))
-  (with-output-to-file log #:exists 'truncate void)
+  (define recording (ledger-recording l))
+  (make-directory* (path-only recording))
+  (with-output-to-file recording #:exists 'truncate void)
   (call-in-sandbox-context ev (lambda () (current-eval (recording-handler l (current-eval)))))
   (keep-ledger! ev l))
 

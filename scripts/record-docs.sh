@@ -30,8 +30,9 @@ case ${1:-} in
 esac
 : "${RAFT_KMEANS_CANARY:?run inside nix develop, which builds the k-means canary}"
 
+logs=raft/scribblings/logs
 dest=$(mktemp -d)
-trap 'rm -rf "$dest"' EXIT
+trap 'rm -rf "$dest"; find "$logs" -name "*.rktd.recording" -delete 2>/dev/null || true' EXIT
 RAFT_DOCS=record scripts/render-docs.sh "$dest/live"
 RAFT_DOCS=replay scripts/render-docs.sh "$dest/replay"
 if ! diff -r "$dest/live" "$dest/replay"; then
@@ -39,7 +40,6 @@ if ! diff -r "$dest/live" "$dest/replay"; then
   exit 1
 fi
 echo "record-docs: the replayed manual is the live one, byte for byte"
-logs=raft/scribblings/logs
 git status --short -- "$logs"
 if [ "${1:-}" = --check ] && [ -n "$(git status --porcelain -- "$logs")" ]; then
   git --no-pager diff -- "$logs" | head -n 60 || true

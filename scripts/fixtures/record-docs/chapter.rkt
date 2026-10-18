@@ -12,7 +12,9 @@
   (examples #:eval ev
             #:label #f
             (define rows '((1.0 2.0) (3.0 4.0)))
-            (length rows)
+            (if (getenv "SAMPLE_RAISE")
+                (error 'sample "raised outside eval:error")
+                (length rows))
             (eval:error (error 'lookup (getenv "SAMPLE_MESSAGE")))))
 
 (close-logged-eval ev)
