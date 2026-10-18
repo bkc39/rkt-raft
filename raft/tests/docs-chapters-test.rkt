@@ -23,10 +23,55 @@
           (lambda () (call-with-input-file path (lambda (in) (syntax->datum (read-syntax path in))))))
     [(list 'module _ _ (cons '#%module-begin body)) (filter pair? body)]))
 
-(define (evaluator-uses form)
+(define quoting-forms
+  '(codeblock codeblock0
+              quote
+              racket
+              racketblock
+              racketblock0
+              racketinput
+              racketmod
+              racketresultblock))
+
+(define example-forms
+  '(def+int defexamples
+            defexamples*
+            defs+int
+            examples
+            examples*
+            interaction
+            interaction-eval
+            interaction-eval-show
+            interaction/no-prompt
+            interaction0
+            racketblock+eval
+            racketblock0+eval
+            racketmod+eval))
+
+(define live-evaluator-makers
+  '(make-base-eval make-base-eval-factory
+                   make-eval-factory
+                   make-evaluator
+                   make-log-based-eval
+                   make-module-evaluator))
+
+(define (unquoted-forms form)
   (match form
-    [(list (or 'make-raft-eval 'make-downstream-eval) (? string?)) (list form)]
-    [(cons head tail) (append (evaluator-uses head) (evaluator-uses tail))]
+    [(cons (? (lambda (head) (memq head quoting-forms))) _) '()]
+    [(cons _ (? list?)) (cons form (append-map unquoted-forms form))]
+    [(cons head tail) (append (unquoted-forms head) (unquoted-forms tail))]
+    [_ '()]))
+
+(define (evaluator-uses form)
+  (filter (match-lambda
+            [(list (or 'make-raft-eval 'make-downstream-eval) (? string?)) #t]
+            [_ #f])
+          (unquoted-forms form)))
+
+(define (eval-argument args)
+  (match args
+    [(list* '#:eval value _) (list value)]
+    [(cons _ rest) (eval-argument rest)]
     [_ '()]))
 
 (define (chapter-evaluators body)
@@ -86,6 +131,41 @@
                                    (list->set closes))))
     (format "~a must end with ~a" (source-name s) (string-join (map form->string closes) " "))))
 
+(define (example-problems sources)
+  (for*/list ([s (in-list sources)]
+              [evaluators (in-value (map car (chapter-evaluators (source-body s))))]
+              [form (in-list (append-map unquoted-forms (source-body s)))]
+              #:when (memq (car form) example-forms)
+              [problem (in-value
+                        (match (eval-argument (cdr form))
+                          ['()
+                           (format "~a: ~a with no #:eval evaluates live; give it a chapter evaluator"
+                                   (source-name s)
+                                   (car form))]
+                          [(list (? symbol? ev))
+                           #:when (memq ev evaluators)
+                           #f]
+                          [(list value)
+                           #:when (pair? (evaluator-uses value))
+                           #f]
+                          [(list value)
+                           (format "~a: the #:eval of ~a, ~s, is not a chapter evaluator"
+                                   (source-name s)
+                                   (car form)
+                                   value)]))]
+              #:when problem)
+    problem))
+
+(define (raw-evaluator-problems sources)
+  (for*/list ([s (in-list sources)]
+              #:when (source-scrbl? s)
+              [form (in-list (append-map unquoted-forms (source-body s)))]
+              [name (in-list form)]
+              #:when (memq name live-evaluator-makers))
+    (format "~a: ~a makes an evaluator that runs live; use make-raft-eval or make-downstream-eval"
+            (source-name s)
+            name)))
+
 (define (log-problems uses logs)
   (append
    (for/list ([log (in-list logs)]
@@ -113,6 +193,8 @@
   (append (misplaced-problems uses)
           (duplicate-problems uses)
           (closing-problems sources)
+          (example-problems sources)
+          (raw-evaluator-problems sources)
           (log-problems uses (log-names dir))))
 
 (define (call-with-fixture name proc)
@@ -165,6 +247,23 @@
 logs/unrecorded.rktd does not exist for chapter.scrbl's (make-raft-eval "unrecorded"); record it with scripts/record-docs.sh and commit it
 MESSAGE
      )))
+
+(test-case "an example with no #:eval is refused"
+  (check-equal?
+   (fixture-problems "no-eval")
+   '("chapter.scrbl: examples with no #:eval evaluates live; give it a chapter evaluator")))
+
+(test-case "an example whose #:eval is not a chapter evaluator is refused"
+  (check-equal? (fixture-problems "foreign-eval")
+                '("chapter.scrbl: the #:eval of examples, other, is not a chapter evaluator")))
+
+(test-case "an evaluator made with make-base-eval is refused"
+  (check-equal?
+   (fixture-problems "raw-eval")
+   '("chapter.scrbl: make-base-eval makes an evaluator that runs live; use make-raft-eval or make-downstream-eval")))
+
+(test-case "an evaluator shown in quoted code is not a use"
+  (check-equal? (fixture-problems "quoted") '()))
 
 (define (copy-scribbling-modules dir)
   (for ([name (in-list '("utils.rkt" "logged-eval.rkt"))])

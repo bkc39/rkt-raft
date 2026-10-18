@@ -1,0 +1,6 @@
+#lang scribble/manual
+@(require "utils.rkt")
+
+@(define raw (make-base-eval '(require raft)))
+
+@title{A raw evaluator}

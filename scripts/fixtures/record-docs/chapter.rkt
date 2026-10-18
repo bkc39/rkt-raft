@@ -1,10 +1,20 @@
 #lang racket/base
 
-(require (only-in scribble/core part style)
+(require (for-syntax racket/base
+                     (only-in compiler/cm-accomplice register-external-file))
+         (only-in scribble/core part style)
          (only-in scribble/example examples make-base-eval)
          (only-in scribble/html-render render-mixin)
          (only-in scribble/render render)
-         (only-in "../raft/scribblings/logged-eval.rkt" close-logged-eval docs-mode make-logged-eval))
+         (only-in "logged-eval.rkt" close-logged-eval docs-mode make-logged-eval))
+
+(define-syntax (register-log! stx)
+  (define log (build-path (current-load-relative-directory) "logs" "sample.rktd"))
+  (when (file-exists? log)
+    (register-external-file log))
+  #'(void))
+
+(register-log!)
 
 (define ev (make-logged-eval (docs-mode) "raft/scribblings/logs/sample.rktd" make-base-eval))
 

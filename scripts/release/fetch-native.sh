@@ -20,15 +20,17 @@ fi
 mkdir -p "$dest"
 zip=$dest/$RELEASE_NATIVE_PACKAGE.zip
 url=https://github.com/$repository/releases/download/v$native/$RELEASE_NATIVE_PACKAGE.zip
+trap '[ "${found:-}" = true ] || rm -f "$zip"' EXIT
 code=$(curl -sSL --retry 3 -o "$zip" -w '%{http_code}' "$url")
 case $code in
-  200) echo "found=true" ;;
+  200)
+    found=true
+    echo "found=true"
+    ;;
   404)
-    rm -f "$zip"
     echo "SKIP: no v$native release yet, so the GPU install test cannot run" >&2
     ;;
   *)
-    rm -f "$zip"
     echo "fetch-native: $url answered HTTP $code" >&2
     exit 1
     ;;

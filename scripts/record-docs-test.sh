@@ -13,7 +13,8 @@ problem() {
 
 repo=$work/repo
 mkdir -p "$repo/scripts" "$repo/raft/scribblings"
-cp "$here/record-docs.sh" "$here/fixtures/record-docs/chapter.rkt" "$repo/scripts/"
+cp "$here/record-docs.sh" "$repo/scripts/"
+cp "$here/fixtures/record-docs/chapter.rkt" "$repo/raft/scribblings/"
 {
   echo "#!$BASH"
   tail -n +2 "$here/fixtures/record-docs/render-docs.sh"
@@ -37,12 +38,23 @@ want_status() {
     problem "$name: exited $(cat "$work/$name.status"), want $want: $(cat "$work/$name.out")"
 }
 
+raco make "$repo/raft/scribblings/chapter.rkt"
 record first "no such row"
 want_status first 0
 git -C "$repo" add raft/scribblings/logs
 git -C "$repo" commit -qm logs
 grep -qF '"lookup: no such row"' "$repo/raft/scribblings/logs/sample.rktd" ||
   problem "first: the log does not hold the eval:error message"
+
+dep=$(find "$repo/raft/scribblings" -name chapter_rkt.dep)
+cp "$dep" "$work/chapter.dep"
+echo ";; re-recorded" >>"$repo/raft/scribblings/logs/sample.rktd"
+touch -d "@$(($(date +%s) + 10))" "$repo/raft/scribblings/logs/sample.rktd"
+raco make "$repo/raft/scribblings/chapter.rkt"
+if cmp -s "$dep" "$work/chapter.dep"; then
+  problem "re-recorded: a chapter compiled before its log existed was not compiled again when the log changed"
+fi
+git -C "$repo" checkout -q -- raft/scribblings/logs
 
 record unchanged "no such row" --check
 want_status unchanged 0

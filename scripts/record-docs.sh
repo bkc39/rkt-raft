@@ -34,6 +34,8 @@ logs=raft/scribblings/logs
 dest=$(mktemp -d)
 trap 'rm -rf "$dest"; find "$logs" -name "*.rktd.recording" -delete 2>/dev/null || true' EXIT
 RAFT_DOCS=record scripts/render-docs.sh "$dest/live"
+# A chapter compiled before its log existed has no dependency on the log.
+find raft/scribblings -type d -name compiled -prune -exec rm -rf {} +
 RAFT_DOCS=replay scripts/render-docs.sh "$dest/replay"
 if ! diff -r "$dest/live" "$dest/replay"; then
   echo "record-docs: the replayed manual differs from the live one (above)" >&2

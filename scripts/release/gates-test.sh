@@ -340,13 +340,14 @@ while [ $# -gt 1 ]; do
 done
 printf '%s' "$1" >"$out"
 printf '%s' "$STUB_HTTP_CODE"
+exit "${STUB_EXIT:-0}"
 STUB
 } >"$work/stub-bin/curl"
 chmod +x "$work/stub-bin/curl"
 printf '#lang info\n(define version "%s")\n' "$raft_version" >"$work/no-native/info.rkt"
 fetch_case() {
   local name=$1 code=$2 info=$3 want_status=$4 want_out=$5 status=0
-  STUB_HTTP_CODE=$code PATH="$work/stub-bin:$PATH" bash "$here/fetch-native.sh" "$info" owner/repo "$work/$name" \
+  STUB_HTTP_CODE=$code STUB_EXIT=${STUB_EXIT:-0} PATH="$work/stub-bin:$PATH" bash "$here/fetch-native.sh" "$info" owner/repo "$work/$name" \
     >"$work/$name.out" 2>"$work/$name.err" || status=$?
   [ "$status" = "$want_status" ] && [ "$(cat "$work/$name.out")" = "$want_out" ] ||
     problem "fetch-native: $name exited $status printing '$(cat "$work/$name.out")', want $want_status and '$want_out': $(cat "$work/$name.err")"
@@ -361,6 +362,10 @@ grep -qF "SKIP: no v$native_version release yet" "$work/fetch-404.err" ||
 [ ! -e "$work/fetch-404/$RELEASE_NATIVE_PACKAGE.zip" ] || problem "fetch-native: a 404 left its body as the zip"
 fetch_case fetch-503 503 "$here/../../raft/info.rkt" 1 ""
 grep -qF "answered HTTP 503" "$work/fetch-503.err" || problem "fetch-native: a 503 did not name its status"
+STUB_EXIT=7 fetch_case fetch-unreachable 000 "$here/../../raft/info.rkt" 7 ""
+[ ! -e "$work/fetch-unreachable/$RELEASE_NATIVE_PACKAGE.zip" ] || problem "fetch-native: a failed curl left a zip"
+STUB_EXIT=18 fetch_case fetch-truncated 200 "$here/../../raft/info.rkt" 18 ""
+[ ! -e "$work/fetch-truncated/$RELEASE_NATIVE_PACKAGE.zip" ] || problem "fetch-native: a truncated download left a zip"
 fetch_case fetch-no-native 200 "$work/no-native/info.rkt" 1 ""
 grep -qF "has no (define native-version" "$work/fetch-no-native.err" ||
   problem "fetch-native: a missing native-version was not named: $(cat "$work/fetch-no-native.err")"

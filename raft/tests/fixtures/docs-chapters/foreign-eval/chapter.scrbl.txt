@@ -1,0 +1,11 @@
+#lang scribble/manual
+@(require "utils.rkt")
+
+@(define ev (make-raft-eval "foreign"))
+@(define other ev)
+
+@title{Another name for the evaluator}
+
+@examples[#:eval other (+ 1 2)]
+
+@(close-eval ev)
