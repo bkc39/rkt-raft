@@ -53,10 +53,9 @@
 
 (define (checked-csr who indptr indices data extents)
   (match-define (list rows cols) extents)
-  (define-values (indptr-view indices-view data-view)
-    (values (settled-descriptor who indptr)
-            (settled-descriptor who indices)
-            (settled-descriptor who data)))
+  (define indptr-view (settled-descriptor who indptr))
+  (define indices-view (settled-descriptor who indices))
+  (define data-view (settled-descriptor who data))
   (call/raft who
              (lambda ()
                (rr-csr-check (array-buffer-handle indptr)
