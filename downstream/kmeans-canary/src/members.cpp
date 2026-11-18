@@ -20,16 +20,6 @@
 
 namespace {
 
-std::atomic<uint64_t>& owner_drops() noexcept {
-  static std::atomic<uint64_t> count{0};
-  return count;
-}
-
-std::atomic<uint64_t>& owner_stale() noexcept {
-  static std::atomic<uint64_t> count{0};
-  return count;
-}
-
 template <typename T>
 struct members {
   members(const raft::handle_t& h, std::size_t m, std::size_t d)
@@ -37,12 +27,7 @@ struct members {
         indices(m, raft::resource::get_cuda_stream(h)),
         rows(m * d, raft::resource::get_cuda_stream(h)) {}
   ~members() {
-    owner_drops().fetch_add(1, std::memory_order_relaxed);
-    const cudaError_t status =
-        cudaStreamQuery(raft::resource::get_cuda_stream(handle).value());
-    if (status != cudaSuccess && status != cudaErrorNotReady) {
-      owner_stale().fetch_add(1, std::memory_order_relaxed);
-    }
+    kc::count_owner_drop(handle);
   }
   members(const members&) = delete;
   members& operator=(const members&) = delete;
@@ -140,10 +125,10 @@ int kc_cluster_members(void* handle, const rr_view* x, const rr_view* labels,
 }
 
 uint64_t kc_owner_drop_count(void) {
-  return owner_drops().load(std::memory_order_relaxed);
+  return kc::owner_drops().load(std::memory_order_relaxed);
 }
 
 uint64_t kc_owner_stale_count(void) {
-  return owner_stale().load(std::memory_order_relaxed);
+  return kc::owner_stale().load(std::memory_order_relaxed);
 }
 }

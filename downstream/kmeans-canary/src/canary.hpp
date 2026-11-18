@@ -1,5 +1,11 @@
 #pragma once
 
+#include <cuda_runtime_api.h>
+
+#include <atomic>
+#include <cstdint>
+#include <raft/core/handle.hpp>
+#include <raft/core/resource/cuda_stream.hpp>
 #include <string>
 
 #include "raftrkt/array.h"
@@ -13,6 +19,25 @@ using raftrkt::logic_error;
 inline raftrkt::error_slot& last_error_slot() noexcept {
   thread_local raftrkt::error_slot slot;
   return slot;
+}
+
+inline std::atomic<uint64_t>& owner_drops() noexcept {
+  static std::atomic<uint64_t> count{0};
+  return count;
+}
+
+inline std::atomic<uint64_t>& owner_stale() noexcept {
+  static std::atomic<uint64_t> count{0};
+  return count;
+}
+
+inline void count_owner_drop(const raft::handle_t& handle) noexcept {
+  owner_drops().fetch_add(1, std::memory_order_relaxed);
+  const cudaError_t status =
+      cudaStreamQuery(raft::resource::get_cuda_stream(handle).value());
+  if (status != cudaSuccess && status != cudaErrorNotReady) {
+    owner_stale().fetch_add(1, std::memory_order_relaxed);
+  }
 }
 
 template <typename Fn>

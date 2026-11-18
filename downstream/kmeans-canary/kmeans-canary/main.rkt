@@ -1,7 +1,11 @@
 #lang racket/base
 
-(require (only-in racket/match match-define)
+(require (only-in racket/list second)
+         (only-in racket/match match-define)
          (only-in raft
+                  csr-data
+                  csr-indices
+                  csr-indptr
                   current-device-resources
                   device-matrix
                   device-matrix->list*
@@ -10,15 +14,19 @@
                   dtype
                   list*->device-matrix
                   shape)
-         (only-in raft/unsafe deposit deposit->list)
+         (only-in raft/unsafe deposit deposit->device-csr-matrix deposit->list)
          (only-in "private/native.rkt"
+                  kc-cluster-graph-job
                   kc-cluster-members-job
+                  kc-csr-copy-job
                   kc-fit-job
                   kc-make-blobs-job
                   kc-predict-job))
 
 (provide blobs
+         cluster-graph
          cluster-members
+         csr-copy
          kmeans-fit
          kmeans-predict)
 
@@ -111,3 +119,29 @@
   (define members (deposit #:resources resources))
   (kc-cluster-members-job 'cluster-members resources X labels cluster members)
   (apply values (deposit->list members)))
+
+(define index-codes (hasheq 'int32 2 'int64 3))
+
+(define (cluster-graph labels
+                       n-clusters
+                       #:index-dtype [index-type 'int32]
+                       #:resources [resources (current-device-resources)])
+  (define graph (deposit #:resources resources))
+  (kc-cluster-graph-job 'cluster-graph
+                        resources
+                        labels
+                        n-clusters
+                        (hash-ref index-codes index-type -1)
+                        graph)
+  (deposit->device-csr-matrix graph #:shape (list n-clusters (car (shape labels)))))
+
+(define (csr-copy m #:resources [resources (current-device-resources)])
+  (define copied (deposit #:resources resources))
+  (kc-csr-copy-job 'csr-copy
+                   resources
+                   (csr-indptr m)
+                   (csr-indices m)
+                   (csr-data m)
+                   (second (shape m))
+                   copied)
+  (deposit->device-csr-matrix copied #:shape (shape m)))
