@@ -23,6 +23,38 @@
 #include "raftrkt/job.hpp"
 #include "raftrkt/view.hpp"
 
+// The two-phase owner is a plain csr_buffers, so the probe counts its drop
+// in the release raftrkt::deposit installs for it.
+namespace raftrkt::detail {
+
+template <typename T, typename Index>
+void counted_release(void* owner) noexcept {
+  delete static_cast<csr_buffers<T, Index>*>(owner);
+  probe::owner_drops().fetch_add(1, std::memory_order_relaxed);
+}
+
+template <>
+void release_owner<csr_buffers<float, int32_t>>(void* owner) noexcept {
+  counted_release<float, int32_t>(owner);
+}
+
+template <>
+void release_owner<csr_buffers<float, int64_t>>(void* owner) noexcept {
+  counted_release<float, int64_t>(owner);
+}
+
+template <>
+void release_owner<csr_buffers<double, int32_t>>(void* owner) noexcept {
+  counted_release<double, int32_t>(owner);
+}
+
+template <>
+void release_owner<csr_buffers<double, int64_t>>(void* owner) noexcept {
+  counted_release<double, int64_t>(owner);
+}
+
+}  // namespace raftrkt::detail
+
 namespace {
 
 struct host_csr {

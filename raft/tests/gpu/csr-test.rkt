@@ -29,7 +29,7 @@
          (only-in (submod "../../private/csr.rkt" unchecked) unchecked-device-csr-matrix)
          (only-in "../../private/foreign/memory.rkt" buffer-drop-count release-failure-count)
          (only-in "../private/collect.rkt" drain-finalizers! settled-count)
-         (only-in "../private/csr.rkt" parts)
+         (only-in "../private/csr.rkt" parts triplets)
          (only-in "../private/gpu.rkt" gpu-skip test-gpu)
          (only-in "../private/probe.rkt" probe-pool-used test-pools)
          (only-in "../private/raft-error.rkt" check-raft-error)
@@ -45,9 +45,6 @@
 
 (define (floats xs [element-type 'float32])
   (list->device-vector xs #:dtype element-type))
-
-(define (triplets m)
-  (call-with-values (lambda () (device-csr-matrix->triplets m)) list))
 
 (define G-rows '((0 1.5 0 0) (0 0 0 0) (2 0 0 -3)))
 

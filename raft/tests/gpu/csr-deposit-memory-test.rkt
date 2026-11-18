@@ -1,13 +1,7 @@
 #lang racket/base
 
 (require (only-in rackunit check-equal?)
-         (only-in "../../main.rkt" current-device-resources)
-         (only-in "../../private/dtype.rkt" dtype->code)
-         (only-in "../../unsafe.rkt"
-                  deposit
-                  deposit->device-csr-matrix
-                  with-array-views
-                  with-deposits)
+         (only-in "../../unsafe.rkt" deposit->device-csr-matrix)
          (only-in "../private/collect.rkt" drain-finalizers!)
          (only-in "../private/deposits.rkt"
                   counters
@@ -15,36 +9,25 @@
                   counts-buffers
                   counts-failures
                   counts-owners
+                  csr-filled
                   settles-to)
-         (only-in "../private/probe.rkt" call/probe probe-deposit-csr probe-pool-used test-pools))
+         (only-in "../private/probe.rkt" probe-pool-used test-pools))
 
-(define (cycle!)
-  (define r (current-device-resources))
-  (define d (deposit #:resources r))
-  (with-deposits ([out d])
-                 (with-array-views #:resources [h r] ()
-                   (call/probe 'probe-deposit-csr
-                               (lambda ()
-                                 (probe-deposit-csr h
-                                                    out
-                                                    (dtype->code 'int32)
-                                                    (dtype->code 'float32)
-                                                    '(0 2 2 3)
-                                                    '(3 0 1)
-                                                    '(0.5 1.0 2.0)
-                                                    0)))))
-  (deposit->device-csr-matrix d #:shape '(3 4)))
+(define (cycle! two-phase?)
+  (deposit->device-csr-matrix
+   (csr-filled '(0 2 2 3) '(3 0 1) '(0.5 1.0 2.0) #:dtype 'float32 #:two-phase? two-phase?)
+   #:shape '(3 4)))
 
 (define cycles 1000)
 
-(test-pools "law 17: memory stays flat over 1,000 cycles of CSR fill, adoption and drop"
-  (for ([_ (in-range 10)])
-    (cycle!))
+(test-pools "law 17: memory stays flat over 1,000 cycles of CSR fill, adoption and drop, in both phases"
+  (for ([i (in-range 10)])
+    (cycle! (odd? i)))
   (drain-finalizers!)
   (define baseline (probe-pool-used 0))
   (define before (counters))
-  (for ([_ (in-range cycles)])
-    (cycle!))
+  (for ([i (in-range cycles)])
+    (cycle! (odd? i)))
   (define expected (counts cycles cycles cycles (* 3 cycles) 0))
   (define settled (settles-to before expected))
   (drain-finalizers!)

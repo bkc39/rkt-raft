@@ -11,71 +11,29 @@
                   device-csr-matrix->list*
                   device-vector->list
                   dtype
-                  list->device-vector
                   nnz
                   shape)
+         (only-in "../../private/deposit.rkt" deposit-handle)
          (only-in "../../private/dtype.rkt" dtype->code)
-         (only-in "../../unsafe.rkt"
-                  deposit
-                  deposit->device-csr-matrix
-                  deposit->list
-                  with-array-views
-                  with-deposits)
-         (only-in "../private/deposits.rkt" counters counts filled released-once settles-to)
-         (only-in "../private/probe.rkt"
-                  call/probe
-                  probe-deposit-csr
-                  probe-deposit-csr-job
-                  test-probe)
+         (only-in "../../unsafe.rkt" deposit deposit->device-csr-matrix deposit->list with-deposits)
+         (only-in "../private/collect.rkt" drain-finalizers!)
+         (only-in "../private/csr.rkt" parts)
+         (only-in "../private/deposits.rkt"
+                  counters
+                  counts
+                  csr-filled
+                  fill-csr!
+                  fill-csr-job!
+                  filled
+                  released-once
+                  settles-to)
+         (only-in "../private/probe.rkt" probe-flags probe-refuse-adoption! test-probe)
          (only-in "../private/raft-error.rkt" check-raft-error))
-
-(define (csr-filled indptr
-                    indices
-                    data
-                    #:index-dtype [index-type 'int32]
-                    #:dtype [element-type 'float64]
-                    #:two-phase? [two-phase? #f])
-  (define r (current-device-resources))
-  (define d (deposit #:resources r))
-  (with-deposits ([out d])
-                 (with-array-views #:resources [h r] ()
-                   (call/probe 'probe-deposit-csr
-                               (lambda ()
-                                 (probe-deposit-csr h
-                                                    out
-                                                    (dtype->code index-type)
-                                                    (dtype->code element-type)
-                                                    indptr
-                                                    indices
-                                                    (map exact->inexact data)
-                                                    (if two-phase? 1 0))))))
-  d)
-
-(define (csr-job-filled indptr
-                        indices
-                        data
-                        #:index-dtype [index-type 'int32]
-                        #:dtype [element-type 'float64]
-                        #:two-phase? [two-phase? #f])
-  (define d (deposit))
-  (probe-deposit-csr-job 'probe-deposit-csr
-                         (current-device-resources)
-                         d
-                         (dtype->code index-type)
-                         (dtype->code element-type)
-                         (list->device-vector indptr #:dtype 'int64)
-                         (list->device-vector indices #:dtype 'int64)
-                         (list->device-vector (map exact->inexact data) #:dtype 'float64)
-                         (if two-phase? 1 0))
-  d)
 
 (define cases
   '(((0 2 2 3) (3 0 1) (0.5 1.0 2.0) (3 4)) ((0 3 3 5) (2 0 2 1 1) (1.5 -2.25 0.0 4.0 -4.0) (3 3))
                                             ((0 0 0) () () (2 5))
                                             ((0) () () (0 7))))
-
-(define (parts m)
-  (map device-vector->list (list (csr-indptr m) (csr-indices m) (csr-data m))))
 
 (define (check-adopts fill label)
   (for* ([index-type (in-list '(int32 int64))]
@@ -85,12 +43,13 @@
     (match-define (list indptr indices data extents) c)
     (define where (format "~a ~a ~a ~a ~a" label index-type element-type two-phase? indptr))
     (define d
-      (fill indptr
-            indices
-            data
-            #:index-dtype index-type
-            #:dtype element-type
-            #:two-phase? two-phase?))
+      (csr-filled indptr
+                  indices
+                  data
+                  #:fill fill
+                  #:index-dtype index-type
+                  #:dtype element-type
+                  #:two-phase? two-phase?))
     (define m (deposit->device-csr-matrix d #:shape extents))
     (check-equal? (parts m) (list indptr indices (map exact->inexact data)) where)
     (check-equal? (list (shape m) (dtype m) (dtype (csr-indices m)) (dtype (csr-indptr m)) (nnz m))
@@ -100,10 +59,10 @@
                 where)))
 
 (test-probe "law 14: a probe deposit adopts as the CSR matrix it filled, for every dtype pair"
-  (check-adopts csr-filled "call"))
+  (check-adopts fill-csr! "call"))
 
 (test-probe "law 14: the same holds through the probe's job twin"
-  (check-adopts csr-job-filled "job"))
+  (check-adopts fill-csr-job! "job"))
 
 (test-probe "law 15: a malformed deposit is refused at adoption, and its arrays stay readable"
   (define d (csr-filled '(0 2 1 3) '(0 1 2) '(1.0 2.0 3.0)))
@@ -112,48 +71,94 @@
                     (lambda () (deposit->device-csr-matrix d #:shape '(3 4))))
   (check-equal? (map device-vector->list (deposit->list d)) '((0 2 1 3) (0 1 2) (1.0 2.0 3.0))))
 
-(test-probe "law 15: a deposit of other than three regions, or of other rows, is refused"
-  (check-raft-error 'logic
-                    "deposit->device-csr-matrix: the deposit holds 2 regions; a CSR matrix needs 3"
-                    (lambda () (deposit->device-csr-matrix (filled 'float32 3 #f) #:shape '(2 3))))
-  (check-raft-error 'logic
-                    "deposit->device-csr-matrix: the deposit holds 1 region; a CSR matrix needs 3"
-                    (lambda ()
-                      (deposit->device-csr-matrix (filled 'float32 3 #f #:count 1) #:shape '(2 3))))
-  (define d (csr-filled '(0 1 3) '(0 1 2) '(1.0 2.0 3.0)))
-  (check-raft-error 'logic
-                    "deposit->device-csr-matrix: indptr: expected 4 elements, got 3"
-                    (lambda () (deposit->device-csr-matrix d #:shape '(3 4))))
-  (check-equal? (device-csr-matrix->list* (deposit->device-csr-matrix d #:shape '(2 3)))
+(define ((adopted-as-csr d [extents '(2 3)]))
+  (deposit->device-csr-matrix d #:shape extents))
+
+(define (refusing-region-1 d)
+  (probe-refuse-adoption! (deposit-handle d) 1)
+  d)
+
+(define (closed-unfilled)
+  (define d (deposit))
+  (with-deposits ([out d]) out)
+  d)
+
+(test-probe "law 15: a deposit that is not a CSR matrix's three vectors is refused under the caller's name"
+  (define short-indptr (csr-filled '(0 1 3) '(0 1 2) '(1.0 2.0 3.0)))
+  (for ([row (in-list
+              (list (list "the deposit holds 2 regions; a CSR matrix needs 3"
+                          (adopted-as-csr (filled 'float32 3 #f)))
+                    (list "the deposit holds 1 region; a CSR matrix needs 3"
+                          (adopted-as-csr (filled 'float32 3 #f #:count 1)))
+                    (list "the deposit holds 0 regions; a CSR matrix needs 3"
+                          (adopted-as-csr (closed-unfilled)))
+                    (list "the deposit is still open"
+                          (lambda ()
+                            (define d (deposit))
+                            (with-deposits ([out d]) ((adopted-as-csr d)))))
+                    (list "region 1: refused by the probe"
+                          (adopted-as-csr
+                           (refusing-region-1 (csr-filled '(0 2 2 3) '(3 0 1) '(0.5 1.0 2.0)))
+                           '(3 4)))
+                    (list "region 0: not aligned to its element size"
+                          (adopted-as-csr (filled 'float32 3 4 #:flags (probe-flags 'raw 'misalign))))
+                    (list "indptr: expected 4 elements, got 3"
+                          (adopted-as-csr short-indptr '(3 4)))))])
+    (match-define (list message thunk) row)
+    (check-raft-error 'logic (format "deposit->device-csr-matrix: ~a" message) thunk))
+  (check-equal? (device-csr-matrix->list* ((adopted-as-csr short-indptr)))
                 '((1.0 0.0 0.0) (0.0 2.0 3.0))))
 
-(test-probe "law 15: deposit_csr refuses an empty indptr before it claims the record"
+(test-probe "law 15: deposit_csr refuses an empty indptr before it claims the record, dropping its owner"
+  (drain-finalizers!)
+  (define before (counters))
   (define d (deposit))
-  (check-raft-error
-   'logic
-   "probe-deposit-csr: out: indptr: expected at least 1 element, got 0"
-   (lambda ()
-     (with-deposits
-      ([out d])
-      (with-array-views #:resources [h (current-device-resources)] ()
-        (call/probe
-         'probe-deposit-csr
-         (lambda ()
-           (probe-deposit-csr h out (dtype->code 'int32) (dtype->code 'float64) '() '() '() 0)))))))
+  (check-raft-error 'logic
+                    "probe-deposit-csr: out: indptr: expected at least 1 element, got 0"
+                    (lambda ()
+                      (fill-csr! (current-device-resources)
+                                 d
+                                 (dtype->code 'int32)
+                                 (dtype->code 'float64)
+                                 '()
+                                 '()
+                                 '()
+                                 0)))
+  (check-equal? (settles-to before (counts 0 1 0 0 0)) (counts 0 1 0 0 0))
   (check-equal? (deposit->list d) '()))
 
-(define (held-csr)
+(test-probe "law 15: the two-phase recipe refuses an empty indptr in csr_buffers, before any owner"
+  (drain-finalizers!)
+  (define before (counters))
+  (define d (deposit))
+  (check-raft-error 'logic
+                    "probe-deposit-csr: rows: negative extent -1"
+                    (lambda ()
+                      (fill-csr! (current-device-resources)
+                                 d
+                                 (dtype->code 'int32)
+                                 (dtype->code 'float64)
+                                 '()
+                                 '()
+                                 '()
+                                 1)))
+  (check-equal? (settles-to before (counts 0 0 0 0 0)) (counts 0 0 0 0 0))
+  (check-equal? (deposit->list d) '()))
+
+(define (held-csr two-phase?)
   (define m
-    (deposit->device-csr-matrix (csr-filled '(0 2 2 3) '(3 0 1) '(0.5 1.0 2.0)) #:shape '(3 4)))
+    (deposit->device-csr-matrix
+     (csr-filled '(0 2 2 3) '(3 0 1) '(0.5 1.0 2.0) #:two-phase? two-phase?)
+     #:shape '(3 4)))
   (make-hasheq (list (cons 'matrix m)
                      (cons 'indptr (csr-indptr m))
                      (cons 'indices (csr-indices m))
                      (cons 'data (csr-data m)))))
 
-(define (dropped-in order)
+(define (dropped-in order two-phase?)
   (lambda ()
     (define before (counters))
-    (define h (held-csr))
+    (define h (held-csr two-phase?))
     (hash-remove! h 'matrix)
     (check-equal? (settles-to before (counts 0 0 1 0 0)) (counts 0 0 1 0 0) "the matrix")
     (for ([part (in-list order)]
@@ -166,5 +171,8 @@
       (check-equal? (settles-to before expected) expected (symbol->string part)))))
 
 (test-probe "law 16: the owner is released once, after the matrix and its three parts, in any order"
-  (for ([order (in-permutations '(indptr indices data))])
-    (released-once (format "~a" order) (dropped-in order) (counts 1 1 1 3 0))))
+  (for* ([two-phase? (in-list '(#f #t))]
+         [order (in-permutations '(indptr indices data))])
+    (released-once (format "~a two-phase ~a" order two-phase?)
+                   (dropped-in order two-phase?)
+                   (counts 1 1 1 3 0))))

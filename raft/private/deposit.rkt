@@ -58,13 +58,13 @@
        (with-release #:who who ([record (deposit-record who d) (close-unless-handed-over d)])
          (bind rest (cons record records)))])))
 
-(define (adopt holder index)
+(define (adopt who holder index)
   (define view (blank-view))
-  (view->array (call/raft 'deposit->list (lambda () (rr-holder-adopt holder index view))) view))
+  (view->array (call/raft who (lambda () (rr-holder-adopt holder index view))) view))
 
-(define (adopt-all d)
+(define (adopt-all who d)
   (define holder (deposit-handle d))
-  (define count (call/raft 'deposit->list (lambda () (rr-holder-count holder))))
+  (define count (call/raft who (lambda () (rr-holder-count holder))))
   (define arrays
     (for/fold ([adopted '()]
                #:result (reverse adopted))
@@ -72,17 +72,24 @@
       (with-handlers ([exn:fail? (lambda (e)
                                    (for-each release-array! adopted)
                                    (raise e))])
-        (cons (adopt holder index) adopted))))
+        (cons (adopt who holder index) adopted))))
   (set-deposit-arrays! d arrays)
   arrays)
 
+(define (adopted who d)
+  (call-as-atomic (lambda () (or (deposit-arrays d) (adopt-all who d)))))
+
 (define (deposit->list d)
-  (call-as-atomic (lambda () (or (deposit-arrays d) (adopt-all d)))))
+  (adopted 'deposit->list d))
 
 (define (deposit->device-csr-matrix d #:shape extents)
   (define who 'deposit->device-csr-matrix)
-  (match (deposit->list d)
+  (match (adopted who d)
     [(list indptr indices data) (checked-csr who indptr indices data extents)]
-    [(list _) (raise-raft who 'logic "the deposit holds 1 region; a CSR matrix needs 3")]
     [arrays
-     (raise-raft who 'logic "the deposit holds ~a regions; a CSR matrix needs 3" (length arrays))]))
+     (define n (length arrays))
+     (raise-raft who
+                 'logic
+                 "the deposit holds ~a region~a; a CSR matrix needs 3"
+                 n
+                 (if (= n 1) "" "s"))]))
