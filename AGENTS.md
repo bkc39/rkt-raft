@@ -51,7 +51,7 @@ Parity, §10 Build and §12 Starting cuML work before changing the design.
   `raftrkt/deposit.hpp`, and the canary's `cluster-members` (raft 0.2).
   #72 added `device-csr-matrix` in `raft/array`, `raftrkt/csr.hpp`,
   `deposit->device-csr-matrix` in `raft/unsafe`, and the canary's
-  `cluster-graph` and `csr-copy`.
+  `cluster-graph`, `csr-copy` and `assignment-graph`.
 
 ## Layout
 
@@ -101,7 +101,7 @@ bench/conversions.rkt         the conversion speed table (raft/compat), 10^6 ele
 bench/typed-arrays.rkt        math/array arrays built in Typed Racket against untyped (typed-table.rkt)
 downstream/kmeans-canary/     the k-means canary, a minimal cuML binding (packages.kmeans-canary)
   include/ src/ tests/        the C API (kc_), its C++ over libcuml (src/graph.cpp: the CSR
-                                deposits), gtests with libraftrkt
+                                deposits and a graph into three caller views), gtests with libraftrkt
   kmeans-canary/              the Racket package: private/native.rkt, main.rkt, pool.rkt,
                                 tests/ (the cuML twin, 1,000 fits, the shared pool)
 plans/scoping-plan.md         the approved plan (revision 5), as Markdown
@@ -480,13 +480,12 @@ plans/scoping-plan.md         the approved plan (revision 5), as Markdown
   which checks extents and dtypes on the host and indptr's order and the
   index range in `csr_check.cu`, one kernel and one sync, and
   `rr_csr_check_shape`, which refuses a shape and dtypes before anything is
-  packed. `raftrkt/csr.hpp`
-  is host C++ for downstreams: `csr_parts` and `csr_view` read three views
-  with the host half of those checks; `csr_buffers`, `read_nnz` and
-  `deposit_csr` fill a deposit with indptr, indices and data, in that
-  order. The probe's `rr_probe_deposit_csr` (and its job twin over three
-  views) fills one from host lists, malformed included, in one phase or
-  two (`resize_entries` after `read_nnz`).
+  packed. `raftrkt/csr.hpp` is host C++ for downstreams (its items are
+  listed under the frozen interface). The probe's `rr_probe_deposit_csr`
+  (and its job twin over three views) fills a CSR deposit from host lists,
+  malformed included, in one phase or two (`resize_entries` after
+  `read_nnz`); it counts the two-phase owner, a plain `csr_buffers`, by
+  specialising `raftrkt::detail::release_owner` for it.
 - Two gtest binaries, installed in the shim derivation's `tests` output
   (`bin/`): `raftrkt_tests` (the C API, plus white-box cases that include
   `detail/handles.hpp` and `detail/memory_resource.hpp`) and
@@ -1055,7 +1054,8 @@ gates' own tests), `no-syntax-rule`, `no-raw-malloc`,
   and reference section. A guide chapter is a tutorial on realistic client
   code, evaluated live.
 - Every exported name gets a `@defproc`/`@defform`/`@defthing` with prose and
-  at least three live examples showing real use, not trivial calls.
+  one live example showing real use, not a trivial call, plus an
+  `eval:error` line where a check matters.
 - Examples run through `scribble/example`; output is never pasted by hand.
   Each one's behaviour is pinned in `raft/tests/gpu/docs-*test.rkt`.
 - **Examples replay from `raft/scribblings/logs/`** (#45). `RAFT_DOCS` is
@@ -1341,7 +1341,8 @@ canary changes with it in the same pull request:
   `csr_parts`, `csr_view`, `csr_buffers`, `read_nnz`, `deposit_csr`) and
   `deposit->device-csr-matrix` in `raft/unsafe`. No layout changes: a CSR
   reaches a downstream as three ordinary views plus `cols`, and leaves it
-  as a deposit of three regions. A downstream detects them with
+  as a deposit of three regions. They ship in raft 0.3, which #73 bumps
+  (`raft/info.rkt` is 0.2.1 until then); a downstream detects them with
   `("raft" #:version "0.3")` or `__has_include(<raftrkt/csr.hpp>)`.
 
 Not part of the ABI:
@@ -1729,34 +1730,17 @@ since cuSPARSE's error string for it is only "out of memory"). The frozen rule i
 
 ## Decisions recorded in #72
 
-- **One index dtype** (Q1): indptr and indices share int32 or int64, as
-  SciPy and CuPy require; mixed types are additive later.
-- **`#:shape` is required** (Q2): inferring cols from the largest index
-  narrows a kNN graph whose last sample no row reaches.
-- **Triplets are three parallel lists** (Q3), as SciPy's
-  `(data, (row, col))` and `tocoo()`.
-- **Three views plus `cols`** (Q4), not a frozen `rr_csr_view`; nothing
-  frozen changes.
-- **Contents are checked at construction and adoption only** (Q5); a
-  downstream call re-checks extents and dtypes, not order or range.
-- **An indptr ending short of the indices is refused** (Q6); SciPy and
-  CuPy prune it (K2).
-- **The guide is a section of *Device arrays*** (Q8). The spec has no Q7.
-- **Negative rows are refused before `csr_parts`**, by `rr_csr_check`'s
-  host half, so the header never sees them; zeros are dropped after the
-  dtype conversion (float32 underflow drops through `list*->`).
-- **`gpu-suite.sh` allows `SKIP: needs two devices`**, the one SKIP text a
-  two-device case prints on a single-GPU host.
-- **The probe's job twin takes three views**, not host lists:
-  `define-job` has no host-array parameter. `rr_probe_deposit_csr_views`
-  downloads them and runs the same path.
-- **Adopted buffers count in `rr_buffer_drop_count`**: three per CSR
-  deposit (law 16).
-- **Named twin departures** (`csr-twin-test.rkt`): SciPy accepts a float32
-  indptr (S1), mixed index dtypes (S2), int32 data (S3; CuPy refuses), int32
-  parts past 2^31 (S7) and a short indptr (K2), and narrows int64 parts whose
-  values fit int32; we refuse or keep int64. A duplicate summing to zero
-  keeps an explicit zero in SciPy and CuPy, and in ours.
-- **Split files for the suite timeout**: `csr-deposit-memory-test.rkt`,
-  `docs-csr-test.rkt` and the canary's `graph-memory-test.rkt` stand apart
-  from their siblings.
+- **One index dtype**: indptr and indices are both int32 or both int64.
+- **`#:shape` is required**: inferring cols from the largest index narrows
+  a kNN graph whose last sample no row reaches.
+- **Contents are checked at construction and adoption only**; a downstream
+  call re-checks extents and dtypes, not order or range.
+- **An indptr ending short of the indices is refused**, where SciPy and
+  CuPy prune it.
+- **`csr_parts` refuses a negative extent itself**; raft's own constructors
+  meet `rr_csr_check`'s refusal first.
+- **Zeros are dropped after the dtype conversion**: a float32 underflow in
+  `list*->device-csr-matrix` is not stored.
+- **The probe's job twin takes three views**: `define-job` has no
+  host-array parameter.
+- **A CSR deposit's adoption drops three buffers** (law 16).

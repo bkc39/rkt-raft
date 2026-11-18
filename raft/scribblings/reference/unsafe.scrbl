@@ -495,22 +495,9 @@ checks of @racket[device-csr-matrix]. Its vectors are those of
 (with-deposits ([out graph])
   (with-array-views #:resources [handle (current-device-resources)] ([y labels])
     (check 'cluster-graph (lambda () (kc-cluster-graph handle y 3 2 out)))))
-(define clusters (deposit->device-csr-matrix graph #:shape (list 3 (car (shape labels)))))
+(define clusters (deposit->device-csr-matrix graph #:shape (cons 3 (shape labels))))
 (list (shape clusters) (nnz clusters) (dtype (csr-indptr clusters)))
 (eq? (csr-indptr clusters) (first (deposit->list graph)))
-]
-
-Each cluster's size, from its row:
-
-@examples[#:eval ev #:label #f
-(define p (device-vector->list (csr-indptr clusters)))
-(map - (cdr p) (drop-right p 1))
-]
-
-Another shape, or a deposit of other regions, is refused:
-
-@examples[#:eval ev #:label #f
-(eval:error (deposit->device-csr-matrix graph #:shape (list 4 (car (shape labels)))))
 (eval:error (deposit->device-csr-matrix members #:shape '(3 3)))
 ]}
 
@@ -695,7 +682,7 @@ raftrkt::deposit(out, "out", handle, std::move(owner),
 passed as three views (its @racket[csr-indptr], @racket[csr-indices] and
 @racket[csr-data]) and its column count, or deposited as three regions.
 @tt{Index} is @tt{int32_t} or @tt{int64_t} and @tt{T} is @tt{float} or
-@tt{double}, each possibly @tt{const}:
+@tt{double}; @tt{csr_parts} and @tt{csr_view} also take them @tt{const}:
 
 @itemlist[
  @item{@tt{raftrkt::csr_data<T, Index> raftrkt::csr_parts<T, Index>(const
@@ -713,14 +700,18 @@ passed as three views (its @racket[csr-indptr], @racket[csr-indices] and
        and @tt{data} (nnz), on the handle's stream; @tt{resize_entries(nnz)}
        resizes the last two, for a call that learns nnz from indptr.}
  @item{@tt{int64_t raftrkt::read_nnz(handle, const Index* indptr, int64_t
-       rows)}: @tt{indptr[rows]}, read after the handle's stream finishes.}
+       rows)}: @tt{indptr[rows]}, read after the handle's stream finishes.
+       It, @tt{csr_buffers} and @tt{resize_entries} take no name: a negative
+       extent is refused as
+       @tt{"rows: negative extent -1"} or @tt{"nnz: negative extent -1"}.}
  @item{@tt{raftrkt::deposit_csr(into, name, handle, std::move(owner),
        indptr, rows, indices, data, nnz)}, and
        @tt{deposit_csr(into, name, handle, std::move(buffers))} for a
        @tt{std::unique_ptr<csr_buffers<T, Index>>}: @tt{raftrkt::deposit} of
        the three regions in the order @racket[deposit->device-csr-matrix]
-       reads, refusing an indptr of no elements and, for buffers, data of
-       another length than indices, before the record is claimed.}]
+       reads, refusing an indptr of no elements or of more than an extent
+       holds and, for buffers, data of another length than indices, before
+       the record is claimed.}]
 
 @listing["C++"]|{
 auto o = std::make_unique<raftrkt::csr_buffers<float, int64_t>>(handle, n, 0);

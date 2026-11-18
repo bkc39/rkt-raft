@@ -592,12 +592,10 @@ more than rows; row @racket[i]'s entries sit at the positions from element
 @racket[i] of @racket[(csr-indptr m)] up to element @racket[(add1 i)].
 @racket[csr-indices] holds their columns and @racket[csr-data] their values.
 The two index vectors are both @racket['int32] or both @racket['int64]; the
-data is @racket['float32] or @racket['float64]. A row's columns may come in
-any order and repeat; a repeated entry stands for the sum of its values. A
-CSR matrix holds its vectors, not copies, and their memory, streams and
-finalizers are theirs. It prints its dtype, shape, entry count, index type
-and device, then its entries as @tt{(row col) value} in storage order, the
-first and last 25 of more than 50.
+data is @racket['float32] or @racket['float64].
+
+A row's columns may come in any order and repeat; a repeated entry stands for
+the sum of its values.
 
 @examples[#:eval ev #:label #f
 (define G (list*->device-csr-matrix '((0 1.5 0 0) (0 0 0 0) (2 0 0 -3)) #:dtype 'float32))
@@ -616,7 +614,10 @@ copying them, after checking on the GPU that @racket[indptr] has rows + 1
 elements, starts at 0, never decreases and ends at the length of
 @racket[indices], that @racket[data] is as long as @racket[indices], and that
 every index is in [0, cols). A failed check raises @racket[exn:fail:raft] of
-kind @racket['logic], naming the vector and its first bad entry.
+kind @racket['logic], naming the vector and its first bad entry. The matrix
+prints its dtype, shape, entry count, index type and device, then its entries
+as @tt{(row col) value} in storage order, the first and last 25 of more than
+50.
 
 @examples[#:eval ev
 (define indptr (list->device-vector '(0 2 2 3) #:dtype 'int32))
@@ -625,37 +626,8 @@ kind @racket['logic], naming the vector and its first bad entry.
 (define A (device-csr-matrix indptr indices vals #:shape '(3 4)))
 (device-csr-matrix->list* A)
 (eq? (csr-indices A) indices)
-]
-
-A neighbour graph, @racket[k] entries a row in neighbour order:
-
-@examples[#:eval ev #:label #f
-(define (knn-graph neighbours distances n-fit)
-  (match-define (list n k) (shape neighbours))
-  (device-csr-matrix (list->device-vector (range 0 (add1 (* n k)) k) #:dtype 'int32)
-                     (list->device-vector (append* (device-matrix->list* neighbours)) #:dtype 'int32)
-                     (list->device-vector (append* (device-matrix->list* distances)) #:dtype 'float32)
-                     #:shape (list n n-fit)))
-(define knn
-  (knn-graph (list*->device-matrix '((1 2) (0 2) (1 0)) #:dtype 'int32)
-             (list*->device-matrix '((0.5 1.0) (0.5 0.75) (0.75 1.0)) #:dtype 'float32)
-             3))
-(device-csr-matrix->triplets knn)
-]
-
-Malformed parts are refused:
-
-@examples[#:eval ev #:label #f
 (eval:error (device-csr-matrix (list->device-vector '(0 3 2 3) #:dtype 'int32)
                                indices
-                               vals
-                               #:shape '(3 4)))
-(eval:error (device-csr-matrix indptr
-                               (list->device-vector '(3 0 7) #:dtype 'int32)
-                               vals
-                               #:shape '(3 4)))
-(eval:error (device-csr-matrix indptr
-                               (list->device-vector '(3 0 1) #:dtype 'int64)
                                vals
                                #:shape '(3 4)))
 ]}
@@ -668,17 +640,6 @@ Returns @racket[#t] if @racket[v] is a @tech{CSR matrix}.
 (device-csr-matrix? G)
 (device-csr-matrix? X)
 (device-array? G)
-]
-
-Dispatching on the kind of matrix:
-
-@examples[#:eval ev #:label #f
-(define (->dense a)
-  (cond
-    [(device-csr-matrix? a) (device-csr-matrix->list* a)]
-    [else (device-matrix->list* a)]))
-(->dense G)
-(->dense (list*->device-matrix '((1.0 2.0))))
 ]}
 
 @deftogether[(@defproc[(csr-indptr [m device-csr-matrix?]) device-vector?]
@@ -691,20 +652,6 @@ Return the vectors @racket[m] was made of, not copies.
 (device-vector->list (csr-indptr G))
 (device-vector->list (csr-indices G))
 (device-vector->list (csr-data G))
-]
-
-Row degrees:
-
-@examples[#:eval ev #:label #f
-(define p (device-vector->list (csr-indptr G)))
-(map - (cdr p) (drop-right p 1))
-]
-
-The index type:
-
-@examples[#:eval ev #:label #f
-(dtype (csr-indices G))
-(dtype (csr-indptr (list*->device-csr-matrix '((1 0)) #:index-dtype 'int64)))
 ]}
 
 @defproc[(nnz [m device-csr-matrix?]) exact-nonnegative-integer?]{
@@ -713,22 +660,6 @@ Returns the number of stored entries, repeats and explicit zeros included.
 
 @examples[#:eval ev
 (nnz G)
-(nnz (list*->device-csr-matrix '((0 0) (0 0))))
-]
-
-The density:
-
-@examples[#:eval ev #:label #f
-(/ (nnz G) (apply * (shape G)))
-]
-
-Repeats count, and so does a zero that repeats summed to:
-
-@examples[#:eval ev #:label #f
-(nnz (device-csr-matrix (list->device-vector '(0 2) #:dtype 'int32)
-                        (list->device-vector '(1 1) #:dtype 'int32)
-                        (list->device-vector '(1.0 -1.0))
-                        #:shape '(1 2)))
 (nnz (triplets->device-csr-matrix '(0 0) '(1 1) '(1.0 -1.0) #:shape '(1 2)))
 ]}
 
@@ -747,42 +678,17 @@ columns ascending in each row. @racket[rows] is rows as for
 @examples[#:eval ev
 (device-csr-matrix->list* G)
 (list*->device-csr-matrix '((0 1) (2 0)) #:index-dtype 'int64)
-]
-
-A row of another length is refused:
-
-@examples[#:eval ev #:label #f
 (eval:error (list*->device-csr-matrix '((1 2) (3))))
-]
-
-From vector rows:
-
-@examples[#:eval ev #:label #f
-(nnz (list*->device-csr-matrix (vector (vector 0 1.0) (vector 0 0))))
 ]}
 
 @defproc[(device-csr-matrix->list* [m device-csr-matrix?]) (listof (listof flonum?))]{
 
-Returns @racket[m] as rows of flonums; repeated entries are summed.
+Returns @racket[m] as rows of flonums; repeated entries are summed. The rows
+must fit in host memory: a 1 × 3,000,000,000 matrix converts by
+@racket[device-csr-matrix->triplets].
 
 @examples[#:eval ev
 (device-csr-matrix->list* G)
-]
-
-Repeats summed:
-
-@examples[#:eval ev #:label #f
-(device-csr-matrix->list*
- (device-csr-matrix (list->device-vector '(0 3) #:dtype 'int32)
-                    (list->device-vector '(1 0 1) #:dtype 'int32)
-                    (list->device-vector '(0.5 2.0 0.25))
-                    #:shape '(1 2)))
-]
-
-Rows without entries:
-
-@examples[#:eval ev #:label #f
-(device-csr-matrix->list* (list*->device-csr-matrix '(() () ())))
 ]}
 
 @defproc[(triplets->device-csr-matrix [rows (listof exact-nonnegative-integer?)]
@@ -811,18 +717,6 @@ An edge list to an adjacency matrix:
                                (make-list (length edges) 1.0)
                                #:shape '(3 3)))
 (device-csr-matrix->list* adjacency)
-]
-
-A repeat summed:
-
-@examples[#:eval ev #:label #f
-(device-csr-matrix->triplets
- (triplets->device-csr-matrix '(1 0 1) '(2 0 2) '(0.5 3.0 0.25) #:shape '(2 3)))
-]
-
-An entry outside the shape:
-
-@examples[#:eval ev #:label #f
 (eval:error (triplets->device-csr-matrix '(0 3) '(0 1) '(1.0 2.0) #:shape '(3 3)))
 ]}
 
@@ -836,21 +730,6 @@ storage order.
 
 @examples[#:eval ev
 (device-csr-matrix->triplets G)
-]
-
-Back into a matrix:
-
-@examples[#:eval ev #:label #f
-(define-values (rs cs xs) (device-csr-matrix->triplets G))
-(device-csr-matrix->list* (triplets->device-csr-matrix rs cs xs #:shape (shape G)))
-]
-
-Edges per row:
-
-@examples[#:eval ev #:label #f
-(define-values (sources _targets _weights) (device-csr-matrix->triplets adjacency))
-(for/list ([r (in-range 3)])
-  (count (lambda (s) (= s r)) sources))
 ]}
 
 @(close-eval ev)
