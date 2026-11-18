@@ -114,8 +114,9 @@ plans/scoping-plan.md         the approved plan (revision 5), as Markdown
    - One exception type, `exn:fail:raft`, carrying RAFT's or the shim's
      message, prefixed with the Racket caller's name, plus a `kind` field
      (`'out-of-memory`, `'cuda`, `'logic`, `'generic`) for the memory retry.
-     A native message is cut to its first non-blank line; the whole native
-     text, backtrace included, goes to the `raft` logger at `debug` (#69).
+     A native message is cut to its first non-blank line; native text with
+     more than one non-blank line, backtrace included, goes whole to the
+     `raft` logger at `debug` (#69).
      Messages raft composes itself (`raise-raft`) are never cut.
      The shim's own refusals never name its `rr_` entry points (internal
      names in user-facing errors are bugs, bkc39/rkt-polars#151–#153); a
@@ -525,8 +526,9 @@ plans/scoping-plan.md         the approved plan (revision 5), as Markdown
   `f32vector`s or `f64vector`s and host memory. Every FFI detail
   (pointer types, the `rr_view` cstruct, flvector passing) stays under
   `private/foreign/` for the planned port to `ffi2` (#15).
-- `private/exn.rkt` also defines `raise-raft` (`who kind format arg ...`),
-  the one place an `exn:fail:raft` is built.
+- `private/exn.rkt` also defines `raise-raft` (`who kind format arg ...`)
+  for messages raft composes and `raise-native` for native text; both go
+  through `raise-message`, the one place an `exn:fail:raft` is built.
 - `unsafe.rkt` (`raft/unsafe`, not re-exported by `raft`) holds no FFI
   detail of its own: the views come from `private/array.rkt`'s
   `settled-view` (poll the buffer's stream, then `rr_buffer_view`) and are
@@ -581,8 +583,8 @@ plans/scoping-plan.md         the approved plan (revision 5), as Markdown
   fixture `raft-x86_64-linux`, broken ones, or none). Then the cpointer
   types `_rr-resources`, `_rr-buffer`. `core.rkt`, `memory.rkt`, `array.rkt`
   bind `core.h`, `memory.h`, `array.h`.
-- `private/exn.rkt`: `exn:fail:raft`, with no dependencies, so the loader can
-  raise it. `private/error.rkt`: `call/raft`, re-exporting the exception. A
+- `private/exn.rkt`: `exn:fail:raft`, requiring nothing native (only
+  `racket/base` libraries and `log.rkt`), so the loader can raise it. `private/error.rkt`: `call/raft`, re-exporting the exception. A
   released handle's cpointer type refuses it with `exn:fail:raft` (kind
   `'logic`) before the call, named by the public noun:
   `device-resources: used after its release` and
@@ -610,7 +612,9 @@ plans/scoping-plan.md         the approved plan (revision 5), as Markdown
   skips only without the probe, `test-probe`, and `test-pools`, which also
   skips a device without memory pools), `tests/private/collect.rkt` (`collect-until`,
   `drain-finalizers!`, run before reading a drop counter),
-  `tests/private/raft-error.rkt` (`check-raft-error kind message thunk`),
+  `tests/private/raft-error.rkt` (`check-raft-error kind message thunk
+  #:exn`, `raised-and-logged`, `exn:fail:canary`; native-free, so
+  `exn-test.rkt` uses it on pkg-build),
   `tests/private/ticker.rkt` (`call-with-ticker`, which answers how many
   10 ms waits another thread finished during the thunk, then its values),
   `tests/private/gate.rkt` (`closed-gate`, two pipes released by
@@ -654,6 +658,10 @@ scripts/release.sh package <dir> <dist>       # raft-x86_64-linux.zip, its CHECK
 scripts/release.sh catalog-test <dir> <dist>  # raco pkg install raft from a directory catalog
 scripts/release.sh install-test pkg-build|gpu <dist>  # the pkg-build install, or one on the GPU
 ```
+
+Racket CS inlines small procedures across modules, so a fails-without-fix
+check must `raco make` the dependents after reverting the fix, or `raco
+test` runs the stale inlined code.
 
 **On pkg-build** (no GPU, no network, no `raft-x86_64-linux`, tests run as
 root), `info.rkt` omits `tests/gpu/`, `tests/private/` and the modules that
@@ -1672,24 +1680,16 @@ since cuSPARSE's error string for it is only "out of memory"). The frozen rule i
 
 ## Decisions recorded in #69
 
-- **The message is the native text's first line** (D2 on #74): the first
-  line that is not blank, verbatim but for trailing whitespace, so RAFT's
-  `RAFT failure at file=… line=…:` prefix stays. Lines break at `\r\n`,
-  `\n` or `\r`. Text that is one line once trailing blanks are dropped
-  logs nothing; anything else is logged whole, as `<who>: <text>`, to the
-  `raft` topic at `debug`. Text with no non-blank line gives `<who>: `.
-- **The cut is in Racket, once**: `raise-native` (`raft/private/exn.rkt`)
-  is the one place native text becomes a message, and `call/raft`, a job's
-  outcome and `status-checker` all reach it. The shim and `error.hpp` are
-  unchanged, so a downstream shim gets the cut without a rebuild. Decoding
-  (U+FFFD for invalid UTF-8) happens before the cut. The shim's 4 KiB
-  truncation shortens the logged text, and the message only when the first
-  line alone does not fit.
+- **The cut** (D2 on #74) follows `core.scrbl`'s `exn:fail:raft` entry:
+  blank is `char-whitespace?`, breaks are only `\r\n`, `\n`, `\r` (not
+  U+2028 or NEL); no non-blank line gives `<who>: `. `exn-test.rkt` pins
+  each case.
+- **The cut is in Racket**, in `raise-native`, which `call/raft`, a job's
+  outcome and `status-checker` all reach, so a downstream shim gets it
+  without a rebuild. It runs after UTF-8 decoding and after the shim's
+  4 KiB truncation.
 - **`define-logger raft` lives in `raft/private/log.rkt`**, shared by the
   exit drain and the cut.
 - **The probe raises a real `raft::logic_error`** (`rr_probe_raft_fail`,
-  `RAFT_FAIL`, built with `ENABLE_COLLECT_CALLSTACK` so it carries a
-  backtrace as cuML's do), as a short call and as a job;
-  `tests/gpu/native-message-test.rkt` sends it through `status-checker`
-  and a job, and libraftrkt's own multi-line text (a dtype name holding a
-  newline) through `call/raft`.
+  built with `ENABLE_COLLECT_CALLSTACK`), as a short call and as a job, for
+  `tests/gpu/native-message-test.rkt`.

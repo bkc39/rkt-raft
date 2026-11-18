@@ -271,10 +271,11 @@ replaced. A device without memory-pool support keeps the default.
 
 Raised for every failure in RAFT, RMM, CUDA or the native library. The
 message starts with the Racket procedure that was called, then the cause. A
-cause from native code is one line: the first line of the native text that is
-not blank, verbatim but for trailing whitespace. When the native text has
-more lines, such as a RAFT or cuML backtrace, the whole text is logged to the
-@racket['raft] topic at @racket['debug]. The
+cause from native code is the native text's first non-blank line, without its
+trailing whitespace: lines break at CR LF, LF or CR, and a line is blank when
+every character satisfies @racket[char-whitespace?]. When the native text has
+more than one non-blank line, such as a RAFT or cuML backtrace, the whole text
+is logged to the @racket['raft] topic at @racket['debug]. The
 @racket[kind] says what failed:
 
 @itemlist[
