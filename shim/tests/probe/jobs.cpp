@@ -8,6 +8,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <mutex>
+#include <raft/core/error.hpp>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -165,6 +166,11 @@ RR_API int rr_probe_fail(int32_t token, int32_t kind, int32_t pad) {
   return fail_with(kind, message);
 }
 
+RR_API int rr_probe_raft_fail(int32_t token) {
+  return raftrkt::translate_exceptions(
+      probe::slot(), [&] { RAFT_FAIL("token %d", static_cast<int>(token)); });
+}
+
 RR_API int rr_probe_token(int32_t token) {
   return raftrkt::translate_exceptions(probe::slot(), [&] {
     const std::lock_guard<std::mutex> held{token_lock()};
@@ -300,6 +306,7 @@ RR_API void rr_probe_set_hold_timeout(int32_t ms) {
 RR_PROBE_JOB(gate)
 RR_PROBE_JOB(echo)
 RR_PROBE_JOB(fail)
+RR_PROBE_JOB(raft_fail)
 RR_PROBE_JOB(token)
 RR_PROBE_JOB(sleep)
 RR_PROBE_JOB(late_static)

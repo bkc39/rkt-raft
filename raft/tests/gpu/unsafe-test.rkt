@@ -197,7 +197,12 @@
   (check-raft-error 'generic "fit: odd" (lambda () ((checker #"odd" 9) 'fit (lambda () 1))))
   (check-raft-error 'cuda
                     "fit: bad � byte"
-                    (lambda () ((checker #"bad \377 byte" 'cuda) 'fit (lambda () 1)))))
+                    (lambda () ((checker #"bad \377 byte" 'cuda) 'fit (lambda () 1))))
+  (check-raft-error
+   'cuda
+   "fit: bad � byte"
+   (lambda ()
+     ((checker #"bad \377 byte\r\nObtained 1 stack frames\r\n#1 in f" 'cuda) 'fit (lambda () 1)))))
 
 (struct exn:fail:canary exn:fail:raft ())
 
