@@ -74,14 +74,23 @@ TEST(DtypeTable, CodesAreTheTablesOrderAndNamesRoundTrip) {
   }
 }
 
-TEST(OpTable, ListsContiguousForEveryDtypeAndLayout) {
+void expect_op(const rr_op_info& op, const std::string& name, uint32_t dtypes) {
+  EXPECT_EQ(std::string(op.module), "array");
+  EXPECT_EQ(std::string(op.name), name);
+  EXPECT_EQ(op.dtypes, dtypes);
+  EXPECT_EQ(op.layouts, RR_LAYOUT_ROW_MAJOR | RR_LAYOUT_COL_MAJOR);
+}
+
+TEST(OpTable, ListsEachOpWithItsDtypesAndLayouts) {
   int32_t count = 0;
   const rr_op_info* table = rr_op_table(&count);
-  ASSERT_EQ(count, 1);
-  EXPECT_EQ(std::string(table[0].module), "array");
-  EXPECT_EQ(std::string(table[0].name), "contiguous");
-  EXPECT_EQ(table[0].dtypes, 0xFU);
-  EXPECT_EQ(table[0].layouts, RR_LAYOUT_ROW_MAJOR | RR_LAYOUT_COL_MAJOR);
+  constexpr uint32_t all_four = 0xFU;
+  constexpr uint32_t int32_and_int64 = 0xCU;
+  constexpr uint32_t float32_and_float64 = 0x3U;
+  ASSERT_EQ(count, 3);
+  expect_op(table[0], "contiguous", all_four);
+  expect_op(table[1], "csr_indices", int32_and_int64);
+  expect_op(table[2], "csr_data", float32_and_float64);
 }
 
 TEST(DtypeTable, UnknownNamesAndCodesAreRefused) {

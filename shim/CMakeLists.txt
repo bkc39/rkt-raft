@@ -48,6 +48,8 @@ add_library(raftrkt SHARED
   src/array/array.cpp
   src/array/buffer.cpp
   src/array/copy.cu
+  src/array/csr.cpp
+  src/array/csr_check.cu
   src/array/deposit.cpp
   src/core/core.cpp
   src/core/executor.cpp
@@ -99,6 +101,7 @@ if(BUILD_TESTING)
     tests/array_ops_test.cpp
     tests/array_test.cpp
     tests/core_test.cpp
+    tests/csr_test.cpp
     tests/cuda_language_test.cu
     tests/deposit_job_test.cpp
     tests/deposit_race_test.cpp
@@ -123,6 +126,7 @@ if(BUILD_TESTING)
     src/detail/dtype.cpp
     src/detail/error.cpp
     src/detail/view.cpp
+    tests/csr_header_test.cpp
     tests/deposit_header_test.cpp
     tests/driver_test.cpp
     tests/error_test.cpp
