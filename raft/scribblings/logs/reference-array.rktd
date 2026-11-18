@@ -97,6 +97,10 @@
 ((weights-fit? labels (device-matrix 5 2)) (values "#f\n") "" "")
 ((shape X) (values "'(4 4)\n") "" "")
 ((shape labels) (values "'(4)\n") "" "")
+((shape (triplets->device-csr-matrix '(0 2) '(1 3) '(1.5 -3.0) #:shape '(3 4)))
+ (values "'(3 4)\n")
+ ""
+ "")
 ((match-define (list n d) (shape X)) (values "") "" "")
 ((define centroids (device-matrix 3 d)) (values "") "" "")
 ((list n d (shape centroids)) (values "'(4 4 (3 4))\n") "" "")
@@ -105,6 +109,10 @@
 ((same-shape? X centroids) (values "#f\n") "" "")
 ((dtype X) (values "'float32\n") "" "")
 ((dtype labels) (values "'int32\n") "" "")
+((dtype (list*->device-csr-matrix '((0 1.5)) #:dtype 'float32))
+ (values "'float32\n")
+ ""
+ "")
 ((define (scratch-like a)
    (match-define (list rows cols) (shape a))
    (device-matrix rows cols #:dtype (dtype a)))
@@ -343,5 +351,224 @@
  "")
 ((flsqrt (for/fold ((sum 0.0)) ((x (in-flvector v))) (fl+ sum (fl* x x))))
  (values "5.0\n")
+ ""
+ "")
+((define G
+   (list*->device-csr-matrix
+    '((0 1.5 0 0) (0 0 0 0) (2 0 0 -3))
+    #:dtype
+    'float32))
+ (values "")
+ ""
+ "")
+(G
+ (values
+  "#<device-csr-matrix float32 [3×4] nnz=3 index=int32 cuda:0\n (0 1) 1.5\n (2 0) 2.0\n (2 3) -3.0>\n")
+ ""
+ "")
+((define indptr (list->device-vector '(0 2 2 3) #:dtype 'int32))
+ (values "")
+ ""
+ "")
+((define indices (list->device-vector '(3 0 1) #:dtype 'int32))
+ (values "")
+ ""
+ "")
+((define vals (list->device-vector '(0.5 1.0 2.0) #:dtype 'float32))
+ (values "")
+ ""
+ "")
+((define A (device-csr-matrix indptr indices vals #:shape '(3 4)))
+ (values "")
+ ""
+ "")
+((device-csr-matrix->list* A)
+ (values "'((1.0 0.0 0.0 0.5) (0.0 0.0 0.0 0.0) (0.0 2.0 0.0 0.0))\n")
+ ""
+ "")
+((eq? (csr-indices A) indices) (values "#t\n") "" "")
+((define (knn-graph neighbours distances n-fit)
+   (match-define (list n k) (shape neighbours))
+   (device-csr-matrix
+    (list->device-vector (range 0 (add1 (* n k)) k) #:dtype 'int32)
+    (list->device-vector
+     (append* (device-matrix->list* neighbours))
+     #:dtype
+     'int32)
+    (list->device-vector
+     (append* (device-matrix->list* distances))
+     #:dtype
+     'float32)
+    #:shape
+    (list n n-fit)))
+ (values "")
+ ""
+ "")
+((define knn
+   (knn-graph
+    (list*->device-matrix '((1 2) (0 2) (1 0)) #:dtype 'int32)
+    (list*->device-matrix '((0.5 1.0) (0.5 0.75) (0.75 1.0)) #:dtype 'float32)
+    3))
+ (values "")
+ ""
+ "")
+((device-csr-matrix->triplets knn)
+ (values
+  "'(0 0 1 1 2 2)\n"
+  "'(1 2 0 2 1 0)\n"
+  "'(0.5 1.0 0.5 0.75 0.75 1.0)\n")
+ ""
+ "")
+((device-csr-matrix
+  (list->device-vector '(0 3 2 3) #:dtype 'int32)
+  indices
+  vals
+  #:shape
+  '(3 4))
+ (raise "device-csr-matrix: indptr: entry 2 (2) is less than entry 1 (3)")
+ ""
+ "")
+((device-csr-matrix
+  indptr
+  (list->device-vector '(3 0 7) #:dtype 'int32)
+  vals
+  #:shape
+  '(3 4))
+ (raise "device-csr-matrix: indices: entry 2 is 7, outside [0, 4)")
+ ""
+ "")
+((device-csr-matrix
+  indptr
+  (list->device-vector '(3 0 1) #:dtype 'int64)
+  vals
+  #:shape
+  '(3 4))
+ (raise "device-csr-matrix: indices: expected int32, as indptr is, got int64")
+ ""
+ "")
+((device-csr-matrix? G) (values "#t\n") "" "")
+((device-csr-matrix? X) (values "#f\n") "" "")
+((device-array? G) (values "#f\n") "" "")
+((define (->dense a)
+   (cond
+    ((device-csr-matrix? a) (device-csr-matrix->list* a))
+    ((device-matrix? a) (device-matrix->list* a))))
+ (values "")
+ ""
+ "")
+((->dense G)
+ (values "'((0.0 1.5 0.0 0.0) (0.0 0.0 0.0 0.0) (2.0 0.0 0.0 -3.0))\n")
+ ""
+ "")
+((->dense (list*->device-matrix '((1.0 2.0)))) (values "'((1.0 2.0))\n") "" "")
+((device-vector->list (csr-indptr G)) (values "'(0 1 1 3)\n") "" "")
+((device-vector->list (csr-indices G)) (values "'(1 0 3)\n") "" "")
+((device-vector->list (csr-data G)) (values "'(1.5 2.0 -3.0)\n") "" "")
+((define p (device-vector->list (csr-indptr G))) (values "") "" "")
+((map - (cdr p) (drop-right p 1)) (values "'(1 0 2)\n") "" "")
+((dtype (csr-indices G)) (values "'int32\n") "" "")
+((dtype (csr-indptr (list*->device-csr-matrix '((1 0)) #:index-dtype 'int64)))
+ (values "'int64\n")
+ ""
+ "")
+((nnz G) (values "3\n") "" "")
+((nnz (list*->device-csr-matrix '((0 0) (0 0)))) (values "0\n") "" "")
+((/ (nnz G) (apply * (shape G))) (values "1/4\n") "" "")
+((nnz
+  (device-csr-matrix
+   (list->device-vector '(0 2) #:dtype 'int32)
+   (list->device-vector '(1 1) #:dtype 'int32)
+   (list->device-vector '(1.0 -1.0))
+   #:shape
+   '(1 2)))
+ (values "2\n")
+ ""
+ "")
+((nnz (triplets->device-csr-matrix '(0 0) '(1 1) '(1.0 -1.0) #:shape '(1 2)))
+ (values "1\n")
+ ""
+ "")
+((device-csr-matrix->list* G)
+ (values "'((0.0 1.5 0.0 0.0) (0.0 0.0 0.0 0.0) (2.0 0.0 0.0 -3.0))\n")
+ ""
+ "")
+((list*->device-csr-matrix '((0 1) (2 0)) #:index-dtype 'int64)
+ (values
+  "#<device-csr-matrix float64 [2×2] nnz=2 index=int64 cuda:0\n (0 1) 1.0\n (1 0) 2.0>\n")
+ ""
+ "")
+((list*->device-csr-matrix '((1 2) (3)))
+ (raise "list*->device-csr-matrix: row 1 has 1 element, but row 0 has 2: '(3)")
+ ""
+ "")
+((nnz (list*->device-csr-matrix (vector (vector 0 1.0) (vector 0 0))))
+ (values "1\n")
+ ""
+ "")
+((device-csr-matrix->list* G)
+ (values "'((0.0 1.5 0.0 0.0) (0.0 0.0 0.0 0.0) (2.0 0.0 0.0 -3.0))\n")
+ ""
+ "")
+((device-csr-matrix->list*
+  (device-csr-matrix
+   (list->device-vector '(0 3) #:dtype 'int32)
+   (list->device-vector '(1 0 1) #:dtype 'int32)
+   (list->device-vector '(0.5 2.0 0.25))
+   #:shape
+   '(1 2)))
+ (values "'((2.0 0.75))\n")
+ ""
+ "")
+((device-csr-matrix->list* (list*->device-csr-matrix '(() () ())))
+ (values "'(() () ())\n")
+ ""
+ "")
+((define edges '((0 1) (1 2) (2 0) (2 1))) (values "") "" "")
+((define adjacency
+   (triplets->device-csr-matrix
+    (map first edges)
+    (map second edges)
+    (make-list (length edges) 1.0)
+    #:shape
+    '(3 3)))
+ (values "")
+ ""
+ "")
+((device-csr-matrix->list* adjacency)
+ (values "'((0.0 1.0 0.0) (0.0 0.0 1.0) (1.0 1.0 0.0))\n")
+ ""
+ "")
+((device-csr-matrix->triplets
+  (triplets->device-csr-matrix
+   '(1 0 1)
+   '(2 0 2)
+   '(0.5 3.0 0.25)
+   #:shape
+   '(2 3)))
+ (values "'(0 1)\n" "'(0 2)\n" "'(3.0 0.75)\n")
+ ""
+ "")
+((triplets->device-csr-matrix '(0 3) '(0 1) '(1.0 2.0) #:shape '(3 3))
+ (raise "triplets->device-csr-matrix: triplet 1 has row 3, outside [0, 3)")
+ ""
+ "")
+((device-csr-matrix->triplets G)
+ (values "'(0 2 2)\n" "'(1 0 3)\n" "'(1.5 2.0 -3.0)\n")
+ ""
+ "")
+((define-values (rs cs xs) (device-csr-matrix->triplets G)) (values "") "" "")
+((device-csr-matrix->list*
+  (triplets->device-csr-matrix rs cs xs #:shape (shape G)))
+ (values "'((0.0 1.5 0.0 0.0) (0.0 0.0 0.0 0.0) (2.0 0.0 0.0 -3.0))\n")
+ ""
+ "")
+((define-values
+  (sources _targets _weights)
+  (device-csr-matrix->triplets adjacency))
+ (values "")
+ ""
+ "")
+((for/list ((r (in-range 3))) (count (lambda (s) (= s r)) sources))
+ (values "'(1 1 2)\n")
  ""
  "")

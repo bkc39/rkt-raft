@@ -193,6 +193,37 @@ counts
 (delete-file saved)
 ]
 
+@section[#:tag "arrays-sparse"]{Sparse matrices}
+
+A graph on six nodes, most pairs unconnected, is a @tech{CSR matrix}: its
+edges as rows, columns and weights. Repeated edges add up:
+
+@examples[#:eval ev #:label #f
+(define edges '((0 1 1.0) (1 2 1.0) (2 3 2.0) (3 4 1.0) (4 5 1.0) (5 0 1.0) (0 3 0.5) (0 1 1.0)))
+(define graph
+  (triplets->device-csr-matrix (map first edges)
+                               (map second edges)
+                               (map third edges)
+                               #:shape '(6 6)
+                               #:dtype 'float32))
+graph
+]
+
+Each node's out-degree is the step between consecutive entries of
+@racket[csr-indptr]:
+
+@examples[#:eval ev #:label #f
+(define offsets (device-vector->list (csr-indptr graph)))
+(map - (cdr offsets) (drop-right offsets 1))
+]
+
+And back to dense rows, the weight of the edge from row to column:
+
+@examples[#:eval ev #:label #f
+(first (device-csr-matrix->list* graph))
+(nnz graph)
+]
+
 @section[#:tag "arrays-memory"]{Letting go}
 
 The program never frees an array: when one becomes unreachable, its

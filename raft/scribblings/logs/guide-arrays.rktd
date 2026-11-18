@@ -181,6 +181,45 @@
  ""
  "")
 ((delete-file saved) (values "") "" "")
+((define edges
+   '((0 1 1.0)
+     (1 2 1.0)
+     (2 3 2.0)
+     (3 4 1.0)
+     (4 5 1.0)
+     (5 0 1.0)
+     (0 3 0.5)
+     (0 1 1.0)))
+ (values "")
+ ""
+ "")
+((define graph
+   (triplets->device-csr-matrix
+    (map first edges)
+    (map second edges)
+    (map third edges)
+    #:shape
+    '(6 6)
+    #:dtype
+    'float32))
+ (values "")
+ ""
+ "")
+(graph
+ (values
+  "#<device-csr-matrix float32 [6×6] nnz=7 index=int32 cuda:0\n (0 1) 2.0\n (0 3) 0.5\n (1 2) 1.0\n (2 3) 2.0\n (3 4) 1.0\n (4 5) 1.0\n (5 0) 1.0>\n")
+ ""
+ "")
+((define offsets (device-vector->list (csr-indptr graph))) (values "") "" "")
+((map - (cdr offsets) (drop-right offsets 1))
+ (values "'(2 1 1 1 1 1)\n")
+ ""
+ "")
+((first (device-csr-matrix->list* graph))
+ (values "'(0.0 2.0 0.0 0.5 0.0 0.0)\n")
+ ""
+ "")
+((nnz graph) (values "7\n") "" "")
 ((collect-garbage) (values "") "" "")
 ((define before (current-memory-use)) (values "") "" "")
 ((define scratch (device-matrix 1024 1024)) (values "") "" "")

@@ -43,6 +43,8 @@ The examples call the canary's library: set @tt{RAFT_KMEANS_CANARY} to
         -> (status : _int) -> (values status inertia)))
 (define-kc kc-cluster-members
   (_fun _pointer _pointer _pointer _int32 _pointer -> _int))
+(define-kc kc-cluster-graph
+  (_fun _pointer _pointer _int32 _int32 _pointer -> _int))
 (define-job kc-make-blobs-job canary "kc_make_blobs_job"
   (handle view view _int32 _double _int32 _double _double _uint64))
 (define-job kc-fit-job canary "kc_fit_job"
@@ -476,6 +478,41 @@ belongs to the resources it was made on:
      (check 'cluster-members (lambda () (kc-cluster-members handle x y 0 out))))))
 ]
 
+@defproc[(deposit->device-csr-matrix [d deposit?]
+                                     [#:shape shape (list/c exact-nonnegative-integer?
+                                                            exact-nonnegative-integer?)])
+         device-csr-matrix?]{
+
+Returns a @tech{CSR matrix} over @racket[d]'s three regions, indptr, indices
+and data, which @tt{raftrkt::deposit_csr} writes in that order, after the
+checks of @racket[device-csr-matrix]. Its vectors are those of
+@racket[(deposit->list d)]. A deposit of another number of regions raises
+@racket[exn:fail:raft] of kind @racket['logic].
+
+@examples[#:eval ev
+(define graph (deposit))
+(with-deposits ([out graph])
+  (with-array-views #:resources [handle (current-device-resources)] ([y labels])
+    (check 'cluster-graph (lambda () (kc-cluster-graph handle y 3 2 out)))))
+(define clusters (deposit->device-csr-matrix graph #:shape (list 3 (car (shape labels)))))
+(list (shape clusters) (nnz clusters) (dtype (csr-indptr clusters)))
+(eq? (csr-indptr clusters) (first (deposit->list graph)))
+]
+
+Each cluster's size, from its row:
+
+@examples[#:eval ev #:label #f
+(define p (device-vector->list (csr-indptr clusters)))
+(map - (cdr p) (drop-right p 1))
+]
+
+Another shape, or a deposit of other regions, is refused:
+
+@examples[#:eval ev #:label #f
+(eval:error (deposit->device-csr-matrix graph #:shape (list 4 (car (shape labels)))))
+(eval:error (deposit->device-csr-matrix members #:shape '(3 3)))
+]}
+
 @section[#:tag "ref-unsafe-c"]{The C interface}
 
 The C side is the public C headers of @tt{libraftrkt} (@tt{core.h},
@@ -653,6 +690,45 @@ raftrkt::deposit(out, "out", handle, std::move(owner),
                   raftrkt::region(owner->rows.data(), m, d, raftrkt::layout::row_major)});
 }|
 
+@bold{@tt{raftrkt/csr.hpp}.} Header-only host C++, for a @tech{CSR matrix}
+passed as three views (its @racket[csr-indptr], @racket[csr-indices] and
+@racket[csr-data]) and its column count, or deposited as three regions.
+@tt{Index} is @tt{int32_t} or @tt{int64_t} and @tt{T} is @tt{float} or
+@tt{double}, each possibly @tt{const}:
+
+@itemlist[
+ @item{@tt{raftrkt::csr_data<T, Index> raftrkt::csr_parts<T, Index>(const
+       rr_view* indptr, const rr_view* indices, const rr_view* data, int64_t
+       rows, int64_t cols, const char* name)}: the three pointers with
+       @tt{rows}, @tt{cols} and @tt{nnz}, after the checks of
+       @racket[device-csr-matrix] that need no GPU, its messages prefixed
+       @tt{"<name>: "} unless @tt{name} is @tt{NULL}. @tt{rows} may be
+       @tt{any_extent}, then indptr's length less one. The contents are not
+       read: raft checked them when it made the matrix.}
+ @item{@tt{raftrkt::csr_view<T, Index, NZ = uint64_t>(...)}, with the same
+       arguments: a @tt{raft::device_csr_matrix_view<T, Index, Index, NZ>}.}
+ @item{@tt{raftrkt::csr_buffers<T, Index>(handle, rows, nnz)}: an owner of
+       three @tt{rmm::device_uvector}s, @tt{indptr} (rows + 1), @tt{indices}
+       and @tt{data} (nnz), on the handle's stream; @tt{resize_entries(nnz)}
+       resizes the last two, for a call that learns nnz from indptr.}
+ @item{@tt{int64_t raftrkt::read_nnz(handle, const Index* indptr, int64_t
+       rows)}: @tt{indptr[rows]}, read after the handle's stream finishes.}
+ @item{@tt{raftrkt::deposit_csr(into, name, handle, std::move(owner),
+       indptr, rows, indices, data, nnz)}, and
+       @tt{deposit_csr(into, name, handle, std::move(buffers))} for a
+       @tt{std::unique_ptr<csr_buffers<T, Index>>}: @tt{raftrkt::deposit} of
+       the three regions in the order @racket[deposit->device-csr-matrix]
+       reads, refusing an indptr of no elements and, for buffers, data of
+       another length than indices, before the record is claimed.}]
+
+@listing["C++"]|{
+auto o = std::make_unique<raftrkt::csr_buffers<float, int64_t>>(handle, n, 0);
+fill_indptr(handle, o->indptr.data());
+o->resize_entries(raftrkt::read_nnz(handle, o->indptr.data(), n));
+fill_entries(handle, o->indices.data(), o->data.data());
+raftrkt::deposit_csr(out, "out", handle, std::move(o));
+}|
+
 @bold{@tt{raftrkt/job.h}.} An @tt{rr_job_outcome} is 4104 bytes:
 @tt{int32_t status} at 0, @tt{int32_t kind} at 4 and
 @tt{char message[RR_JOB_MESSAGE_BYTES]} (4096) at 8. A job entry is an
@@ -685,6 +761,8 @@ states, @tt{rr_release_fn}, @tt{deposit.hpp}, @racket[deposit],
 @tt{rr_job_outcome}, @tt{RR_JOB_MESSAGE_BYTES}, @tt{rr_job_fn},
 @tt{job.hpp}, @racket[define-job], and the rule that a call that can run long
 is a job; a downstream detects them by requiring @racketmodname[raft] version
-0.2, or with @tt{__has_include}.
+0.2, or with @tt{__has_include}. Then @tt{csr.hpp} and
+@racket[deposit->device-csr-matrix], detected by @racketmodname[raft] version
+0.3 or @tt{__has_include(<raftrkt/csr.hpp>)}.
 
 @(close-eval ev)
