@@ -47,7 +47,19 @@
     ("token 7\n#1 in /nix/store/0000-ra" "demo: token 7"
                                          ,(logged "token 7\n#1 in /nix/store/0000-ra"))
     ("" "demo: " ())
-    ("\n \n" "demo: " ())))
+    ("\n \n" "demo: " ())
+    ("a\rb" "demo: a" ,(logged "a\rb"))
+    (" \t\ntoken 7\n#1" "demo: token 7" ,(logged " \t\ntoken 7\n#1"))
+    ("\ntoken 7" "demo: token 7" ())
+    ("a b" "demo: a b" ())
+    ("a\u0085b" "demo: a\u0085b" ())
+    ("a\u2028b" "demo: a\u2028b" ())
+    ("\v\ntoken 7" "demo: token 7" ())
+    ("\u00A0\ntoken 7" "demo: token 7" ())
+    ("\u3000\ntoken 7" "demo: token 7" ())
+    ("\f\ntoken 7" "demo: token 7" ())
+    ("token 7\v\u00A0\u3000" "demo: token 7" ())
+    ("\u00A0token 7" "demo: \u00A0token 7" ())))
 
 (test-case "a native message is its first non-blank line; the whole text goes to the raft logger"
   (for ([row (in-list native-cases)])
