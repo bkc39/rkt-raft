@@ -60,14 +60,6 @@ constexpr void require_csr_types() {
       "a CSR value is float or double");
 }
 
-inline std::size_t entries_of(const char* who, int64_t n) {
-  if (n < 0) {
-    throw logic_error(std::string(who) + ": negative extent " +
-                      std::to_string(n));
-  }
-  return static_cast<std::size_t>(n);
-}
-
 inline void require_dtype(const std::string& who, const rr_view& v,
                           int32_t wanted, const char* why) {
   if (v.dtype != wanted) {
@@ -76,10 +68,31 @@ inline void require_dtype(const std::string& who, const rr_view& v,
   }
 }
 
-inline void require_extent_of(const std::string& who, int64_t extent) {
-  if (extent < 0 && extent != any_extent) {
+inline void require_nonnegative(const std::string& who, int64_t extent) {
+  if (extent < 0) {
     throw logic_error(who + ": negative extent " + std::to_string(extent));
   }
+}
+
+inline std::size_t entries_of(const char* who, int64_t n) {
+  require_nonnegative(who, n);
+  return static_cast<std::size_t>(n);
+}
+
+// NOLINTBEGIN(bugprone-easily-swappable-parameters) -- rows then cols, as
+// every shape in the C interface
+template <typename Index>
+void require_shape(const std::string& who, int64_t rows, int64_t cols,
+                   bool infer_rows) {
+  // NOLINTEND(bugprone-easily-swappable-parameters)
+  if (!(infer_rows && rows == any_extent)) {
+    require_nonnegative(who, rows);
+  }
+  require_nonnegative(who, cols);
+  if (rows != any_extent) {
+    require_fits<Index>(who, rows, "rows");
+  }
+  require_fits<Index>(who, cols, "columns");
 }
 
 inline void require_same_device(const std::string& who, const rr_view& v,
@@ -91,6 +104,50 @@ inline void require_same_device(const std::string& who, const rr_view& v,
   }
 }
 
+// NOLINTBEGIN(bugprone-easily-swappable-parameters) -- rows then cols, as
+// every shape in the C interface
+template <typename T, typename Index>
+csr_data<T, Index> checked_parts(const rr_view* indptr, const rr_view* indices,
+                                 const rr_view* data, int64_t rows,
+                                 int64_t cols, const char* name,
+                                 bool infer_rows) {
+  // NOLINTEND(bugprone-easily-swappable-parameters)
+  using index_type = std::remove_const_t<Index>;
+  require_csr_types<T, Index>();
+  const std::string p_name = part_name(name, "indptr");
+  const std::string i_name = part_name(name, "indices");
+  const std::string d_name = part_name(name, "data");
+  const std::string s_name = part_name(name, "shape");
+  const rr_view& p = *require(indptr, p_name.c_str());
+  const rr_view& i = *require(indices, i_name.c_str());
+  const rr_view& d = *require(data, d_name.c_str());
+  require_dtype(p_name, p, dtype_code<Index>, "");
+  require_dtype(i_name, i, dtype_code<Index>, ", as indptr is");
+  require_dtype(d_name, d, dtype_code<T>, "");
+  require_bound<1>(&p, p_name.c_str(), dtype_code<Index>);
+  require_bound<1>(&i, i_name.c_str(), dtype_code<Index>);
+  require_bound<1>(&d, d_name.c_str(), dtype_code<T>);
+  require_shape<index_type>(s_name, rows, cols, infer_rows);
+  if (rows == any_extent && p.shape[0] == 0) {
+    throw logic_error(p_name + ": expected at least 1 element, got 0");
+  }
+  const int64_t n_rows = rows == any_extent ? p.shape[0] - 1 : rows;
+  require_fits<index_type>(s_name, n_rows, "rows");
+  if (p.shape[0] - 1 != n_rows) {
+    throw logic_error(p_name + ": expected " +
+                      std::to_string(static_cast<uint64_t>(n_rows) + 1) +
+                      " elements, got " + std::to_string(p.shape[0]));
+  }
+  const int64_t nnz = i.shape[0];
+  require_fits<index_type>(i_name, nnz, "entries");
+  Index* indptr_data = vector_data<Index>(&p, p_name.c_str());
+  Index* indices_data = vector_data<Index>(&i, i_name.c_str());
+  T* values = vector_data<T>(&d, d_name.c_str(), nnz);
+  require_same_device(i_name, i, p);
+  require_same_device(d_name, d, p);
+  return {indptr_data, indices_data, values, n_rows, cols, nnz};
+}
+
 }  // namespace detail
 
 // NOLINTBEGIN(bugprone-easily-swappable-parameters) -- rows then cols, as
@@ -100,44 +157,8 @@ csr_data<T, Index> csr_parts(const rr_view* indptr, const rr_view* indices,
                              const rr_view* data, int64_t rows, int64_t cols,
                              const char* name) {
   // NOLINTEND(bugprone-easily-swappable-parameters)
-  using index_type = std::remove_const_t<Index>;
-  detail::require_csr_types<T, Index>();
-  const std::string p_name = detail::part_name(name, "indptr");
-  const std::string i_name = detail::part_name(name, "indices");
-  const std::string d_name = detail::part_name(name, "data");
-  const std::string s_name = detail::part_name(name, "shape");
-  const rr_view& p = *require(indptr, p_name.c_str());
-  const rr_view& i = *require(indices, i_name.c_str());
-  const rr_view& d = *require(data, d_name.c_str());
-  detail::require_dtype(p_name, p, dtype_code<Index>, "");
-  detail::require_dtype(i_name, i, dtype_code<Index>, ", as indptr is");
-  detail::require_dtype(d_name, d, dtype_code<T>, "");
-  detail::require_bound<1>(&p, p_name.c_str(), dtype_code<Index>);
-  detail::require_bound<1>(&i, i_name.c_str(), dtype_code<Index>);
-  detail::require_bound<1>(&d, d_name.c_str(), dtype_code<T>);
-  detail::require_extent_of(s_name, rows);
-  if (cols < 0) {
-    throw logic_error(s_name + ": negative extent " + std::to_string(cols));
-  }
-  if (rows == any_extent && p.shape[0] == 0) {
-    throw logic_error(p_name + ": expected at least 1 element, got 0");
-  }
-  const int64_t n_rows = rows == any_extent ? p.shape[0] - 1 : rows;
-  detail::require_fits<index_type>(s_name, n_rows, "rows");
-  detail::require_fits<index_type>(s_name, cols, "columns");
-  if (p.shape[0] - 1 != n_rows) {
-    throw logic_error(p_name + ": expected " +
-                      std::to_string(static_cast<uint64_t>(n_rows) + 1) +
-                      " elements, got " + std::to_string(p.shape[0]));
-  }
-  const int64_t nnz = i.shape[0];
-  detail::require_fits<index_type>(i_name, nnz, "entries");
-  Index* indptr_data = vector_data<Index>(&p, p_name.c_str());
-  Index* indices_data = vector_data<Index>(&i, i_name.c_str());
-  T* values = vector_data<T>(&d, d_name.c_str(), nnz);
-  detail::require_same_device(i_name, i, p);
-  detail::require_same_device(d_name, d, p);
-  return {indptr_data, indices_data, values, n_rows, cols, nnz};
+  return detail::checked_parts<T, Index>(indptr, indices, data, rows, cols,
+                                         name, true);
 }
 
 template <typename T, typename Index, typename NZ = uint64_t>

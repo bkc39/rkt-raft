@@ -1,20 +1,19 @@
 #lang racket/base
 
-(require (only-in racket/list append*)
+(require (only-in racket/list append* drop-right)
+         (only-in racket/match match match-define)
          (only-in rackunit check-equal? check-true)
          (only-in "../../main.rkt"
-                  csr-data
-                  csr-indices
-                  csr-indptr
                   device-csr-matrix
                   device-csr-matrix->list*
                   device-csr-matrix->triplets
-                  device-vector->list
                   list*->device-csr-matrix
                   list->device-vector
                   nnz
                   shape
                   triplets->device-csr-matrix)
+         (only-in "../../private/csr.rkt" prefix-sums)
+         (only-in "../private/csr.rkt" parts)
          (only-in "../private/gpu.rkt" test-gpu))
 
 (define entries (vector 0 0.0 -0.0 1.5 -2.25 3 +nan.0))
@@ -42,26 +41,20 @@
           0.0
           (real->double-flonum x)))))
 
-(define (parts m)
-  (map device-vector->list (list (csr-indptr m) (csr-indices m) (csr-data m))))
-
 (define cases (dense-cases 200))
 (define dtype-pairs '((float32 int32) (float32 int64) (float64 int32) (float64 int64)))
 
 (test-gpu "law 3: dense rows round-trip through a CSR matrix for every dtype pair"
   (for* ([D (in-list cases)]
          [pair (in-list dtype-pairs)])
-    (define m (list*->device-csr-matrix D #:dtype (car pair) #:index-dtype (cadr pair)))
+    (match-define (list element-type index-type) pair)
+    (define m (list*->device-csr-matrix D #:dtype element-type #:index-dtype index-type))
     (check-equal? (device-csr-matrix->list* m) (as-flonums D) (format "~s as ~a" D pair))))
 
-(define (prefix-sums counts)
-  (for/fold ([sums '(0)]
-             #:result (reverse sums))
-            ([n (in-list counts)])
-    (cons (+ n (car sums)) sums)))
-
 (define (ascending? xs)
-  (or (null? xs) (null? (cdr xs)) (and (< (car xs) (cadr xs)) (ascending? (cdr xs)))))
+  (match xs
+    [(list* a b more) (and (< a b) (ascending? (cons b more)))]
+    [_ #t]))
 
 (test-gpu "law 4: nnz counts the non-zero entries, columns ascend in each row, indptr sums the rows"
   (for ([D (in-list cases)])
@@ -70,8 +63,9 @@
       (for/list ([row (in-list D)])
         (for/sum ([x (in-list row)]) (if (= x 0) 0 1))))
     (check-equal? (nnz m) (apply + counts))
-    (define-values (indptr indices _data) (apply values (parts m)))
-    (check-equal? indptr (prefix-sums counts))
+    (match-define (list indptr indices _) (parts m))
+    (check-equal? (car indptr) 0)
+    (check-equal? (map - (cdr indptr) (drop-right indptr 1)) counts)
     (for ([start (in-list indptr)]
           [end (in-list (cdr indptr))])
       (check-true (ascending? (for/list ([k (in-range start end)])

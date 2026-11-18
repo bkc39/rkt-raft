@@ -57,10 +57,10 @@
   (check-equal? (reads*) 12))
 
 (test-case "a CSR matrix's entries print one a line, as (row col) value"
-  (check-equal? (csr-text 'float32 '((0 1 1.5) (2 0 2.0) (2 3 -3.0)))
+  (check-equal? (csr-text 'float32 '(((0 1 1.5) (2 0 2.0) (2 3 -3.0))))
                 "(0 1) 1.5\n(2 0) 2.0\n(2 3) -3.0")
-  (check-equal? (csr-text 'float32 (list (list 0 0 0.10000000149011612))) "(0 0) 0.1")
-  (check-equal? (csr-text 'float64 (list (list 0 0 0.1) '... (list 7 3000000000 +nan.0)))
+  (check-equal? (csr-text 'float32 '(((0 0 0.10000000149011612)))) "(0 0) 0.1")
+  (check-equal? (csr-text 'float64 '(((0 0 0.1)) ((7 3000000000 +nan.0))))
                 "(0 0) 0.1\n...\n(7 3000000000) +nan.0")
   (check-equal? (csr-text 'float64 '()) ""))
 

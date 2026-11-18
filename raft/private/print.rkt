@@ -3,14 +3,15 @@
 (require (only-in racket/flonum flsingle)
          (only-in racket/format ~a ~r)
          (only-in racket/list range)
-         (only-in racket/match match)
+         (only-in racket/match match match-lambda)
          (only-in racket/math infinite? nan?)
-         (only-in racket/string string-join))
+         (only-in racket/string string-join string-replace))
 
 (provide array-text
          csr-runs
          csr-text
          float32->string
+         indented
          shape-text
          summarised?)
 
@@ -92,12 +93,17 @@
       (list (cons 0 csr-edge-entries) (cons (- n csr-edge-entries) csr-edge-entries))
       (list (cons 0 n))))
 
-(define (csr-text dtype entries)
-  (string-join (for/list ([entry (in-list entries)])
-                 (match entry
-                   ['... "..."]
-                   [(list row col x) (format "(~a ~a) ~a" row col (element->string dtype x))]))
-               "\n"))
+(define (csr-text dtype runs)
+  (string-join
+   (for/list ([run (in-list runs)])
+     (string-join (map (match-lambda
+                         [(list row col x) (format "(~a ~a) ~a" row col (element->string dtype x))])
+                       run)
+                  "\n"))
+   "\n...\n"))
+
+(define (indented text)
+  (string-append "\n " (string-replace text "\n" "\n ")))
 
 (define (shape-text shape)
   (string-join (map number->string shape) "×" #:before-first "[" #:after-last "]"))

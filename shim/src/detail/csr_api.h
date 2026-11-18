@@ -16,6 +16,9 @@ RR_API int rr_csr_check(const rr_buffer* indptr, uint64_t indptr_offset,
                         const rr_buffer* data, uint64_t data_offset,
                         const rr_view* data_view, int64_t rows, int64_t cols);
 
+RR_API int rr_csr_check_shape(const char* index_dtype, const char* data_dtype,
+                              int64_t rows, int64_t cols);
+
 #ifdef __cplusplus
 }
 #endif

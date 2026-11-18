@@ -23,7 +23,6 @@
                   device-csr-matrix
                   device-csr-matrix->list*
                   device-csr-matrix->triplets
-                  device-csr-matrix-data
                   device-csr-matrix-shape
                   device-csr-matrix?
                   list*->device-csr-matrix
@@ -35,9 +34,9 @@
                   matrix-shape
                   pack-matrix
                   pack-vector
-                  unpack-matrix
-                  unpack-vector)
-         (only-in "private/resources.rkt" current-device-resources))
+                  unpack-matrix)
+         (only-in "private/resources.rkt" current-device-resources)
+         (only-in "private/vector.rkt" read-vector upload-vector))
 
 (provide contiguous
          contiguous?
@@ -93,7 +92,7 @@
 
 (define (dtype a)
   (cond
-    [(device-csr-matrix? a) (device-array-dtype (device-csr-matrix-data a))]
+    [(device-csr-matrix? a) (device-array-dtype (csr-data a))]
     [else (device-array-dtype a)]))
 
 (define (strides a)
@@ -114,13 +113,10 @@
                              #:dtype [element-type #f]
                              #:resources [resources (current-device-resources)])
   (define who 'list->device-vector)
-  (define n (length xs))
-  (define v (allocate-array who resources (or element-type (infer-dtype who xs)) 'row-major (list n)))
-  (write-array! who v (pack-vector who (device-array-dtype v) n xs)))
+  (upload-vector who resources (or element-type (infer-dtype who xs)) xs))
 
 (define (device-vector->list v)
-  (match-define (list n) (device-array-shape v))
-  (unpack-vector (device-array-dtype v) n (read-all 'device-vector->list v)))
+  (read-vector 'device-vector->list v))
 
 (define (list*->device-matrix rows
                               #:dtype [element-type #f]
@@ -158,6 +154,4 @@
   (match-define (list n) (device-array-shape v))
   (if (eq? (device-array-dtype v) 'float64)
       (read-array who v (make-flvector n))
-      (for/flvector #:length n
-                    ([x (in-list (unpack-vector (device-array-dtype v) n (read-all who v)))])
-                    (real->double-flonum x))))
+      (for/flvector #:length n ([x (in-list (read-vector who v))]) (real->double-flonum x))))

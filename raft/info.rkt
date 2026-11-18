@@ -48,6 +48,7 @@
                     "private/foreign/memory.rkt"
                     "private/job.rkt"
                     "private/pack.rkt"
-                    "private/resources.rkt")
+                    "private/resources.rkt"
+                    "private/vector.rkt")
               '())))
 (define test-timeouts '(("tests/gpu/exit-test.rkt" 360)))

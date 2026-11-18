@@ -477,7 +477,9 @@ plans/scoping-plan.md         the approved plan (revision 5), as Markdown
   resolve from the executable).
 - CSR (#72): `src/array/csr.cpp` is `rr_csr_check` (`src/detail/csr_api.h`),
   which checks extents and dtypes on the host and indptr's order and the
-  index range in `csr_check.cu`, one kernel and one sync. `raftrkt/csr.hpp`
+  index range in `csr_check.cu`, one kernel and one sync, and
+  `rr_csr_check_shape`, which refuses a shape and dtypes before anything is
+  packed. `raftrkt/csr.hpp`
   is host C++ for downstreams: `csr_parts` and `csr_view` read three views
   with the host half of those checks; `csr_buffers`, `read_nnz` and
   `deposit_csr` fill a deposit with indptr, indices and data, in that
@@ -562,7 +564,8 @@ plans/scoping-plan.md         the approved plan (revision 5), as Markdown
   `device-vector`s and `#:shape`, its conversions (dense rows drop zeros,
   triplets sum duplicates and keep a zero sum, as SciPy does) and its
   printer (`print.rkt`'s pure `csr-text`); construction calls
-  `rr_csr_check` through `private/foreign/csr-api.rkt`.
+  `rr_csr_check` through `private/foreign/csr-api.rkt`, and `list*->` and
+  `triplets->` call `rr_csr_check_shape` first.
 - `private/job.rkt`: `define-job` and `job-procedure`, which packs the
   arguments into a block laid out as the C side's `run_job` unpacks it,
   binds each `deposit` parameter's record and submits it in one
