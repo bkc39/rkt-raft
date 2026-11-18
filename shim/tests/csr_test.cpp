@@ -83,14 +83,15 @@ class CsrCheck : public ::testing::Test {
     return view;
   }
 
-  std::string check(const csr_host<Index>& m) {
+  std::string check(const csr_host<Index>& m, int64_t n_rows = rows,
+                    int64_t n_cols = cols) {
     const rr_view p = upload(m.indptr);
     const rr_view i = upload(m.indices);
     const rr_view d = upload(m.data);
     const std::size_t base = buffers_.size() - 3;
     const int status =
         rr_csr_check(buffers_[base], 0, &p, buffers_[base + 1], 0, &i,
-                     buffers_[base + 2], 0, &d, rows, cols);
+                     buffers_[base + 2], 0, &d, n_rows, n_cols);
     if (status == RR_OK) {
       return "";
     }
@@ -160,6 +161,41 @@ TYPED_TEST(CsrCheck, TheIndptrFaultsComeBeforeAnIndexFault) {
   m.indptr[rows] = nnz + 1;
   EXPECT_EQ(this->check(m),
             "indptr: ends at 1000001, expected 1000000, the length of indices");
+}
+
+TYPED_TEST(CsrCheck, AnEndFaultComesBeforeADescent) {
+  const csr_host<TypeParam> m{{0, 3, 2, 4}, {0, 1, 2}, {1.0F, 2.0F, 3.0F}};
+  EXPECT_EQ(this->check(m, 3, 4),
+            "indptr: ends at 4, expected 3, the length of indices");
+}
+
+std::string shape_refusal(const char* index_dtype, const char* data_dtype,
+                          int64_t n_rows, int64_t n_cols) {
+  if (rr_csr_check_shape(index_dtype, data_dtype, n_rows, n_cols) == RR_OK) {
+    return "";
+  }
+  EXPECT_EQ(rr_last_error_kind(), RR_ERROR_LOGIC);
+  return rr_last_error();
+}
+
+TEST(CsrShape, RefusesTheDtypesAndExtentsBeforeAnyPart) {
+  EXPECT_EQ(shape_refusal("int32", "float32", 3, 4), "");
+  EXPECT_EQ(shape_refusal("int64", "float64", int64_t{3000000000}, 4), "");
+  EXPECT_EQ(shape_refusal("float32", "float32", 3, 4),
+            "indptr: expected int32 or int64, got float32");
+  EXPECT_EQ(shape_refusal("int32", "int32", 3, 4),
+            "data: expected float32 or float64, got int32");
+  EXPECT_EQ(shape_refusal("int32", "float32", -1, 2),
+            "shape: negative extent -1");
+  EXPECT_EQ(shape_refusal("int32", "float32", 3, -1),
+            "shape: negative extent -1");
+  EXPECT_EQ(shape_refusal("int32", "float32", int64_t{3000000000}, 4),
+            "shape: 3000000000 rows do not fit int32 indices");
+  EXPECT_EQ(shape_refusal("int32", "float32", 1, int64_t{3000000000}),
+            "shape: 3000000000 columns do not fit int32 indices");
+  EXPECT_EQ(shape_refusal("float16", "float32", 3, 4),
+            "unsupported dtype float16; expected float32, float64, int32 or "
+            "int64");
 }
 
 using WideCheck = CsrCheck<int64_t>;

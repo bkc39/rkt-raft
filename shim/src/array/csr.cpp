@@ -16,13 +16,13 @@ namespace rr {
 
 namespace {
 
-void require_dtype_among(const char* part, const rr_view& view, int32_t first,
+void require_dtype_among(const char* part, int32_t dtype, int32_t first,
                          int32_t second) {
-  if (view.dtype != first && view.dtype != second) {
+  if (dtype != first && dtype != second) {
     throw logic_error(std::string(part) + ": expected " +
                       raftrkt::dtype_name(first) + " or " +
                       raftrkt::dtype_name(second) + ", got " +
-                      raftrkt::dtype_name(view.dtype));
+                      raftrkt::dtype_name(dtype));
   }
 }
 
@@ -48,8 +48,8 @@ template <typename T, typename Index>
 csr_fault scan_parts(const raft::handle_t& handle, const rr_view& indptr,
                      const rr_view& indices, const rr_view& data, int64_t rows,
                      int64_t cols) {
-  const auto parts = raftrkt::csr_parts<const T, const Index>(
-      &indptr, &indices, &data, rows, cols, nullptr);
+  const auto parts = raftrkt::detail::checked_parts<const T, const Index>(
+      &indptr, &indices, &data, rows, cols, nullptr, false);
   return find_csr_fault<Index>(handle, parts.indptr, parts.rows, parts.indices,
                                parts.nnz, parts.cols);
 }
@@ -73,12 +73,10 @@ int rr_csr_check(const rr_buffer* indptr, uint64_t indptr_offset,
                                *rr::require(indices_view, "indices_view"));
     const rr_view d = rr::bind(*rr::require(data, "data"), data_offset,
                                *rr::require(data_view, "data_view"));
-    rr::require_dtype_among("indptr", p, RR_DTYPE_INT32, RR_DTYPE_INT64);
+    rr::require_dtype_among("indptr", p.dtype, RR_DTYPE_INT32, RR_DTYPE_INT64);
     raftrkt::detail::require_dtype("indices", i, p.dtype, ", as indptr is");
-    rr::require_dtype_among("data", d, RR_DTYPE_FLOAT32, RR_DTYPE_FLOAT64);
-    if (rows < 0) {
-      throw rr::logic_error("shape: negative extent " + std::to_string(rows));
-    }
+    rr::require_dtype_among("data", d.dtype, RR_DTYPE_FLOAT32,
+                            RR_DTYPE_FLOAT64);
     const rr::device_guard guard{owner.device};
     rr::csr_fault fault{};
     RR_DISPATCH_DTYPE(
@@ -89,6 +87,19 @@ int rr_csr_check(const rr_buffer* indptr, uint64_t indptr_offset,
     if (fault.kind != rr::csr_sound) {
       throw rr::logic_error(rr::fault_message(fault, i.shape[0], cols));
     }
+  });
+}
+
+int rr_csr_check_shape(const char* index_dtype, const char* data_dtype,
+                       int64_t rows, int64_t cols) {
+  return rr::translate_exceptions([&] {
+    const int32_t index = rr::dtype_named(index_dtype).code;
+    const int32_t value = rr::dtype_named(data_dtype).code;
+    rr::require_dtype_among("indptr", index, RR_DTYPE_INT32, RR_DTYPE_INT64);
+    rr::require_dtype_among("data", value, RR_DTYPE_FLOAT32, RR_DTYPE_FLOAT64);
+    RR_DISPATCH_DTYPE(
+        csr_indices, index, Index,
+        raftrkt::detail::require_shape<Index>("shape", rows, cols, false));
   });
 }
 }
