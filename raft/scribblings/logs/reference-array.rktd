@@ -452,7 +452,7 @@
 ((define (->dense a)
    (cond
     ((device-csr-matrix? a) (device-csr-matrix->list* a))
-    ((device-matrix? a) (device-matrix->list* a))))
+    (else (device-matrix->list* a))))
  (values "")
  ""
  "")

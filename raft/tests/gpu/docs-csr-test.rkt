@@ -86,7 +86,7 @@
   (define (->dense a)
     (cond
       [(device-csr-matrix? a) (device-csr-matrix->list* a)]
-      [(device-matrix? a) (device-matrix->list* a)]))
+      [else (device-matrix->list* a)]))
   (check-equal? (->dense g) G-rows)
   (check-equal? (->dense (list*->device-matrix '((1.0 2.0)))) '((1.0 2.0))))
 

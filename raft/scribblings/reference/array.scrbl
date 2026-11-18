@@ -676,7 +676,7 @@ Dispatching on the kind of matrix:
 (define (->dense a)
   (cond
     [(device-csr-matrix? a) (device-csr-matrix->list* a)]
-    [(device-matrix? a) (device-matrix->list* a)]))
+    [else (device-matrix->list* a)]))
 (->dense G)
 (->dense (list*->device-matrix '((1.0 2.0))))
 ]}
