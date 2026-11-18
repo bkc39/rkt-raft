@@ -28,51 +28,30 @@ def encoded(xs):
     return xs
 
 
-def scipy_matrix(case):
-    kind = case["kind"]
+def csr_matrix(case, xp, sparse):
     dtype = case.get("dtype", "float64")
+
+    def values(key):
+        return xp.asarray(np.asarray(decoded(case[key]), dtype=dtype))
+
+    kind = case["kind"]
     if kind == "dense":
-        dense = np.asarray(decoded(case["dense"]), dtype=dtype)
-        return scipy.sparse.csr_matrix(dense.reshape(case["shape"]))
+        return sparse.csr_matrix(values("dense").reshape(case["shape"]))
+    shape = tuple(case["shape"])
     if kind == "triplets":
-        vals = np.asarray(decoded(case["vals"]), dtype=dtype)
-        rows = np.asarray(case["rows"], dtype=np.int64)
-        cols = np.asarray(case["cols"], dtype=np.int64)
-        return scipy.sparse.csr_matrix(
-            (vals, (rows, cols)), shape=tuple(case["shape"]), dtype=dtype
+        rows = xp.asarray(case["rows"], dtype=np.int64)
+        cols = xp.asarray(case["cols"], dtype=np.int64)
+        return sparse.csr_matrix(
+            (values("vals"), (rows, cols)), shape=shape, dtype=dtype
         )
     index_dtype = case["index_dtype"]
-    return scipy.sparse.csr_matrix(
+    return sparse.csr_matrix(
         (
-            np.asarray(decoded(case["data"]), dtype=dtype),
-            np.asarray(case["indices"], dtype=index_dtype),
-            np.asarray(case["indptr"], dtype=case.get("indptr_dtype", index_dtype)),
+            values("data"),
+            xp.asarray(case["indices"], dtype=index_dtype),
+            xp.asarray(case["indptr"], dtype=case.get("indptr_dtype", index_dtype)),
         ),
-        shape=tuple(case["shape"]),
-    )
-
-
-def cupy_matrix(case):
-    kind = case["kind"]
-    dtype = case.get("dtype", "float64")
-    if kind == "dense":
-        dense = cp.asarray(np.asarray(decoded(case["dense"]), dtype=dtype))
-        return cusparse.csr_matrix(dense.reshape(case["shape"]))
-    if kind == "triplets":
-        vals = cp.asarray(np.asarray(decoded(case["vals"]), dtype=dtype))
-        rows = cp.asarray(case["rows"], dtype=cp.int64)
-        cols = cp.asarray(case["cols"], dtype=cp.int64)
-        return cusparse.csr_matrix(
-            (vals, (rows, cols)), shape=tuple(case["shape"]), dtype=dtype
-        )
-    index_dtype = case["index_dtype"]
-    return cusparse.csr_matrix(
-        (
-            cp.asarray(np.asarray(decoded(case["data"]), dtype=dtype)),
-            cp.asarray(case["indices"], dtype=index_dtype),
-            cp.asarray(case["indptr"], dtype=case.get("indptr_dtype", index_dtype)),
-        ),
-        shape=tuple(case["shape"]),
+        shape=shape,
     )
 
 
@@ -87,7 +66,7 @@ def parts_of(indptr, indices, data):
 
 def cupy_result(case):
     try:
-        B = cupy_matrix(case)
+        B = csr_matrix(case, cp, cusparse)
     except (TypeError, ValueError) as e:
         return {"error": f"{type(e).__name__}: {e}"}
     return parts_of(B.indptr.get(), B.indices.get(), B.data.get())
@@ -95,7 +74,7 @@ def cupy_result(case):
 
 def run(case):
     try:
-        A = scipy_matrix(case)
+        A = csr_matrix(case, np, scipy.sparse)
         A.check_format(full_check=True)
     except ValueError as e:
         return {"valid": False, "error": str(e)}
