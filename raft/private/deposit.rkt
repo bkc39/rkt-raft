@@ -3,7 +3,9 @@
 (require (only-in ffi/unsafe/atomic call-as-atomic)
          (only-in racket/match match)
          (only-in "array.rkt" release-array! view->array)
+         (only-in "csr.rkt" checked-csr)
          (only-in "error.rkt" call/raft)
+         (only-in "exn.rkt" raise-raft)
          (only-in "foreign/array.rkt" blank-view keep-reachable)
          (only-in "foreign/deposit-api.rkt"
                   rr-holder-adopt
@@ -15,6 +17,7 @@
          (only-in "resources.rkt" resources-device resources-handle))
 
 (provide call-with-deposits-bound
+         deposit->device-csr-matrix
          deposit->list
          deposit-handle
          deposit-record
@@ -75,3 +78,11 @@
 
 (define (deposit->list d)
   (call-as-atomic (lambda () (or (deposit-arrays d) (adopt-all d)))))
+
+(define (deposit->device-csr-matrix d #:shape extents)
+  (define who 'deposit->device-csr-matrix)
+  (match (deposit->list d)
+    [(list indptr indices data) (checked-csr who indptr indices data extents)]
+    [(list _) (raise-raft who 'logic "the deposit holds 1 region; a CSR matrix needs 3")]
+    [arrays
+     (raise-raft who 'logic "the deposit holds ~a regions; a CSR matrix needs 3" (length arrays))]))

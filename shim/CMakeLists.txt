@@ -141,7 +141,7 @@ if(BUILD_TESTING)
   gtest_discover_tests(raftrkt_error_tests DISCOVERY_MODE PRE_TEST DISCOVERY_TIMEOUT 60
     PROPERTIES TIMEOUT ${raftrkt_gtest_timeout_seconds})
 
-  add_library(raftrkt_probe SHARED tests/probe/jobs.cpp tests/probe/probe.cpp)
+  add_library(raftrkt_probe SHARED tests/probe/csr.cpp tests/probe/jobs.cpp tests/probe/probe.cpp)
   set_target_properties(raftrkt_probe PROPERTIES
     CXX_VISIBILITY_PRESET hidden
     POSITION_INDEPENDENT_CODE ON

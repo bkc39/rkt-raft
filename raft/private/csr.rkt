@@ -31,7 +31,8 @@
          (only-in "print.rkt" csr-runs csr-text shape-text)
          (only-in "resources.rkt" current-device-resources))
 
-(provide csr-data
+(provide checked-csr
+         csr-data
          csr-indices
          csr-indptr
          device-csr-matrix

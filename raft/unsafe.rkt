@@ -6,6 +6,7 @@
          syntax/parse/define
          (only-in "private/array.rkt" settled-view)
          (only-in "private/deposit.rkt"
+                  deposit->device-csr-matrix
                   deposit->list
                   deposit-record
                   deposit-release
@@ -21,6 +22,7 @@
 
 (provide define-job ;; noqa
          deposit
+         deposit->device-csr-matrix ;; noqa
          deposit->list ;; noqa
          deposit? ;; noqa
          raft-abi-pointer

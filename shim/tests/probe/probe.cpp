@@ -29,6 +29,11 @@
 #include "raftrkt/error.hpp"
 #include "raftrkt/view.hpp"
 
+std::atomic<uint64_t>& probe::owner_drops() noexcept {
+  static std::atomic<uint64_t> count{0};
+  return count;
+}
+
 namespace {
 
 struct gate {
@@ -70,10 +75,7 @@ constexpr uint32_t rank3_flag = 256U;
 constexpr int64_t region_step = 1000;
 constexpr int32_t nine = 9;
 
-std::atomic<uint64_t>& owner_drops() noexcept {
-  static std::atomic<uint64_t> count{0};
-  return count;
-}
+using probe::owner_drops;
 
 std::atomic<uint64_t>& owner_stale() noexcept {
   static std::atomic<uint64_t> count{0};

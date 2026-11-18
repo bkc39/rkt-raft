@@ -4,10 +4,14 @@
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <memory>
+#include <raft/core/handle.hpp>
 #include <string>
+#include <utility>
 
 #include "raftrkt/array.h"
 #include "raftrkt/csr.hpp"
+#include "raftrkt/deposit.h"
 #include "raftrkt/error.hpp"
 #include "raftrkt/view.hpp"
 
@@ -173,6 +177,57 @@ TEST(CsrView, TakesConstElementsAndIndices) {
   EXPECT_EQ(structure.get_n_rows(), rows);
   EXPECT_EQ(structure.get_nnz(), static_cast<uint64_t>(nnz));
   EXPECT_EQ(view.get_elements().data(), static_cast<const double*>(storage()));
+}
+
+rr_deposit open_record(const raft::handle_t& handle) {
+  rr_deposit record{};
+  record.handle = &handle;
+  record.device = 0;
+  record.state = RR_DEPOSIT_OPEN;
+  return record;
+}
+
+std::string refused_fill(rr_deposit& record, const raft::handle_t& handle,
+                         int64_t r, int64_t n) {
+  auto* p = static_cast<int32_t*>(storage());
+  auto owner = std::make_unique<int>(0);
+  try {
+    raftrkt::deposit_csr(&record, "out", handle, std::move(owner), p, r, p,
+                         static_cast<float*>(storage()), n);
+  } catch (const raftrkt::logic_error& e) {
+    return e.what();
+  }
+  return "no refusal";
+}
+
+TEST(DepositCsr, RefusesAnEmptyIndptrBeforeClaimingTheRecord) {
+  const raft::handle_t handle;
+  rr_deposit record = open_record(handle);
+  EXPECT_EQ(refused_fill(record, handle, -1, 0),
+            "out: indptr: expected at least 1 element, got 0");
+  EXPECT_EQ(record.state, RR_DEPOSIT_OPEN);
+  EXPECT_EQ(record.count, 0);
+}
+
+TEST(DepositCsr, LeavesTheRegionChecksToDeposit) {
+  const raft::handle_t handle;
+  rr_deposit record = open_record(handle);
+  EXPECT_EQ(refused_fill(record, handle, rows, -1),
+            "out: region 1: negative extent -1");
+  EXPECT_EQ(record.state, RR_DEPOSIT_OPEN);
+}
+
+TEST(DepositCsr, EveryFormInstantiatesAsHostCpp) {
+  using buffers = raftrkt::csr_buffers<double, int64_t>;
+  void (*owned)(rr_deposit*, const char*, const raft::handle_t&,
+                std::unique_ptr<buffers>&&) =
+      &raftrkt::deposit_csr<double, int64_t>;
+  int64_t (*last)(const raft::handle_t&, const int32_t*, int64_t) =
+      &raftrkt::read_nnz<const int32_t>;
+  void (buffers::*resize)(int64_t) = &buffers::resize_entries;
+  EXPECT_NE(owned, nullptr);
+  EXPECT_NE(last, nullptr);
+  EXPECT_NE(resize, nullptr);
 }
 
 }  // namespace

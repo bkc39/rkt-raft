@@ -111,6 +111,7 @@
 
 (define unsafe-names
   '(define-job deposit
+               deposit->device-csr-matrix
                deposit->list
                deposit?
                raft-abi-pointer

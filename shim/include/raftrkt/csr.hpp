@@ -1,12 +1,23 @@
 #pragma once
 
+#include <cuda_runtime_api.h>
+
+#include <cstddef>
 #include <cstdint>
+#include <iterator>
 #include <limits>
+#include <memory>
 #include <raft/core/device_csr_matrix.hpp>
+#include <raft/core/handle.hpp>
+#include <raft/core/resource/cuda_stream.hpp>
+#include <rmm/device_uvector.hpp>
 #include <string>
 #include <type_traits>
+#include <utility>
 
 #include "raftrkt/array.h"
+#include "raftrkt/deposit.h"
+#include "raftrkt/deposit.hpp"
 #include "raftrkt/error.hpp"
 #include "raftrkt/view.hpp"
 
@@ -35,6 +46,26 @@ void require_fits(const std::string& who, int64_t extent, const char* what) {
                       " do not fit " + dtype_name(dtype_code<Index>) +
                       " indices");
   }
+}
+
+template <typename T, typename Index>
+constexpr void require_csr_types() {
+  using index_type = std::remove_const_t<Index>;
+  using value_type = std::remove_const_t<T>;
+  static_assert(std::is_same_v<index_type, int32_t> ||
+                    std::is_same_v<index_type, int64_t>,
+                "a CSR index is int32_t or int64_t");
+  static_assert(
+      std::is_same_v<value_type, float> || std::is_same_v<value_type, double>,
+      "a CSR value is float or double");
+}
+
+inline std::size_t entries_of(const char* who, int64_t n) {
+  if (n < 0) {
+    throw logic_error(std::string(who) + ": negative extent " +
+                      std::to_string(n));
+  }
+  return static_cast<std::size_t>(n);
 }
 
 inline void require_dtype(const std::string& who, const rr_view& v,
@@ -70,13 +101,7 @@ csr_data<T, Index> csr_parts(const rr_view* indptr, const rr_view* indices,
                              const char* name) {
   // NOLINTEND(bugprone-easily-swappable-parameters)
   using index_type = std::remove_const_t<Index>;
-  using value_type = std::remove_const_t<T>;
-  static_assert(std::is_same_v<index_type, int32_t> ||
-                    std::is_same_v<index_type, int64_t>,
-                "a CSR index is int32_t or int64_t");
-  static_assert(
-      std::is_same_v<value_type, float> || std::is_same_v<value_type, double>,
-      "a CSR value is float or double");
+  detail::require_csr_types<T, Index>();
   const std::string p_name = detail::part_name(name, "indptr");
   const std::string i_name = detail::part_name(name, "indices");
   const std::string d_name = detail::part_name(name, "data");
@@ -127,6 +152,88 @@ raft::device_csr_matrix_view<T, Index, Index, NZ> csr_view(
           static_cast<Index>(p.cols), static_cast<NZ>(p.nnz));
   return raft::make_device_csr_matrix_view<T, Index, Index, NZ>(p.data,
                                                                 structure);
+}
+
+template <typename T, typename Index>
+struct csr_buffers {
+  csr_buffers(const raft::handle_t& h, int64_t rows, int64_t nnz)
+      : handle(h),
+        indptr(detail::entries_of("rows", rows) + 1,
+               raft::resource::get_cuda_stream(h)),
+        indices(detail::entries_of("nnz", nnz),
+                raft::resource::get_cuda_stream(h)),
+        data(detail::entries_of("nnz", nnz),
+             raft::resource::get_cuda_stream(h)) {
+    detail::require_csr_types<T, Index>();
+  }
+
+  void resize_entries(int64_t nnz) {
+    const std::size_t n = detail::entries_of("nnz", nnz);
+    const auto stream = raft::resource::get_cuda_stream(handle);
+    indices.resize(n, stream);
+    data.resize(n, stream);
+  }
+
+  const raft::handle_t& handle;
+  rmm::device_uvector<Index> indptr;
+  rmm::device_uvector<Index> indices;
+  rmm::device_uvector<T> data;
+};
+
+template <typename Index>
+int64_t read_nnz(const raft::handle_t& handle, const Index* indptr,
+                 int64_t rows) {
+  const auto at = static_cast<std::ptrdiff_t>(detail::entries_of("rows", rows));
+  std::remove_const_t<Index> last{};
+  const cudaStream_t stream = raft::resource::get_cuda_stream(handle).value();
+  cuda_check(cudaMemcpyAsync(&last, std::next(indptr, at), sizeof(last),
+                             cudaMemcpyDeviceToHost, stream),
+             "cudaMemcpyAsync");
+  cuda_check(cudaStreamSynchronize(stream), "cudaStreamSynchronize");
+  return static_cast<int64_t>(last);
+}
+
+// NOLINTBEGIN(bugprone-easily-swappable-parameters) -- the C interface's
+// order: indptr and its rows, then indices, data and their length
+template <typename Owner, typename T, typename Index>
+void deposit_csr(rr_deposit* into, const char* name,
+                 const raft::handle_t& handle, std::unique_ptr<Owner>&& owner,
+                 Index* indptr, int64_t rows, Index* indices, T* data,
+                 int64_t nnz) {
+  // NOLINTEND(bugprone-easily-swappable-parameters)
+  detail::require_csr_types<T, Index>();
+  if (rows == -1) {
+    throw logic_error(std::string(name) +
+                      ": indptr: expected at least 1 element, got 0");
+  }
+  deposit(into, name, handle, std::move(owner),
+          {region(indptr, rows + 1), region(indices, nnz), region(data, nnz)});
+}
+
+template <typename T, typename Index>
+void deposit_csr(rr_deposit* into, const char* name,
+                 const raft::handle_t& handle,
+                 std::unique_ptr<csr_buffers<T, Index>>&& owner) {
+  if (!owner) {
+    throw logic_error(std::string(name) + ": no owner");
+  }
+  const std::size_t n_indptr = owner->indptr.size();
+  const std::size_t nnz = owner->indices.size();
+  if (n_indptr == 0) {
+    throw logic_error(std::string(name) +
+                      ": indptr: expected at least 1 element, got 0");
+  }
+  if (owner->data.size() != nnz) {
+    throw logic_error(std::string(name) + ": data: expected " +
+                      std::to_string(nnz) + " elements, got " +
+                      std::to_string(owner->data.size()));
+  }
+  Index* indptr = owner->indptr.data();
+  Index* indices = owner->indices.data();
+  T* data = owner->data.data();
+  deposit_csr(into, name, handle, std::move(owner), indptr,
+              static_cast<int64_t>(n_indptr) - 1, indices, data,
+              static_cast<int64_t>(nnz));
 }
 
 }  // namespace raftrkt
