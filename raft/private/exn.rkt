@@ -1,7 +1,8 @@
 #lang racket/base
 
-(require (only-in racket/match match)
-         (only-in racket/string string-trim)
+(require (only-in racket/list dropf-right)
+         (only-in racket/match match)
+         (only-in racket/string non-empty-string?)
          (only-in "log.rkt" log-raft-debug))
 
 (provide raise-native
@@ -22,16 +23,16 @@
 (define (raise-message make who kind message)
   (raise (make (format "~a: ~a" who message) (current-continuation-marks) (kind->symbol kind))))
 
-(define (non-blank? line)
-  (regexp-match? #px"\\S" line))
+(define (trim-right line)
+  (list->string (dropf-right (string->list line) char-whitespace?)))
 
 (define (first-line who text)
-  (match (filter non-blank? (regexp-split #rx"\r\n|[\r\n]" text))
+  (match (filter non-empty-string? (map trim-right (regexp-split #rx"\r\n|[\r\n]" text)))
     ['() ""]
-    [(list line) (string-trim line #:left? #f)]
-    [(cons line _)
-     (log-raft-debug "~a: ~a" who text)
-     (string-trim line #:left? #f)]))
+    [(cons line more)
+     (unless (null? more)
+       (log-raft-debug "~a: ~a" who text))
+     line]))
 
 (define (raise-native make who kind text)
   (raise-message make who kind (first-line who text)))

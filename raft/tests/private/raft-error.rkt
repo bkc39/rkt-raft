@@ -2,13 +2,17 @@
 
 (require (only-in racket/match match)
          (only-in rackunit check-equal? check-exn check-pred check-regexp-match)
-         (only-in "../../private/error.rkt" exn:fail:raft-kind exn:fail:raft?))
+         (only-in "../../private/exn.rkt" exn:fail:raft exn:fail:raft-kind exn:fail:raft?))
 
 (provide check-raft-error
+         (struct-out exn:fail:canary)
          raised-and-logged)
 
-(define (check-raft-error kind expected thunk)
+(struct exn:fail:canary exn:fail:raft ())
+
+(define (check-raft-error kind expected thunk #:exn [exn? exn:fail:raft?])
   (check-exn (lambda (e)
+               (check-pred exn? e)
                (check-pred exn:fail:raft? e)
                (check-equal? (exn:fail:raft-kind e) kind)
                (if (string? expected)
