@@ -114,6 +114,9 @@ plans/scoping-plan.md         the approved plan (revision 5), as Markdown
    - One exception type, `exn:fail:raft`, carrying RAFT's or the shim's
      message, prefixed with the Racket caller's name, plus a `kind` field
      (`'out-of-memory`, `'cuda`, `'logic`, `'generic`) for the memory retry.
+     A native message is cut to its first non-blank line; the whole native
+     text, backtrace included, goes to the `raft` logger at `debug` (#69).
+     Messages raft composes itself (`raise-raft`) are never cut.
      The shim's own refusals never name its `rr_` entry points (internal
      names in user-facing errors are bugs, bkc39/rkt-polars#151–#153); a
      failed CUDA call is named (`cudaGetDeviceCount: …`).
@@ -1666,3 +1669,27 @@ since cuSPARSE's error string for it is only "out of memory"). The frozen rule i
   the handle, like cuML's outputs. It runs as a job
   (`kc_cluster_members_job`, a `deposit` parameter, a 328-byte block);
   `with-deposits` stays for short calls.
+
+## Decisions recorded in #69
+
+- **The message is the native text's first line** (D2 on #74): the first
+  line that is not blank, verbatim but for trailing whitespace, so RAFT's
+  `RAFT failure at file=… line=…:` prefix stays. Lines break at `\r\n`,
+  `\n` or `\r`. Text that is one line once trailing blanks are dropped
+  logs nothing; anything else is logged whole, as `<who>: <text>`, to the
+  `raft` topic at `debug`. Text with no non-blank line gives `<who>: `.
+- **The cut is in Racket, once**: `raise-native` (`raft/private/exn.rkt`)
+  is the one place native text becomes a message, and `call/raft`, a job's
+  outcome and `status-checker` all reach it. The shim and `error.hpp` are
+  unchanged, so a downstream shim gets the cut without a rebuild. Decoding
+  (U+FFFD for invalid UTF-8) happens before the cut. The shim's 4 KiB
+  truncation shortens the logged text, and the message only when the first
+  line alone does not fit.
+- **`define-logger raft` lives in `raft/private/log.rkt`**, shared by the
+  exit drain and the cut.
+- **The probe raises a real `raft::logic_error`** (`rr_probe_raft_fail`,
+  `RAFT_FAIL`, built with `ENABLE_COLLECT_CALLSTACK` so it carries a
+  backtrace as cuML's do), as a short call and as a job;
+  `tests/gpu/native-message-test.rkt` sends it through `status-checker`
+  and a job, and libraftrkt's own multi-line text (a dtype name holding a
+  newline) through `call/raft`.

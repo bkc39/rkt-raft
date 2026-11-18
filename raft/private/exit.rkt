@@ -3,11 +3,10 @@
 (require (only-in ffi/unsafe/atomic call-as-atomic)
          (only-in ffi/unsafe/custodian make-custodian-at-root register-custodian-shutdown)
          (only-in "exn.rkt" raise-raft)
-         (only-in "foreign/job-api.rkt" rr-exit-drain rr-os-thread-id rr-os-thread-id/original))
+         (only-in "foreign/job-api.rkt" rr-exit-drain rr-os-thread-id rr-os-thread-id/original)
+         (only-in "log.rkt" log-raft-debug log-raft-warning))
 
 (provide current-exit-wait)
-
-(define-logger raft)
 
 (define current-exit-wait
   (make-parameter 10
