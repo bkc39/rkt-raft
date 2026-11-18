@@ -63,8 +63,9 @@ Returns a procedure @racket[(check who thunk)] for one native library's
 calls. @racket[check] calls @racket[thunk], whose first result is the C
 status. On @racket[0] (@tt{RR_OK}) it returns the thunk's other results.
 Otherwise it raises @racket[(exn message marks kind)]: the message is
-@racket[who], a colon and @racket[(last-error)], decoded as UTF-8 with
-@racket[#\uFFFD] for what does not decode; the kind is @racket['generic],
+@racket[who], a colon and the first line of @racket[(last-error)], decoded as
+UTF-8 with @racket[#\uFFFD] for what does not decode, with the whole text
+logged when it has more (@racket[exn:fail:raft]); the kind is @racket['generic],
 @racket['out-of-memory], @racket['cuda] or @racket['logic] for
 @racket[(last-error-kind)] 0 to 3, and @racket['generic] for any other code.
 @racket[last-error] and @racket[last-error-kind] are called only after a

@@ -24,6 +24,7 @@
                  "exn.rkt"
                  "foreign/library.rkt"
                  "install-native.rkt"
+                 "log.rkt"
                  "resource.rkt"))
 
 (define (copy-loader! root)

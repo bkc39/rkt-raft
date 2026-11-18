@@ -1,9 +1,11 @@
 #lang racket/base
 
-(require (only-in rackunit check-equal? check-exn check-pred check-regexp-match)
+(require (only-in racket/match match)
+         (only-in rackunit check-equal? check-exn check-pred check-regexp-match)
          (only-in "../../private/error.rkt" exn:fail:raft-kind exn:fail:raft?))
 
-(provide check-raft-error)
+(provide check-raft-error
+         raised-and-logged)
 
 (define (check-raft-error kind expected thunk)
   (check-exn (lambda (e)
@@ -14,3 +16,15 @@
                    (check-regexp-match expected (exn-message e)))
                #t)
              thunk))
+
+(define (drain receiver)
+  (match (sync/timeout 0 receiver)
+    [#f '()]
+    [(vector level message _ topic) (cons (list level topic message) (drain receiver))]))
+
+(define (raised-and-logged thunk)
+  (define receiver (make-log-receiver (current-logger) 'debug 'raft))
+  (define e
+    (with-handlers ([exn:fail:raft? values])
+      (thunk)))
+  (list (exn-message e) (drain receiver)))

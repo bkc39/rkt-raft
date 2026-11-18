@@ -149,6 +149,7 @@ if(BUILD_TESTING)
   target_include_directories(raftrkt_probe
     PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include ${CMAKE_CURRENT_SOURCE_DIR}/src)
   target_link_libraries(raftrkt_probe PRIVATE raft::raft)
+  target_compile_definitions(raftrkt_probe PRIVATE ENABLE_COLLECT_CALLSTACK)
   target_link_options(raftrkt_probe PRIVATE
     "LINKER:--exclude-libs,ALL"
     $<$<NOT:$<BOOL:${RAFTRKT_SANITIZE}>>:LINKER:--no-undefined>
