@@ -40,6 +40,23 @@ inline void count_owner_drop(const raft::handle_t& handle) noexcept {
   }
 }
 
+template <typename Parts>
+struct counted {
+  template <typename... Extents>
+  explicit counted(const raft::handle_t& h, Extents... extents)
+      : handle(h), parts(h, extents...) {}
+  ~counted() {
+    count_owner_drop(handle);
+  }
+  counted(const counted&) = delete;
+  counted& operator=(const counted&) = delete;
+  counted(counted&&) = delete;
+  counted& operator=(counted&&) = delete;
+
+  const raft::handle_t& handle;
+  Parts parts;
+};
+
 template <typename Fn>
 void on_floats(const rr_view* x, const char* name, Fn&& fn) {
   const rr_view& view = *raftrkt::require(x, name);

@@ -52,6 +52,9 @@ KC_API int kc_cluster_graph(void* handle, const rr_view* labels,
 KC_API int kc_csr_copy(void* handle, const rr_view* indptr,
                        const rr_view* indices, const rr_view* data,
                        int64_t cols, rr_deposit* out);
+KC_API int kc_assignment_graph(void* handle, const rr_view* labels,
+                               int32_t n_clusters, const rr_view* indptr,
+                               const rr_view* indices, const rr_view* data);
 KC_API uint64_t kc_owner_drop_count(void);
 KC_API uint64_t kc_owner_stale_count(void);
 
@@ -66,6 +69,8 @@ KC_API void kc_cluster_graph_job(void* args, size_t args_len,
                                  rr_job_outcome* outcome);
 KC_API void kc_csr_copy_job(void* args, size_t args_len,
                             rr_job_outcome* outcome);
+KC_API void kc_assignment_graph_job(void* args, size_t args_len,
+                                    rr_job_outcome* outcome);
 
 KC_API int kc_noop(int32_t value, int32_t* out);
 KC_API void kc_noop_job(void* args, size_t args_len, rr_job_outcome* outcome);

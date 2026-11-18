@@ -18,6 +18,7 @@
 
 (provide call/kc
          canary-path
+         kc-assignment-graph-job
          kc-check-abi
          kc-cluster-graph-job
          kc-cluster-members-job
@@ -83,6 +84,10 @@
             "kc_cluster_graph_job"
             (handle view _int32 _int32 deposit))
 (define-job kc-csr-copy-job canary-library "kc_csr_copy_job" (handle view view view _int64 deposit))
+(define-job kc-assignment-graph-job
+            canary-library
+            "kc_assignment_graph_job"
+            (handle view _int32 view view view))
 
 (define-kc kc-owner-drop-count (_fun -> _uint64))
 (define-kc kc-owner-stale-count (_fun -> _uint64))

@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <numeric>
 #include <raft/core/handle.hpp>
 #include <raft/core/resource/cuda_stream.hpp>
 #include <rmm/device_uvector.hpp>
@@ -19,27 +20,11 @@
 
 namespace {
 
-template <typename Index>
-struct graph {
-  graph(const raft::handle_t& h, int64_t rows, int64_t nnz)
-      : parts(h, rows, nnz) {}
-  ~graph() {
-    kc::count_owner_drop(parts.handle);
-  }
-  graph(const graph&) = delete;
-  graph& operator=(const graph&) = delete;
-  graph(graph&&) = delete;
-  graph& operator=(graph&&) = delete;
-
-  raftrkt::csr_buffers<float, Index> parts;
-};
-
 template <typename T>
-void upload(rmm::device_uvector<T>& to, const std::vector<T>& from,
-            cudaStream_t stream) {
+void upload(T* to, const std::vector<T>& from, cudaStream_t stream) {
   if (!from.empty()) {
     raftrkt::cuda_check(
-        cudaMemcpyAsync(to.data(), from.data(), from.size() * sizeof(T),
+        cudaMemcpyAsync(to, from.data(), from.size() * sizeof(T),
                         cudaMemcpyHostToDevice, stream),
         "cudaMemcpyAsync");
   }
@@ -54,7 +39,8 @@ void copy(rmm::device_uvector<T>& to, const T* from, cudaStream_t stream) {
   }
 }
 
-std::vector<int32_t> host_labels(const rr_view* labels, cudaStream_t stream) {
+std::vector<int32_t> host_labels(const rr_view* labels, int32_t n_clusters,
+                                 cudaStream_t stream) {
   auto view = raftrkt::vector_view<const int32_t>(labels, "labels");
   std::vector<int32_t> host(view.size());
   if (!host.empty()) {
@@ -64,6 +50,13 @@ std::vector<int32_t> host_labels(const rr_view* labels, cudaStream_t stream) {
                         "cudaMemcpyAsync");
   }
   raftrkt::cuda_check(cudaStreamSynchronize(stream), "cudaStreamSynchronize");
+  for (std::size_t i = 0; i < host.size(); ++i) {
+    if (host[i] < 0 || host[i] >= n_clusters) {
+      throw kc::logic_error("labels: entry " + std::to_string(i) + " is " +
+                            std::to_string(host[i]) + ", outside [0, " +
+                            std::to_string(n_clusters) + ")");
+    }
+  }
   return host;
 }
 
@@ -71,21 +64,13 @@ template <typename Index>
 void cluster_graph(const raft::handle_t& handle, const rr_view* labels,
                    int32_t n_clusters, rr_deposit* out) {
   cudaStream_t stream = raft::resource::get_cuda_stream(handle).value();
-  const std::vector<int32_t> classes = host_labels(labels, stream);
+  const std::vector<int32_t> classes = host_labels(labels, n_clusters, stream);
   const auto k = static_cast<std::size_t>(n_clusters < 0 ? 0 : n_clusters);
   std::vector<Index> indptr(k + 1, 0);
-  for (std::size_t i = 0; i < classes.size(); ++i) {
-    const int32_t c = classes[i];
-    if (c < 0 || c >= n_clusters) {
-      throw kc::logic_error("labels: entry " + std::to_string(i) + " is " +
-                            std::to_string(c) + ", outside [0, " +
-                            std::to_string(n_clusters) + ")");
-    }
+  for (const int32_t c : classes) {
     ++indptr[static_cast<std::size_t>(c) + 1];
   }
-  for (std::size_t c = 0; c < k; ++c) {
-    indptr[c + 1] += indptr[c];
-  }
+  std::partial_sum(indptr.begin(), indptr.end(), indptr.begin());
   std::vector<Index> next(indptr.begin(), indptr.end() - 1);
   std::vector<Index> indices(classes.size());
   for (std::size_t i = 0; i < classes.size(); ++i) {
@@ -95,11 +80,13 @@ void cluster_graph(const raft::handle_t& handle, const rr_view* labels,
   }
   const std::vector<float> ones(classes.size(), 1.0F);
   const auto nnz = static_cast<int64_t>(classes.size());
-  auto owner = std::make_unique<graph<Index>>(handle, n_clusters, nnz);
+  auto owner =
+      std::make_unique<kc::counted<raftrkt::csr_buffers<float, Index>>>(
+          handle, n_clusters, nnz);
   raftrkt::csr_buffers<float, Index>& p = owner->parts;
-  upload(p.indptr, indptr, stream);
-  upload(p.indices, indices, stream);
-  upload(p.data, ones, stream);
+  upload(p.indptr.data(), indptr, stream);
+  upload(p.indices.data(), indices, stream);
+  upload(p.data.data(), ones, stream);
   raftrkt::cuda_check(cudaStreamSynchronize(stream), "cudaStreamSynchronize");
   Index* indptr_data = p.indptr.data();
   Index* indices_data = p.indices.data();
@@ -122,12 +109,42 @@ void csr_copy(const raft::handle_t& handle, const csr_input& in,
       in.indptr, in.indices, in.data, raftrkt::any_extent, in.cols, nullptr);
   cudaStream_t stream = raft::resource::get_cuda_stream(handle).value();
   auto owner =
-      std::make_unique<raftrkt::csr_buffers<T, Index>>(handle, p.rows, p.nnz);
+      std::make_unique<raftrkt::csr_buffers<T, Index>>(handle, p.rows, 0);
   copy(owner->indptr, p.indptr, stream);
+  owner->resize_entries(
+      raftrkt::read_nnz(handle, owner->indptr.data(), p.rows));
   copy(owner->indices, p.indices, stream);
   copy(owner->data, p.data, stream);
   raftrkt::cuda_check(cudaStreamSynchronize(stream), "cudaStreamSynchronize");
   raftrkt::deposit_csr(out, "out", handle, std::move(owner));
+}
+
+struct csr_output {
+  const rr_view* indptr;
+  const rr_view* indices;
+  const rr_view* data;
+};
+
+template <typename Index>
+void assignment_graph(const raft::handle_t& handle, const rr_view* labels,
+                      int32_t n_clusters, const csr_output& out) {
+  cudaStream_t stream = raft::resource::get_cuda_stream(handle).value();
+  const std::vector<int32_t> classes = host_labels(labels, n_clusters, stream);
+  const auto n = static_cast<int64_t>(classes.size());
+  const auto p = raftrkt::csr_parts<float, Index>(
+      out.indptr, out.indices, out.data, n, n_clusters, "out");
+  if (p.nnz != n) {
+    throw kc::logic_error("out: indices: expected " + std::to_string(n) +
+                          " elements, got " + std::to_string(p.nnz));
+  }
+  std::vector<Index> indptr(classes.size() + 1);
+  std::iota(indptr.begin(), indptr.end(), Index{0});
+  const std::vector<Index> indices(classes.begin(), classes.end());
+  const std::vector<float> ones(classes.size(), 1.0F);
+  upload(p.indptr, indptr, stream);
+  upload(p.indices, indices, stream);
+  upload(p.data, ones, stream);
+  raftrkt::cuda_check(cudaStreamSynchronize(stream), "cudaStreamSynchronize");
 }
 
 template <typename Fn>
@@ -155,7 +172,7 @@ int kc_cluster_graph(void* handle, const rr_view* labels, int32_t n_clusters,
     const raftrkt::device_scope scope{device};
     raftrkt::require_on_device(device, {{"labels", labels}});
     raftrkt::sync_guard sync{raft::resource::get_cuda_stream(h)};
-    on_index(index_dtype, "index_dtype", [&](auto index) {
+    on_index(index_dtype, "indptr", [&](auto index) {
       cluster_graph<decltype(index)>(h, labels, n_clusters, out);
     });
     sync.finish();
@@ -177,6 +194,27 @@ int kc_csr_copy(void* handle, const rr_view* indptr, const rr_view* indices,
         csr_copy<decltype(value), decltype(index)>(
             h, {indptr, indices, data, cols}, out);
       });
+    });
+    sync.finish();
+  });
+}
+
+int kc_assignment_graph(void* handle, const rr_view* labels, int32_t n_clusters,
+                        const rr_view* indptr, const rr_view* indices,
+                        const rr_view* data) {
+  return raftrkt::translate_exceptions(kc::last_error_slot(), [&] {
+    const raft::handle_t& h = raftrkt::handle_of(handle);
+    const int device = raftrkt::device_of(h);
+    const raftrkt::device_scope scope{device};
+    raftrkt::require_on_device(device, {{"labels", labels},
+                                        {"indptr", indptr},
+                                        {"indices", indices},
+                                        {"data", data}});
+    raftrkt::sync_guard sync{raft::resource::get_cuda_stream(h)};
+    const rr_view& p = *raftrkt::require(indptr, "indptr");
+    on_index(p.dtype, "out: indptr", [&](auto index) {
+      assignment_graph<decltype(index)>(h, labels, n_clusters,
+                                        {indptr, indices, data});
     });
     sync.finish();
   });

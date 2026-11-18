@@ -1,6 +1,7 @@
 #lang racket/base
 
-(require (only-in racket/list append* make-list)
+(require (only-in racket/list append* make-list range)
+         (only-in racket/match match match-define)
          ;; whole-module: define-runtime-path needs bindings only-in strips
          racket/runtime-path
          (only-in rackunit check-equal?)
@@ -10,25 +11,22 @@
                   csr-indptr
                   current-device-resources
                   device-csr-matrix->list*
-                  device-vector->list
                   dtype
                   list->device-vector
                   shape)
          (only-in raft/private/array release-array!)
+         (only-in raft/tests/private/csr parts triplets)
          (only-in raft/tests/private/gpu test-gpu)
          (only-in raft/tests/private/python-env run-twin test-twin)
          (only-in raft/tests/private/raft-error check-raft-error)
          (only-in raft/unsafe deposit)
-         (only-in "../main.rkt" cluster-graph csr-copy)
+         (only-in "../main.rkt" assignment-graph cluster-graph csr-copy)
          (only-in "../private/native.rkt" kc-csr-copy-job))
 
 (define-runtime-path twin "python/kmeans_twin.py")
 
 (define labels-list '(2 0 1 0 2 2 0 1 2))
 (define k 4)
-
-(define (parts g)
-  (map device-vector->list (list (csr-indptr g) (csr-indices g) (csr-data g))))
 
 (define (host-graph labels clusters)
   (define rows
@@ -40,7 +38,8 @@
   (list (for/fold ([sums '(0)]
                    #:result (reverse sums))
                   ([row (in-list rows)])
-          (cons (+ (length row) (car sums)) sums))
+          (match-define (cons total _) sums)
+          (cons (+ (length row) total) sums))
         (append* rows)
         (make-list (length labels) 1.0)))
 
@@ -80,11 +79,43 @@
                                        (length labels-list)
                                        (deposit)))))
 
+(define graph-cases
+  '(("labels: entry 2 is 2, outside [0, 2)" (0 1 2) 2 int32)
+    ("labels: entry 1 is -1, outside [0, 2)" (0 -1 1) 2 int64)
+    (((0 0) ((0) () ())) () 0 int32)
+    ("rows: negative extent -1" () -1 int32)
+    ("indptr: expected int32 or int64, got float32" (0 1) 2 float32)))
+
+(test-gpu "law 20: cluster-graph refuses a label outside its clusters, negative clusters and float indices"
+  (for ([c (in-list graph-cases)])
+    (match-define (list expected labels clusters index-type) c)
+    (define (graph)
+      (cluster-graph (list->device-vector labels #:dtype 'int32) clusters #:index-dtype index-type))
+    (match expected
+      [(? string? message) (check-raft-error 'logic (format "cluster-graph: ~a" message) graph)]
+      [_
+       (define g (graph))
+       (check-equal? (list (shape g) (parts g)) expected (format "~a" c))])))
+
+(test-gpu "law 20: assignment-graph fills three caller-allocated views, one entry a row, as kNN does"
+  (for ([index-type (in-list '(int32 int64))])
+    (define g
+      (assignment-graph (list->device-vector labels-list #:dtype 'int32) k #:index-dtype index-type))
+    (match-define (list rows cols vals) (triplets (graph-of index-type)))
+    (define label (symbol->string index-type))
+    (define n (length labels-list))
+    (check-equal? (parts g) (list (range (add1 n)) labels-list (make-list n 1.0)) label)
+    (check-equal? (list (shape g) (dtype (csr-indptr g))) (list (list n k) index-type) label)
+    (check-equal? (triplets g) (apply map list (sort (map list cols rows vals) < #:key car)) label))
+  (check-raft-error 'logic
+                    "assignment-graph: labels: entry 0 is 4, outside [0, 4)"
+                    (lambda () (assignment-graph (list->device-vector '(4) #:dtype 'int32) k))))
+
 (test-twin "law 20: cluster-graph agrees with SciPy's csr_matrix((ones, (labels, arange(n))))"
-  (define results
+  (match-define (list result)
     (hash-ref (run-twin twin (hasheq 'cases (list (hasheq 'op "graph" 'labels labels-list 'k k))))
               'results))
   (for ([index-type (in-list '(int32 int64))])
     (check-equal? (parts (graph-of index-type))
-                  (map (lambda (key) (hash-ref (car results) key)) '(indptr indices data))
+                  (map (lambda (key) (hash-ref result key)) '(indptr indices data))
                   (symbol->string index-type))))
