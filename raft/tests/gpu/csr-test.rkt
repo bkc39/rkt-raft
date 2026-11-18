@@ -240,7 +240,7 @@
                     "list*->device-csr-matrix: row 1 has 1 element, but row 0 has 2: '(3)"
                     (lambda () (list*->device-csr-matrix '((1 2) (3)))))
   (check-raft-error 'logic
-                    "list*->device-csr-matrix: 1e300 does not fit float32"
+                    "list*->device-csr-matrix: 1e+300 does not fit float32"
                     (lambda () (list*->device-csr-matrix '((1e300)) #:dtype 'float32)))
   (check-raft-error 'logic
                     "triplets->device-csr-matrix: cols has 2 elements, but rows has 3"

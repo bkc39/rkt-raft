@@ -633,7 +633,8 @@ nix develop                        # the GPU shell (first entry builds and provi
 nix flake check --max-jobs 1 --cores 4   # the CI-equivalent; GPU cases print SKIP
 scripts/gpu-suite.sh               # in the shell, on the GPU host: gtests, LD_BIND_NOW
                                    #   load, raco tests with twin parity, the census;
-                                   #   red on any SKIP but the no-driver cases
+                                   #   red on any SKIP but the no-driver and
+                                   #   two-device cases
 raco test raft                     # the Racket tests
 racket scripts/check-bindings.rkt  # rr_ exports against the bindings
 scripts/render-docs.sh <dir>       # the manual, red on any warning or broken link

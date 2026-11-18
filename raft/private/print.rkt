@@ -84,11 +84,20 @@
              (string-append "[" (cells-text row width) "]"))))
      (string-join lines "\n " #:before-first "[" #:after-last "]")]))
 
+(define csr-threshold 50)
+(define csr-edge-entries 25)
+
 (define (csr-runs n)
-  (error 'csr-runs "unimplemented"))
+  (if (> n csr-threshold)
+      (list (cons 0 csr-edge-entries) (cons (- n csr-edge-entries) csr-edge-entries))
+      (list (cons 0 n))))
 
 (define (csr-text dtype entries)
-  (error 'csr-text "unimplemented"))
+  (string-join (for/list ([entry (in-list entries)])
+                 (match entry
+                   ['... "..."]
+                   [(list row col x) (format "(~a ~a) ~a" row col (element->string dtype x))]))
+               "\n"))
 
 (define (shape-text shape)
-  (error 'shape-text "unimplemented"))
+  (string-join (map number->string shape) "×" #:before-first "[" #:after-last "]"))

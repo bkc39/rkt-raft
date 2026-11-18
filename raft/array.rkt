@@ -41,14 +41,14 @@
 
 (provide contiguous
          contiguous?
-         csr-data
-         csr-indices
-         csr-indptr
+         csr-data ;; noqa
+         csr-indices ;; noqa
+         csr-indptr ;; noqa
          device-array? ;; noqa
-         device-csr-matrix
-         device-csr-matrix->list*
-         device-csr-matrix->triplets
-         device-csr-matrix?
+         device-csr-matrix ;; noqa
+         device-csr-matrix->list* ;; noqa
+         device-csr-matrix->triplets ;; noqa
+         device-csr-matrix? ;; noqa
          device-matrix
          device-matrix->list*
          device-matrix?
@@ -59,14 +59,14 @@
          dtype
          flvector->device-vector
          layout
-         list*->device-csr-matrix
+         list*->device-csr-matrix ;; noqa
          list*->device-matrix
          list->device-vector
-         nnz
+         nnz ;; noqa
          numel ;; noqa
          shape
          strides
-         triplets->device-csr-matrix)
+         triplets->device-csr-matrix) ;; noqa
 
 (define (device-matrix rows
                        cols
