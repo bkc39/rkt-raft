@@ -1,25 +1,13 @@
 #lang racket/base
 
-(require (only-in racket/match match match-define)
-         (only-in rackunit check-equal? check-pred test-case)
-         (only-in "../private/exn.rkt"
-                  exn:fail:raft
-                  exn:fail:raft-kind
-                  exn:fail:raft?
-                  raise-native
-                  raise-raft))
-
-(define (drain receiver)
-  (match (sync/timeout 0 receiver)
-    [#f '()]
-    [(vector level message _ topic) (cons (list level topic message) (drain receiver))]))
-
-(define (raised-and-logged thunk)
-  (define receiver (make-log-receiver (current-logger) 'debug 'raft))
-  (define e
-    (with-handlers ([exn:fail:raft? values])
-      (thunk)))
-  (list (exn-message e) (drain receiver)))
+(require (only-in racket/match match-define)
+         (only-in rackunit check-equal? test-case)
+         (only-in "../private/exn.rkt" exn:fail:raft raise-native raise-raft)
+         (only-in "private/raft-error.rkt"
+                  check-raft-error
+                  exn:fail:canary
+                  exn:fail:canary?
+                  raised-and-logged))
 
 (define (native text)
   (raised-and-logged (lambda () (raise-native exn:fail:raft 'demo 'logic text))))
@@ -67,13 +55,10 @@
     (check-equal? (native text) (list message log) (format "~s" text))))
 
 (test-case "a native message keeps the downstream's exception type and the kind"
-  (struct exn:fail:canary exn:fail:raft ())
-  (define e
-    (with-handlers ([exn:fail:raft? values])
-      (raise-native exn:fail:canary 'fit 1 backtrace)))
-  (check-pred exn:fail:canary? e)
-  (check-equal? (exn:fail:raft-kind e) 'out-of-memory)
-  (check-equal? (exn-message e) "fit: RAFT failure at file=/src/fit.cu line=12: token 7"))
+  (check-raft-error 'out-of-memory
+                    "fit: RAFT failure at file=/src/fit.cu line=12: token 7"
+                    #:exn exn:fail:canary?
+                    (lambda () (raise-native exn:fail:canary 'fit 1 backtrace))))
 
 (test-case "a message raft composes keeps all its lines and logs nothing"
   (define advice
