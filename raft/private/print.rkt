@@ -8,7 +8,10 @@
          (only-in racket/string string-join))
 
 (provide array-text
+         csr-runs
+         csr-text
          float32->string
+         shape-text
          summarised?)
 
 (define threshold 1000)
@@ -80,3 +83,12 @@
              "..."
              (string-append "[" (cells-text row width) "]"))))
      (string-join lines "\n " #:before-first "[" #:after-last "]")]))
+
+(define (csr-runs n)
+  (error 'csr-runs "unimplemented"))
+
+(define (csr-text dtype entries)
+  (error 'csr-text "unimplemented"))
+
+(define (shape-text shape)
+  (error 'shape-text "unimplemented"))

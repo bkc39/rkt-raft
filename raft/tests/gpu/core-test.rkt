@@ -39,7 +39,14 @@
 
 (define array-names
   '(contiguous contiguous?
+               csr-data
+               csr-indices
+               csr-indptr
                device-array?
+               device-csr-matrix
+               device-csr-matrix->list*
+               device-csr-matrix->triplets
+               device-csr-matrix?
                device-matrix
                device-matrix->list*
                device-matrix?
@@ -50,17 +57,22 @@
                dtype
                flvector->device-vector
                layout
+               list*->device-csr-matrix
                list*->device-matrix
                list->device-vector
+               nnz
                numel
                shape
-               strides))
+               strides
+               triplets->device-csr-matrix))
 
 (define compat-names
   '(array->device-array bytes->device-vector
                         device-array->array
                         device-array->list*
                         device-array->vector*
+                        device-csr-matrix->list*
+                        device-csr-matrix->triplets
                         device-matrix->list*
                         device-matrix->matrix
                         device-matrix->vector*
@@ -76,10 +88,12 @@
                         f64vector->device-vector
                         flvector->device-vector
                         list*->device-array
+                        list*->device-csr-matrix
                         list*->device-matrix
                         list->device-vector
                         matrix->device-matrix
                         matrix->device-vector
+                        triplets->device-csr-matrix
                         vector*->device-array
                         vector*->device-matrix
                         vector->device-vector))

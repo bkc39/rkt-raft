@@ -16,6 +16,19 @@
                   read-array
                   strides->layout
                   write-array!)
+         (only-in "private/csr.rkt"
+                  csr-data
+                  csr-indices
+                  csr-indptr
+                  device-csr-matrix
+                  device-csr-matrix->list*
+                  device-csr-matrix->triplets
+                  device-csr-matrix-data
+                  device-csr-matrix-shape
+                  device-csr-matrix?
+                  list*->device-csr-matrix
+                  nnz
+                  triplets->device-csr-matrix)
          (only-in "private/pack.rkt"
                   infer-dtype
                   infer-rows-dtype
@@ -28,7 +41,14 @@
 
 (provide contiguous
          contiguous?
+         csr-data
+         csr-indices
+         csr-indptr
          device-array? ;; noqa
+         device-csr-matrix
+         device-csr-matrix->list*
+         device-csr-matrix->triplets
+         device-csr-matrix?
          device-matrix
          device-matrix->list*
          device-matrix?
@@ -39,11 +59,14 @@
          dtype
          flvector->device-vector
          layout
+         list*->device-csr-matrix
          list*->device-matrix
          list->device-vector
+         nnz
          numel ;; noqa
          shape
-         strides)
+         strides
+         triplets->device-csr-matrix)
 
 (define (device-matrix rows
                        cols
@@ -64,10 +87,14 @@
   (and (device-array? v) (= (array-rank v) 1)))
 
 (define (shape a)
-  (device-array-shape a))
+  (cond
+    [(device-csr-matrix? a) (device-csr-matrix-shape a)]
+    [else (device-array-shape a)]))
 
 (define (dtype a)
-  (device-array-dtype a))
+  (cond
+    [(device-csr-matrix? a) (device-array-dtype (device-csr-matrix-data a))]
+    [else (device-array-dtype a)]))
 
 (define (strides a)
   (device-array-strides a))
