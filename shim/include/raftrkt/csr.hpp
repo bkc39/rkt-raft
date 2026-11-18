@@ -214,8 +214,7 @@ int64_t read_nnz(const raft::handle_t& handle, const Index* indptr,
   return static_cast<int64_t>(last);
 }
 
-// NOLINTBEGIN(bugprone-easily-swappable-parameters) -- the C interface's
-// order: indptr and its rows, then indices, data and their length
+// NOLINTBEGIN(bugprone-easily-swappable-parameters)
 template <typename Owner, typename T, typename Index>
 void deposit_csr(rr_deposit* into, const char* name,
                  const raft::handle_t& handle, std::unique_ptr<Owner>&& owner,
@@ -226,6 +225,11 @@ void deposit_csr(rr_deposit* into, const char* name,
   if (rows == -1) {
     throw logic_error(std::string(name) +
                       ": indptr: expected at least 1 element, got 0");
+  }
+  if (rows == std::numeric_limits<int64_t>::max()) {
+    throw logic_error(std::string(name) + ": indptr: expected " +
+                      std::to_string(static_cast<uint64_t>(rows) + 1) +
+                      " elements, more than an extent holds");
   }
   deposit(into, name, handle, std::move(owner),
           {region(indptr, rows + 1), region(indices, nnz), region(data, nnz)});

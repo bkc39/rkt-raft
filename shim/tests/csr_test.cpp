@@ -1,15 +1,23 @@
+#include "raftrkt/csr.hpp"
+
 #include <gtest/gtest.h>
 
 #include <cstddef>
 #include <cstdint>
+#include <memory>
+#include <raft/core/handle.hpp>
+#include <raft/core/resource/cuda_stream.hpp>
 #include <string>
 #include <type_traits>
+#include <utility>
 #include <vector>
 
 #include "detail/array_api.h"
 #include "detail/csr_api.h"
 #include "gpu.hpp"
 #include "raftrkt/c_api.h"
+#include "raftrkt/deposit.h"
+#include "raftrkt/error.hpp"
 
 namespace {
 
@@ -218,6 +226,63 @@ TEST_F(WideCheck, ValuesBeyondInt32AreReportedInFull) {
   index.indices[nnz - 1] = beyond_int32;
   EXPECT_EQ(check(index),
             "indices: entry 999999 is 8589934592, outside [0, 2000)");
+}
+
+using float_buffers = raftrkt::csr_buffers<float, int32_t>;
+
+std::string refusal(void (*call)(const raft::handle_t&)) {
+  const raft::handle_t handle;
+  try {
+    call(handle);
+  } catch (const raftrkt::logic_error& e) {
+    return e.what();
+  }
+  return "no refusal";
+}
+
+std::string refused_buffers(void (*shrink)(float_buffers&,
+                                           rmm::cuda_stream_view)) {
+  const raft::handle_t handle;
+  rr_deposit record{};
+  record.handle = &handle;
+  record.state = RR_DEPOSIT_OPEN;
+  auto owner = std::make_unique<float_buffers>(handle, 3, 5);
+  shrink(*owner, raft::resource::get_cuda_stream(handle));
+  try {
+    raftrkt::deposit_csr(&record, "out", handle, std::move(owner));
+  } catch (const raftrkt::logic_error& e) {
+    EXPECT_EQ(record.state, RR_DEPOSIT_OPEN);
+    return e.what();
+  }
+  return "no refusal";
+}
+
+TEST(CsrBuffers, RefuseAnEmptyIndptrAndShortDataBeforeTheClaim) {
+  RR_REQUIRE_GPU();
+  EXPECT_EQ(refused_buffers([](float_buffers& b, rmm::cuda_stream_view s) {
+              b.indptr.resize(0, s);
+            }),
+            "out: indptr: expected at least 1 element, got 0");
+  EXPECT_EQ(refused_buffers([](float_buffers& b, rmm::cuda_stream_view s) {
+              b.data.resize(4, s);
+            }),
+            "out: data: expected 5 elements, got 4");
+}
+
+TEST(CsrBuffers, NamelessRefusalsNameTheExtent) {
+  RR_REQUIRE_GPU();
+  EXPECT_EQ(refusal([](const raft::handle_t& h) { float_buffers b(h, 0, -5); }),
+            "nnz: negative extent -5");
+  EXPECT_EQ(refusal([](const raft::handle_t& h) {
+              float_buffers b(h, 3, 0);
+              b.resize_entries(-5);
+            }),
+            "nnz: negative extent -5");
+  EXPECT_EQ(refusal([](const raft::handle_t& h) {
+              float_buffers b(h, 3, 0);
+              raftrkt::read_nnz(h, b.indptr.data(), -1);
+            }),
+            "rows: negative extent -1");
 }
 
 }  // namespace

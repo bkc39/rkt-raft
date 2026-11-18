@@ -4,6 +4,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <limits>
 #include <memory>
 #include <raft/core/handle.hpp>
 #include <string>
@@ -215,6 +216,41 @@ TEST(DepositCsr, LeavesTheRegionChecksToDeposit) {
   EXPECT_EQ(refused_fill(record, handle, rows, -1),
             "out: region 1: negative extent -1");
   EXPECT_EQ(record.state, RR_DEPOSIT_OPEN);
+}
+
+TEST(DepositCsr, RefusesRowsWhoseIndptrOverflowsAnExtent) {
+  const raft::handle_t handle;
+  rr_deposit record = open_record(handle);
+  EXPECT_EQ(
+      refused_fill(record, handle, std::numeric_limits<int64_t>::max(), 0),
+      "out: indptr: expected 9223372036854775808 elements, more than "
+      "an extent holds");
+  EXPECT_EQ(record.state, RR_DEPOSIT_OPEN);
+}
+
+using float_buffers = raftrkt::csr_buffers<float, int32_t>;
+
+std::string refused_buffers(rr_deposit& record, const raft::handle_t& handle,
+                            std::unique_ptr<float_buffers> owner) {
+  try {
+    raftrkt::deposit_csr(&record, "out", handle, std::move(owner));
+  } catch (const raftrkt::logic_error& e) {
+    return e.what();
+  }
+  return "no refusal";
+}
+
+TEST(DepositCsr, BuffersRefuseNoOwnerUnclaimed) {
+  const raft::handle_t handle;
+  rr_deposit record = open_record(handle);
+  EXPECT_EQ(refused_buffers(record, handle, nullptr), "out: no owner");
+  EXPECT_EQ(record.state, RR_DEPOSIT_OPEN);
+}
+
+TEST(CsrBuffers, NegativeRowsAreRefusedBeforeAnyAllocation) {
+  const raft::handle_t handle;
+  expect_message([&] { float_buffers b(handle, -1, 0); },
+                 "rows: negative extent -1");
 }
 
 TEST(DepositCsr, EveryFormInstantiatesAsHostCpp) {
