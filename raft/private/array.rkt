@@ -1,6 +1,6 @@
 #lang racket/base
 
-(require (only-in racket/string string-contains? string-join string-replace)
+(require (only-in racket/string string-contains? string-join)
          (only-in "dtype.rkt" code->dtype dtype->code dtype-itemsize)
          (only-in "error.rkt" call/raft exn:fail:raft?)
          (only-in "foreign/array-api.rkt"
@@ -19,7 +19,7 @@
                   view-strides)
          (only-in "foreign/host.rkt" host-getter host-memory)
          (only-in "foreign/memory.rkt" released? rr-buffer-free)
-         (only-in "print.rkt" array-text shape-text summarised?)
+         (only-in "print.rkt" array-text indented shape-text summarised?)
          (only-in "resources.rkt" in-backoff resources-handle))
 
 (provide allocate-array
@@ -218,5 +218,5 @@
      " "))
   (define kind (if matrix? "device-matrix" "device-vector"))
   (if (string-contains? text "\n")
-      (format "#<~a ~a\n ~a>" kind header (string-replace text "\n" "\n "))
+      (format "#<~a ~a~a>" kind header (indented text))
       (format "#<~a ~a ~a>" kind header text)))

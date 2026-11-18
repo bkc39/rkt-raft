@@ -1,95 +1,78 @@
 #lang racket/base
 
 (require (only-in racket/flonum flsingle)
-         (only-in racket/list append* make-list)
-         (only-in racket/match match match* match-define)
-         (only-in racket/string string-replace)
+         (only-in racket/list append* append-map filter-not make-list)
+         (only-in racket/match match* match-define match-lambda struct*)
          (only-in "array.rkt"
-                  allocate-array
                   array-buffer-handle
                   array-device
                   device-array-dtype
                   device-array-offset
                   device-array-shape
-                  read-all
-                  read-array
-                  settled-descriptor
-                  write-array!)
-         (only-in "dtype.rkt" dtype-itemsize)
+                  settled-descriptor)
          (only-in "error.rkt" call/raft exn:fail:raft?)
          (only-in "exn.rkt" raise-raft)
-         (only-in "foreign/csr-api.rkt" rr-csr-check)
-         (only-in "foreign/host.rkt" host-getter host-memory)
+         (only-in "foreign/csr-api.rkt" rr-csr-check rr-csr-check-shape)
+         (only-in "foreign/host.rkt" host-getter host-memory host-setter)
          (only-in "foreign/memory.rkt" released?)
-         (only-in "pack.rkt"
-                  element-converter
-                  elements
-                  matrix-shape
-                  over-elements
-                  pack-vector
-                  unpack-vector)
-         (only-in "print.rkt" csr-runs csr-text shape-text)
-         (only-in "resources.rkt" current-device-resources))
+         (only-in "pack.rkt" element-converter elements matrix-shape over-elements)
+         (only-in "print.rkt" csr-runs csr-text indented shape-text)
+         (only-in "resources.rkt" current-device-resources)
+         (only-in "vector.rkt" read-block read-vector upload-vector))
 
-(provide csr-data
-         csr-indices
-         csr-indptr
+(provide (rename-out [device-csr-matrix-data csr-data]
+                     [device-csr-matrix-indices csr-indices]
+                     [device-csr-matrix-indptr csr-indptr])
          device-csr-matrix
          device-csr-matrix->list*
          device-csr-matrix->triplets
-         device-csr-matrix-data
          device-csr-matrix-shape
          device-csr-matrix?
          list*->device-csr-matrix
          nnz
-         parts->device-csr-matrix ;; noqa
+         prefix-sums
          triplets->device-csr-matrix)
 
+(module+ unchecked
+  (provide unchecked-device-csr-matrix)) ;; noqa
+
 (struct device-csr-matrix (indptr indices data shape)
-  #:constructor-name parts->device-csr-matrix
-  #:omit-define-syntaxes
+  #:name csr-matrix
+  #:constructor-name unchecked-device-csr-matrix
   #:property prop:custom-write
   (lambda (m port _mode) (write-string (csr->string m) port)))
 
-(define (checked-csr who indptr indices data extents)
+(define (int64-extents extents)
   (match-define (list rows cols) extents)
-  (define indptr-view (settled-descriptor who indptr))
-  (define indices-view (settled-descriptor who indices))
-  (define data-view (settled-descriptor who data))
-  (call/raft who
-             (lambda ()
-               (rr-csr-check (array-buffer-handle indptr)
-                             (device-array-offset indptr)
-                             indptr-view
-                             (array-buffer-handle indices)
-                             (device-array-offset indices)
-                             indices-view
-                             (array-buffer-handle data)
-                             (device-array-offset data)
-                             data-view
-                             rows
-                             cols)))
-  (parts->device-csr-matrix indptr indices data extents))
+  (define host (host-memory 16))
+  (define set (host-setter 'int64))
+  (define get (host-getter 'int64))
+  (set host 0 rows)
+  (set host 1 cols)
+  (list (get host 0) (get host 1)))
 
-(define (device-csr-matrix indptr indices data #:shape extents) ;; noqa
+(define (checked-shape who index-type element-type extents)
+  (define checked (int64-extents extents))
+  (call/raft who (lambda () (apply rr-csr-check-shape index-type element-type checked)))
+  checked)
+
+(define (part-arguments who part)
+  (list (array-buffer-handle part) (device-array-offset part) (settled-descriptor who part)))
+
+(define (checked-csr who indptr indices data extents)
+  (define checked (int64-extents extents))
+  (define arguments
+    (append (append-map (lambda (part) (part-arguments who part)) (list indptr indices data))
+            checked))
+  (call/raft who (lambda () (apply rr-csr-check arguments)))
+  (unchecked-device-csr-matrix indptr indices data checked))
+
+(define (device-csr-matrix indptr indices data #:shape extents)
   (checked-csr 'device-csr-matrix indptr indices data extents))
 
-(define (csr-indptr m)
-  (device-csr-matrix-indptr m))
-
-(define (csr-indices m)
-  (device-csr-matrix-indices m))
-
-(define (csr-data m)
-  (device-csr-matrix-data m))
-
 (define (nnz m)
-  (car (device-array-shape (device-csr-matrix-indices m))))
-
-(define (upload who resources dtype xs)
-  (define n (length xs))
-  (define v (allocate-array who resources dtype 'row-major (list n)))
-  (write-array! who v (pack-vector who dtype n xs)))
+  (match-define (list n) (device-array-shape (device-csr-matrix-indices m)))
+  n)
 
 (define (prefix-sums counts)
   (for/fold ([sums '(0)]
@@ -97,10 +80,27 @@
             ([n (in-list counts)])
     (cons (+ n (car sums)) sums)))
 
-(define (build-csr who resources element-type index-type extents counts cols vals)
-  (define indptr (upload who resources index-type (prefix-sums counts)))
-  (define indices (upload who resources index-type cols))
-  (define data (upload who resources element-type vals))
+(define (row-counts row-count entries)
+  (define counts
+    (for/fold ([counts (hasheqv)]) ([entry (in-list entries)])
+      (match-define (vector r _ _) entry)
+      (hash-update counts r add1 0)))
+  (for/list ([r (in-range row-count)])
+    (hash-ref counts r 0)))
+
+(define (build-csr who resources element-type index-type extents entries)
+  (match-define (list row-count _) extents)
+  (define-values (cols vals)
+    (for/fold ([cols '()]
+               [vals '()]
+               #:result (values (reverse cols) (reverse vals)))
+              ([entry (in-list entries)])
+      (match-define (vector _ c x) entry)
+      (values (cons c cols) (cons x vals))))
+  (define indptr
+    (upload-vector who resources index-type (prefix-sums (row-counts row-count entries))))
+  (define indices (upload-vector who resources index-type cols))
+  (define data (upload-vector who resources element-type vals))
   (checked-csr who indptr indices data extents))
 
 (define (list*->device-csr-matrix rows
@@ -108,22 +108,17 @@
                                   #:index-dtype [index-type 'int32]
                                   #:resources [resources (current-device-resources)])
   (define who 'list*->device-csr-matrix)
-  (define extents (matrix-shape who rows))
+  (define extents (checked-shape who index-type element-type (matrix-shape who rows)))
   (define convert (element-converter who element-type))
   (define entries
-    (over-elements (for/list ([row rows])
-                     (filter (lambda (entry) (not (= (cdr entry) 0)))
-                             (over-elements (for/list ([x row]
-                                                       [j (in-naturals)])
-                                              (cons j (convert x))))))))
-  (build-csr who
-             resources
-             element-type
-             index-type
-             extents
-             (map length entries)
-             (map car (append* entries))
-             (map cdr (append* entries))))
+    (append* (over-elements (for/list ([row rows]
+                                       [i (in-naturals)])
+                              (filter-not (match-lambda
+                                            [(vector _ _ x) (= x 0)])
+                                          (over-elements (for/list ([x row]
+                                                                    [j (in-naturals)])
+                                                           (vector i j (convert x)))))))))
+  (build-csr who resources element-type index-type extents entries))
 
 (define (adder element-type)
   (case element-type
@@ -151,6 +146,10 @@
       [((cons (vector r c sum) more) (vector r c x)) (cons (vector r c (add sum x)) more)]
       [(_ _) (cons entry out)])))
 
+(define (entry<? a b)
+  (match* (a b)
+    [((vector r c _) (vector r* c* _)) (or (< r r*) (and (= r r*) (< c c*)))]))
+
 (define (triplets->device-csr-matrix rows
                                      cols
                                      vals
@@ -159,7 +158,8 @@
                                      #:index-dtype [index-type 'int32]
                                      #:resources [resources (current-device-resources)])
   (define who 'triplets->device-csr-matrix)
-  (match-define (list row-count col-count) extents)
+  (define checked (checked-shape who index-type element-type extents))
+  (match-define (list row-count col-count) checked)
   (define n (length rows))
   (check-length who "cols" cols n)
   (check-length who "vals" vals n)
@@ -172,34 +172,16 @@
       (vector (check-index who k "row" r row-count)
               (check-index who k "col" c col-count)
               (convert x))))
-  (define entries
-    (summed (adder element-type)
-            (sort triplets
-                  (lambda (a b)
-                    (or (< (vector-ref a 0) (vector-ref b 0))
-                        (and (= (vector-ref a 0) (vector-ref b 0))
-                             (< (vector-ref a 1) (vector-ref b 1))))))))
-  (define counts (make-vector row-count 0))
-  (for ([entry (in-list entries)])
-    (define r (vector-ref entry 0))
-    (vector-set! counts r (add1 (vector-ref counts r))))
   (build-csr who
              resources
              element-type
              index-type
-             extents
-             (vector->list counts)
-             (map (lambda (entry) (vector-ref entry 1)) entries)
-             (map (lambda (entry) (vector-ref entry 2)) entries)))
-
-(define (read-vector who v)
-  (match-define (list n) (device-array-shape v))
-  (unpack-vector (device-array-dtype v) n (read-all who v)))
+             checked
+             (summed (adder element-type) (sort triplets entry<?))))
 
 (define (storage who m)
-  (values (read-vector who (device-csr-matrix-indptr m))
-          (read-vector who (device-csr-matrix-indices m))
-          (read-vector who (device-csr-matrix-data m))))
+  (match-define (struct* csr-matrix ([indptr indptr] [indices indices] [data data])) m)
+  (values (read-vector who indptr) (read-vector who indices) (read-vector who data)))
 
 (define (expanded-rows indptr)
   (append* (for/list ([start (in-list indptr)]
@@ -212,9 +194,9 @@
   (values (expanded-rows indptr) indices data))
 
 (define (device-csr-matrix->list* m)
+  (match-define (struct* csr-matrix ([data part] [shape (list rows cols)])) m)
   (define-values (indptr indices data) (storage 'device-csr-matrix->list* m))
-  (match-define (list rows cols) (device-csr-matrix-shape m))
-  (define add (adder (device-array-dtype (device-csr-matrix-data m))))
+  (define add (adder (device-array-dtype part)))
   (define dense
     (for/vector #:length rows
                 ([_ (in-range rows)])
@@ -228,66 +210,54 @@
     (vector->list row)))
 
 (define (element-at who v k)
-  (define dtype (device-array-dtype v))
-  ((host-getter dtype) (read-array who v (host-memory (dtype-itemsize dtype)) k) 0))
+  (car (read-block who v k 1)))
 
 (define (row-of who indptr k from rows)
   (let search ([lo from]
                [hi (sub1 rows)])
+    (define mid (quotient (+ lo hi 1) 2))
     (cond
       [(>= lo hi) lo]
-      [else
-       (define mid (quotient (+ lo hi 1) 2))
-       (if (<= (element-at who indptr mid) k)
-           (search mid hi)
-           (search lo (sub1 mid)))])))
-
-(define (block who v start count)
-  (define dtype (device-array-dtype v))
-  (define host (read-array who v (host-memory (* count (dtype-itemsize dtype))) start))
-  (unpack-vector dtype count host))
+      [(<= (element-at who indptr mid) k) (search mid hi)]
+      [else (search lo (sub1 mid))])))
 
 (define (run-entries who m rows run from)
+  (match-define (struct* csr-matrix ([indptr indptr] [indices indices] [data data])) m)
   (match-define (cons start count) run)
   (for/fold ([entries '()]
              [row from]
              #:result (values (reverse entries) row))
             ([k (in-naturals start)]
-             [c (in-list (block who (device-csr-matrix-indices m) start count))]
-             [x (in-list (block who (device-csr-matrix-data m) start count))])
-    (define r (row-of who (device-csr-matrix-indptr m) k row rows))
+             [c (in-list (read-block who indices start count))]
+             [x (in-list (read-block who data start count))])
+    (define r (row-of who indptr k row rows))
     (values (cons (list r c x) entries) r)))
 
-(define (shown-entries who m)
-  (match-define (list rows _) (device-csr-matrix-shape m))
-  (match (csr-runs (nnz m))
-    [(list run)
-     (define-values (entries _) (run-entries who m rows run 0))
-     entries]
-    [(list head tail)
-     (define-values (first-entries row) (run-entries who m rows head 0))
-     (define-values (last-entries _) (run-entries who m rows tail row))
-     (append first-entries '(...) last-entries)]))
+(define (shown-runs who m)
+  (match-define (struct* csr-matrix ([shape (list rows _)])) m)
+  (for/fold ([runs '()]
+             [row 0]
+             #:result (reverse runs))
+            ([run (in-list (csr-runs (nnz m)))])
+    (define-values (entries last-row) (run-entries who m rows run row))
+    (values (cons entries runs) last-row)))
 
 (define (entries-text m)
-  (define parts
-    (list (device-csr-matrix-indptr m) (device-csr-matrix-indices m) (device-csr-matrix-data m)))
+  (match-define (struct* csr-matrix ([indptr indptr] [indices indices] [data data])) m)
   (cond
-    [(ormap (lambda (part) (released? (array-buffer-handle part))) parts) " <released>"]
+    [(ormap (lambda (part) (released? (array-buffer-handle part))) (list indptr indices data))
+     " <released>"]
     [(zero? (nnz m)) ""]
     [else
      (with-handlers ([exn:fail:raft? (lambda (e)
                                        (format " <values unavailable: ~a>" (exn-message e)))])
-       (define text
-         (csr-text (device-array-dtype (device-csr-matrix-data m))
-                   (shown-entries 'device-csr-matrix m)))
-       (string-append "\n " (string-replace text "\n" "\n ")))]))
+       (indented (csr-text (device-array-dtype data) (shown-runs 'device-csr-matrix m))))]))
 
 (define (csr->string m)
-  (define indptr (device-csr-matrix-indptr m))
+  (match-define (struct* csr-matrix ([indptr indptr] [data data] [shape extents])) m)
   (format "#<device-csr-matrix ~a ~a nnz=~a index=~a cuda:~a~a>"
-          (device-array-dtype (device-csr-matrix-data m))
-          (shape-text (device-csr-matrix-shape m))
+          (device-array-dtype data)
+          (shape-text extents)
           (nnz m)
           (device-array-dtype indptr)
           (array-device indptr)
