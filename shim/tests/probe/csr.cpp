@@ -23,8 +23,6 @@
 #include "raftrkt/job.hpp"
 #include "raftrkt/view.hpp"
 
-// The two-phase owner is a plain csr_buffers, so the probe counts its drop
-// in the release raftrkt::deposit installs for it.
 namespace raftrkt::detail {
 
 template <typename T, typename Index>
