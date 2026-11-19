@@ -1,6 +1,7 @@
 #lang racket/base
 
 (require (only-in racket/match match-define)
+         (only-in rackunit check-exn test-case)
          (only-in "../../array.rkt" device-vector)
          (only-in "../private/gpu.rkt" test-gpu)
          (only-in "../private/raft-error.rkt" check-raft-error)
@@ -11,7 +12,14 @@
 (define namespace
   (parameterize ([current-namespace (namespace-anchor->empty-namespace here)])
     (for-each namespace-require
-              '(racket/base ffi/vector math/array math/matrix racket/flonum raft raft/compat))
+              '(racket/base ffi/vector
+                            math/array
+                            math/matrix
+                            racket/flonum
+                            raft
+                            raft/compat
+                            syntax/macro-testing
+                            (only raft/private/resources define/resources)))
     (namespace-set-variable-value! 'released-resources released-resources)
     (current-namespace)))
 
@@ -88,3 +96,20 @@
   (check-raft-error 'out-of-memory
                     #rx"^caller: "
                     (lambda () (device-vector (expt 2 40) #:who 'caller))))
+
+(define misused-headers
+  '((define/resources (f #:who who #:resources resources) resources)
+    (define/resources (f x #:resources resources) x)
+    (define/resources (f x #:who who) x)
+    (define/resources (f x) x)
+    (define/resources (f #:resources resources #:who who . rest) rest)))
+
+(test-case "define/resources names its two keywords, in order, when a header misuses them"
+  (for ([form (in-list misused-headers)])
+    (check-exn
+     #rx"^define/resources: expected a header \\(name formal \\.\\.\\. #:resources id #:who id\\)"
+     (lambda ()
+       (eval `(convert-syntax-error (let ()
+                                      ,form
+                                      (void)))
+             namespace)))))
