@@ -2,7 +2,14 @@
 
 (require (only-in racket/list remove-duplicates)
          (only-in racket/match match match-define)
-         (only-in rackunit check-eq? check-equal? check-exn check-false check-pred check-true test-case)
+         (only-in rackunit
+                  check-eq?
+                  check-equal?
+                  check-exn
+                  check-false
+                  check-pred
+                  check-true
+                  test-case)
          (only-in "../../main.rkt"
                   raft-abi
                   raft-abi-cccl

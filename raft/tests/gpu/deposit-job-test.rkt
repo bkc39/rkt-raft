@@ -242,20 +242,20 @@
 
 (test-probe "E10: a deposit released between a job's binding and its refused submit is freed at the close"
   (define d (deposit))
-  (released-once "released before a refused submit"
-                 (lambda ()
-                   (define before (counters))
-                   (check-exn #rx"^submit refused$"
-                              (lambda ()
-                                (call-with-deposits-bound 'demo
-                                                          (list d)
-                                                          (lambda (_records _holders)
-                                                            (deposit-release! d)
-                                                            (check-equal? (counts-holders (since before))
-                                                                          0)
-                                                            (error "submit refused")))))
-                   (check-used-after-release d))
-                 (counts 0 0 1 0 0)))
+  (released-once
+   "released before a refused submit"
+   (lambda ()
+     (define before (counters))
+     (check-exn #rx"^submit refused$"
+                (lambda ()
+                  (call-with-deposits-bound 'demo
+                                            (list d)
+                                            (lambda (_records _holders)
+                                              (deposit-release! d)
+                                              (check-equal? (counts-holders (since before)) 0)
+                                              (error "submit refused")))))
+     (check-used-after-release d))
+   (counts 0 0 1 0 0)))
 
 (define rlimit-nofile 7)
 (define descriptor-limit 256)

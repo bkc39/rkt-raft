@@ -15,7 +15,12 @@
          (only-in raft/tests/private/collect drain-finalizers! settled-count)
          (only-in raft/tests/private/gpu test-gpu)
          (only-in raft/tests/private/raft-error check-raft-error)
-         (only-in raft/unsafe deposit deposit->list deposit-release! device-array-release! with-release)
+         (only-in raft/unsafe
+                  deposit
+                  deposit->list
+                  deposit-release!
+                  device-array-release!
+                  with-release)
          (only-in "../main.rkt" blobs cluster-members kmeans-fit kmeans-predict)
          (only-in "../private/native.rkt" kc-cluster-members-job kc-owner-drop-count))
 

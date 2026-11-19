@@ -410,12 +410,15 @@
   (define wide (deposit))
   (with-deposits ([out wide])
                  (with-array-views #:resources [h (current-device-resources)] ([y labels])
-                   (check 'cluster-graph (lambda () (kc-cluster-graph h y 3 (dtype->code 'int64) out)))))
+                   (check 'cluster-graph
+                          (lambda () (kc-cluster-graph h y 3 (dtype->code 'int64) out)))))
   (check-equal? (dtype (first (deposit->list wide))) 'int64)
-  (check-exn #rx"^hash-ref: no value found for key\n  key: 'float16$" (lambda () (dtype->code 'float16)))
+  (check-exn #rx"^hash-ref: no value found for key\n  key: 'float16$"
+             (lambda () (dtype->code 'float16)))
   (check-equal? (map code->dtype '(0 1 2 3)) '(float32 float64 int32 int64))
   (check-equal? (with-array-views ([f F] [y labels])
-                  (list (code->dtype (ptr-ref f _int32 'abs 8)) (code->dtype (ptr-ref y _int32 'abs 8))))
+                  (list (code->dtype (ptr-ref f _int32 'abs 8))
+                        (code->dtype (ptr-ref y _int32 'abs 8))))
                 '(float32 int32))
   (check-exn #rx"^hash-ref: no value found for key\n  key: 4$" (lambda () (code->dtype 4))))
 
@@ -436,7 +439,9 @@
   (check-equal? (map dtype cluster-1) '(int64 float32))
   (define members-of
     (generator ()
-      (with-release #:who 'with-members #:exn exn:fail:canary ([d (deposit) deposit-release!])
+      (with-release #:who 'with-members #:exn
+        exn:fail:canary
+        ([d (deposit) deposit-release!])
         (yield d)
         (yield d))))
   (check-equal? (format "~a" (members-of)) "#<deposit device 0 released>")
@@ -453,7 +458,12 @@
   (check-equal? (map dtype cluster-2) '(int64 float32))
   (define resumed
     (generator ()
-      (call-with-release (deposit) deposit-release! (lambda (d) (yield d) (yield d)) #:who 'with-members)))
+      (call-with-release (deposit)
+                         deposit-release!
+                         (lambda (d)
+                           (yield d)
+                           (yield d))
+                         #:who 'with-members)))
   (check-equal? (format "~a" (resumed)) "#<deposit device 0 released>")
   (check-raft-error 'logic (format "with-members: ~a" reentry) resumed)
   (define kept (deposit))
@@ -473,14 +483,18 @@
   (define early (list->device-vector '(1 2 3)))
   (device-array-release! early)
   (check-equal? (format "~a" early) "#<device-vector int64[3] cuda:0 <released>>")
-  (check-raft-error 'logic "device-array: used after its release" (lambda () (device-vector->list early)))
+  (check-raft-error 'logic
+                    "device-array: used after its release"
+                    (lambda () (device-vector->list early)))
   (device-array-release! kept-indices)
   (device-array-release! kept-rows)
   (check-equal? (format "~a" kept-rows)
                 (format "#<device-matrix float32[~a×2] row-major cuda:0 <released>>"
                         (car (shape kept-rows))))
-  (check-raft-error 'logic "device-array: used after its release" (lambda () (with-array-views ([v early]) v)))
   (check-raft-error 'logic
                     "device-array: used after its release"
-                    (lambda ()
-                      (kc-predict-job 'kmeans-predict (current-device-resources) fitted early #f 1 labels))))
+                    (lambda () (with-array-views ([v early]) v)))
+  (check-raft-error
+   'logic
+   "device-array: used after its release"
+   (lambda () (kc-predict-job 'kmeans-predict (current-device-resources) fitted early #f 1 labels))))

@@ -160,7 +160,9 @@ plans/scoping-plan.md         the approved plan (revision 5), as Markdown
    `with-release` expands into a call of the procedure `call-with-release`
    (owner review of #11), which holds the `dynamic-wind`, the re-entry
    refusal and the release-once, so each binding expands to one call and one
-   `lambda`: 25 nodes of fully expanded code per binding instead of 116. The
+   `lambda`: 25 nodes of fully expanded code per binding instead of 116.
+   `raft/unsafe` exports both (#66), the very bindings raft's own modules
+   use, so a downstream's scoped objects release as raft's do. The
    acquire is an argument, so it is evaluated once, before the body's
    extent; the release expression and `#:who` are evaluated with it, once,
    after the acquire and before the body (`resource-test.rkt` pins the
@@ -169,7 +171,14 @@ plans/scoping-plan.md         the approved plan (revision 5), as Markdown
    generator resume, a re-entered continuation) raises `exn:fail:raft`
    (kind `'logic`) instead of acquiring again. A public form passes its own name as `#:who`
    (`with-device-resources`), which prefixes that message; without it the
-   message names nothing internal. No raw `malloc`/`free` outside that module
+   message names nothing internal; `#:exn` (default `exn:fail:raft`) makes
+   that refusal, as `status-checker`'s does. The release is claimed before
+   it is called, so one that raises is not retried, and it runs with breaks
+   disabled from the claim until it returns (the `dynamic-wind`'s pre and
+   post thunks run under `parameterize-break #f`, the body under the
+   caller's setting): a break that arrives meanwhile is raised after the
+   release, so a break can neither skip a claimed release nor interrupt it.
+   No raw `malloc`/`free` outside that module
    and `raft/private/foreign/host.rkt`, which allocates the non-moving host
    staging memory (`'atomic-interior`, owned by the GC, so it has no free and
    nothing to scope): `scripts/no-raw-malloc.sh` gates it.
@@ -674,8 +683,11 @@ plans/scoping-plan.md         the approved plan (revision 5), as Markdown
   a temp directory, JSON in and out, `check-close`, `test-twin`),
   `tests/private/bindings.rkt` (the binding reader shared by the audit and
   the census), `tests/private/deposits.rkt` (the probe's fill helpers,
-  owner and drop counters and `released-once`, shared by `deposit-test.rkt`
-  and `deposit-job-test.rkt`).
+  owner and drop counters, `released-once`, and the `held` table with its
+  `drop!` steps (`deposit`, `arrays`, `released-arrays`, `release-deposit`,
+  `release-array-0`, `release-array-1`) and `in-order`, shared by
+  `deposit-test.rkt`, `deposit-release-test.rkt` and
+  `deposit-job-test.rkt`).
 
 ## Build and test
 
@@ -1364,6 +1376,10 @@ canary changes with it in the same pull request:
   `("raft" #:version "0.3")` or `__has_include(<raftrkt/csr.hpp>)`.
 - **Additions at version 1 (#65):** `deposit`'s `#:who`; a downstream
   detects it with `("raft" #:version "0.3")`.
+- **Additions at version 1 (#66):** `with-release`, `call-with-release`,
+  `deposit-release!` and `device-array-release!` in `raft/unsafe`, and
+  `dtype->code` and `code->dtype` (#84); detect with
+  `("raft" #:version "0.3")`.
 
 Not part of the ABI:
 
@@ -1801,3 +1817,47 @@ since cuSPARSE's error string for it is only "out of memory"). The frozen rule i
 - **`(check-resources who r)` declined:** a second name for a check
   `#:who` already places, which would leave out-of-memory and conversion
   refusals under raft's name and race with a release on another thread.
+
+## Decisions recorded in #66
+
+- **`deposit-release!` releases the holder only**, never the arrays
+  adopted from it (Q-B1-2): it composes, and a binding's regions handed to
+  users survive the binding's release, as rkt-cuml's Q-C requires. Freeing
+  everything at a known point is one `deposit-release!` and one
+  `device-array-release!` per adopted array; the owner, and any opaque C++
+  object in it, goes once the last of them is released or collected. The
+  release clears the deposit's cached list, so the arrays are no longer
+  reachable through it.
+- **Type-first names** (Q-B1-1): `deposit-release!`, `device-array-release!`,
+  as the `device-array:` noun of the use-after-release message. The private
+  `release-array!` keeps its name; `deposit.rkt`'s curried close is
+  `deposit-close`.
+- **A release while a binding holds the record is deferred** (Q-B1-5), never
+  refused: `deposit-record` moves the deposit from open to bound, and
+  `deposit-release!` of a bound deposit moves it to releasing; the close of
+  `with-deposits`, or the hand-over or refused submit of a job's binding,
+  frees the holder then. Every state change, and `deposit-release!` itself,
+  runs in one `call-as-atomic`, so a second thread, or a finalizer, sees
+  either state and never a half-done release (E7). A job's binding and its
+  submit run in one `call-as-atomic`, so no other thread can release a
+  deposit between them; the E10 job law calls `deposit-release!` from inside
+  `call-with-deposits-bound`'s procedure instead of from a gated thread.
+  A thread killed inside `with-deposits` leaves the deposit bound, and a later
+  release of it waits for the finalizer.
+- **A released deposit refuses every use** with `deposit: used after its
+  release` (raft's check, since a deferred holder is not yet retagged),
+  prints `#<deposit device 0 released>`, and a job's deposit argument is
+  refused at binding.
+- **`with-release` takes `#:exn`** (Q-B1-4) and its options in either order,
+  each at most once; `call-with-release` takes `#:who` and `#:exn` as
+  keywords (Q-B1-6). `core-test.rkt`'s W1 lists `call-with-release` as the
+  one procedure whose `#:who` comes without `#:resources`: it names the
+  form a binding defines, not a call on resources.
+- **`resource-test.rkt` stays on `raft/private/resource`** so it runs on
+  pkg-build (no libraftrkt); `core-test.rkt`'s R1 pins that `raft/unsafe`'s
+  names are those bindings.
+- **`dtype->code` and `code->dtype` are `raft/private/dtype.rkt`'s**, built
+  from the shim's dtype table; an unknown name or code raises `hash-ref`'s
+  `exn:fail:contract`, pinned by `unsafe-test.rkt`. The canary takes its CSR
+  index codes from `dtype->code`.
+- No C, header or layout change; the ABI version stays 1.

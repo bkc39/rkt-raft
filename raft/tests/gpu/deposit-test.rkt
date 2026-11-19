@@ -100,16 +100,16 @@
                   ((release-deposit ,(counts 0 0 1 0 0)) (release-array-0 ,(counts 0 0 1 1 0))
                                                          (arrays ,(counts 1 1 1 2 0)))
                   ,(counts 1 1 1 2 0))
-                 ("E3: both arrays released, then the deposit dropped" ,(lambda () (held 'int64))
-                                                                       ((release-array-0 ,(counts 0 0 0 1 0))
-                                                                        (release-array-1 ,(counts 0 0 0 2 0))
-                                                                        (deposit ,(counts 1 1 1 2 0)))
-                                                                       ,(counts 1 1 1 2 0))
-                 ("E6: resources first, then every release" ,held-past-resources
-                                                            ((release-deposit ,(counts 0 0 1 0 0))
-                                                             (release-array-0 ,(counts 0 0 1 1 0))
-                                                             (release-array-1 ,(counts 1 1 1 2 0)))
-                                                            ,(counts 1 1 1 2 0))
+                 ("E3: both arrays released, then the deposit dropped"
+                  ,(lambda () (held 'int64))
+                  ((release-array-0 ,(counts 0 0 0 1 0)) (release-array-1 ,(counts 0 0 0 2 0))
+                                                         (deposit ,(counts 1 1 1 2 0)))
+                  ,(counts 1 1 1 2 0))
+                 ("E6: resources first, then every release"
+                  ,held-past-resources
+                  ((release-deposit ,(counts 0 0 1 0 0)) (release-array-0 ,(counts 0 0 1 1 0))
+                                                         (release-array-1 ,(counts 1 1 1 2 0)))
+                  ,(counts 1 1 1 2 0))
                  ("never converted" ,(lambda () (filled 'float64 7 #f)) () ,(counts 1 1 1 0 0))
                  ("never filled" ,(lambda ()
                                     (with-deposits ([out (deposit)]) (check-pred cpointer? out)))

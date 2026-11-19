@@ -135,14 +135,17 @@
 
 (define (private-requires form)
   (match form
-    [(list 'only-in (? private? spec) names ...) (list (cons spec names))]
+    [(list* 'only-in (? private? spec) names) (list (cons spec names))]
     [(? private? spec) (list (list spec))]
-    [(list _ specs ...) (append* (map private-requires specs))]
+    [(cons _ specs) (append* (map private-requires specs))]
     [_ '()]))
 
 (define (module-requires path)
-  (match (with-input-from-file path (lambda () (parameterize ([read-accept-reader #t]) (read))))
-    [(list 'module _ _ (list '#%module-begin forms ...))
+  (match (with-input-from-file path
+                               (lambda ()
+                                 (parameterize ([read-accept-reader #t])
+                                   (read))))
+    [(list 'module _ _ (cons '#%module-begin forms))
      (for*/list ([form (in-list forms)]
                  #:when (and (pair? form) (eq? (car form) 'require))
                  [spec (in-list (private-requires form))])

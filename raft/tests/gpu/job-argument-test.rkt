@@ -93,7 +93,8 @@
   (define drops (settled-count buffer-drop-count))
   (define elements
     (call-with-gated-job
-     (lambda (g) (probe-hold-views-job 'demo (current-device-resources) (gate-entered-fd g) (gate-fd g) x #f))
+     (lambda (g)
+       (probe-hold-views-job 'demo (current-device-resources) (gate-entered-fd g) (gate-fd g) x #f))
      (lambda (g caller)
        (when release?
          (device-array-release! x)

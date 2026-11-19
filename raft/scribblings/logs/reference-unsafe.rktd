@@ -457,6 +457,47 @@
  (raise "kmeans-predict: X: not a view bound to device memory")
  ""
  "")
+((map dtype->code '(float32 float64 int32 int64))
+ (values "'(0 1 2 3)\n")
+ ""
+ "")
+((with-array-views
+  ((f F))
+  (= (ptr-ref f _int32 'abs 8) (dtype->code (dtype F))))
+ (values "#t\n")
+ ""
+ "")
+((define wide (deposit)) (values "") "" "")
+((with-deposits
+  ((out wide))
+  (with-array-views
+   #:resources
+   (handle (current-device-resources))
+   ((y labels))
+   (check
+    'cluster-graph
+    (lambda () (kc-cluster-graph handle y 3 (dtype->code 'int64) out)))))
+ (values)
+ ""
+ "")
+((dtype (first (deposit->list wide))) (values "'int64\n") "" "")
+((dtype->code 'float16)
+ (raise "hash-ref: no value found for key\n  key: 'float16")
+ ""
+ "")
+((map code->dtype '(0 1 2 3))
+ (values "'(float32 float64 int32 int64)\n")
+ ""
+ "")
+((with-array-views
+  ((f F) (y labels))
+  (list
+   (code->dtype (ptr-ref f _int32 'abs 8))
+   (code->dtype (ptr-ref y _int32 'abs 8))))
+ (values "'(float32 int32)\n")
+ ""
+ "")
+((code->dtype 4) (raise "hash-ref: no value found for key\n  key: 4") "" "")
 ((define members (deposit)) (values "") "" "")
 ((with-deposits
   ((out members))
@@ -531,5 +572,157 @@
 ((deposit->device-csr-matrix members #:shape '(3 3))
  (raise
   "deposit->device-csr-matrix: the deposit holds 2 regions; a CSR matrix needs 3")
+ ""
+ "")
+((define scoped (with-release ((d (deposit) deposit-release!)) d))
+ (values "")
+ ""
+ "")
+(scoped (values "#<deposit device 0 released>\n") "" "")
+((define cluster-1
+   (with-release
+    ((d (deposit) deposit-release!))
+    (kc-cluster-members-job
+     'cluster-members
+     (current-device-resources)
+     X
+     labels
+     1
+     d)
+    (deposit->list d)))
+ (values "")
+ ""
+ "")
+((map dtype cluster-1) (values "'(int64 float32)\n") "" "")
+((require racket/generator) (values "") "" "")
+((define members-of
+   (generator
+    ()
+    (with-release
+     #:who
+     'with-members
+     #:exn
+     exn:fail:canary
+     ((d (deposit) deposit-release!))
+     (yield d)
+     (yield d))))
+ (values "")
+ ""
+ "")
+((members-of) (values "#<deposit device 0 released>\n") "" "")
+((with-handlers
+  ((exn:fail:canary? (lambda (e) (list 'canary (exn-message e)))))
+  (members-of))
+ (values
+  "'(canary\n  \"with-members: cannot re-enter its body after its resources were released\")\n")
+ ""
+ "")
+((call-with-release (deposit) deposit-release! deposit?) (values "#t\n") "" "")
+((define cluster-2
+   (call-with-release
+    (deposit)
+    deposit-release!
+    (lambda (d)
+      (kc-cluster-members-job
+       'cluster-members
+       (current-device-resources)
+       X
+       labels
+       2
+       d)
+      (deposit->list d))))
+ (values "")
+ ""
+ "")
+((map dtype cluster-2) (values "'(int64 float32)\n") "" "")
+((define resumed
+   (generator
+    ()
+    (call-with-release
+     (deposit)
+     deposit-release!
+     (lambda (d) (yield d) (yield d))
+     #:who
+     'with-members)))
+ (values "")
+ ""
+ "")
+((resumed) (values "#<deposit device 0 released>\n") "" "")
+((resumed)
+ (raise
+  "with-members: cannot re-enter its body after its resources were released")
+ ""
+ "")
+((define kept (deposit)) (values "") "" "")
+((kc-cluster-members-job
+  'cluster-members
+  (current-device-resources)
+  X
+  labels
+  0
+  kept)
+ (values)
+ ""
+ "")
+((match-define (list kept-indices kept-rows) (deposit->list kept))
+ (values "")
+ ""
+ "")
+((deposit-release! kept) (values "") "" "")
+(kept (values "#<deposit device 0 released>\n") "" "")
+((= (length (device-vector->list kept-indices)) (car (shape kept-rows)))
+ (values "#t\n")
+ ""
+ "")
+((deposit->list kept) (raise "deposit: used after its release") "" "")
+((kc-cluster-members-job
+  'cluster-members
+  (current-device-resources)
+  X
+  labels
+  0
+  kept)
+ (raise "deposit: used after its release")
+ ""
+ "")
+((define inside (deposit)) (values "") "" "")
+((with-deposits
+  ((out inside))
+  (deposit-release! inside)
+  (with-array-views
+   #:resources
+   (handle (current-device-resources))
+   ((x X) (y labels))
+   (check 'cluster-members (lambda () (kc-cluster-members handle x y 1 out)))))
+ (values)
+ ""
+ "")
+(inside (values "#<deposit device 0 released>\n") "" "")
+((define early (list->device-vector '(1 2 3))) (values "") "" "")
+((device-array-release! early) (values "") "" "")
+(early (values "#<device-vector int64[3] cuda:0 <released>>\n") "" "")
+((device-vector->list early)
+ (raise "device-array: used after its release")
+ ""
+ "")
+((device-array-release! kept-indices) (values "") "" "")
+((device-array-release! kept-rows) (values "") "" "")
+(kept-rows
+ (values "#<device-matrix float32[100×2] row-major cuda:0 <released>>\n")
+ ""
+ "")
+((with-array-views ((v early)) v)
+ (raise "device-array: used after its release")
+ ""
+ "")
+((kc-predict-job
+  'kmeans-predict
+  (current-device-resources)
+  fitted
+  early
+  #f
+  1
+  labels)
+ (raise "device-array: used after its release")
  ""
  "")

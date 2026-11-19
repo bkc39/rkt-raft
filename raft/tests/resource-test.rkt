@@ -119,10 +119,16 @@
   `((return ,(lambda (proc) (call-with-values proc list)))
     (raise ,(lambda (proc)
               (with-handlers ([(lambda (e) (eq? e 'raised)) list])
-                (proc (lambda _ (raise 'raised))))))
-    (escape ,(lambda (proc) (call-with-values (lambda () (let/ec k (proc k))) list)))
+                (proc (lambda (_a _one _two) (raise 'raised))))))
+    (escape ,(lambda (proc)
+               (call-with-values (lambda ()
+                                   (let/ec k
+                                     (proc k)))
+                                 list)))
     (yield ,(lambda (proc)
-              (define g (generator () (proc yield)))
+              (define g
+                (generator ()
+                  (proc yield)))
               (call-with-values g list)))))
 
 (test-case "R3: every exit calls the release once with the acquired value and answers proc's values"
@@ -131,13 +137,13 @@
     (define label (symbol->string (car exit)))
     (define run (cadr exit))
     (define results
-      (run (lambda ([leave values])
-             (call-with-release 'a
-                                release!
-                                (lambda (a)
-                                  (leave a 1 2))))))
+      (run (lambda ([leave values]) (call-with-release 'a release! (lambda (a) (leave a 1 2))))))
     (check-equal? released '(a) label)
-    (check-equal? results (if (eq? (car exit) 'raise) (list 'raised) '(a 1 2)) label)))
+    (check-equal? results
+                  (if (eq? (car exit) 'raise)
+                      (list 'raised)
+                      '(a 1 2))
+                  label)))
 
 (struct exn:fail:demo exn:fail:raft ())
 
@@ -153,7 +159,8 @@
                (with-release #:who 'demo ([a 'a release!])
                  (yield a)
                  (yield a)))))
-  (check-equal? (exn-message named) "demo: cannot re-enter its body after its resources were released")
+  (check-equal? (exn-message named)
+                "demo: cannot re-enter its body after its resources were released")
   (check-equal? (exn:fail:raft-kind named) 'logic)
   (define unnamed
     (resumed (lambda ()
@@ -211,13 +218,26 @@
 
 (test-case "R7: #:who and #:exn come in either order, each at most once"
   (fresh!)
-  (check-equal? (with-release #:who 'demo #:exn exn:fail:demo ([a 'a release!]) a) 'a)
-  (check-equal? (with-release #:exn exn:fail:demo #:who 'demo ([b 'b release!]) b) 'b)
+  (check-equal? (with-release #:who 'demo #:exn
+                  exn:fail:demo
+                  ([a 'a release!])
+                  a)
+                'a)
+  (check-equal? (with-release #:exn exn:fail:demo #:who
+                  'demo
+                  ([b 'b release!])
+                  b)
+                'b)
   (check-equal? released '(b a))
   (check-exn exn:fail:syntax?
-             (lambda () (convert-syntax-error (with-release #:who 'a #:who 'b ([c 'c void]) c))))
+             (lambda ()
+               (convert-syntax-error (with-release #:who 'a #:who
+                                       'b
+                                       ([c 'c void])
+                                       c))))
   (check-exn exn:fail:syntax?
              (lambda ()
-               (convert-syntax-error (with-release #:exn exn:fail:demo #:exn exn:fail:demo
+               (convert-syntax-error (with-release #:exn exn:fail:demo #:exn
+                                       exn:fail:demo
                                        ([c 'c void])
                                        c)))))

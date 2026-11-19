@@ -37,7 +37,7 @@
          status-checker
          with-array-views
          with-deposits
-         with-release)
+         with-release) ;; noqa
 
 (define (raft-abi-pointer)
   (rr-abi))

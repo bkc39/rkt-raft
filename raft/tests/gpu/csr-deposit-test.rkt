@@ -184,6 +184,9 @@
                    (dropped-in order two-phase?)
                    (counts 1 1 1 3 0))))
 
+(define (triplets-of G)
+  (call-with-values (lambda () (device-csr-matrix->triplets G)) list))
+
 (define (csr-from-deposit)
   (define d (csr-filled '(0 2 2 3) '(3 0 1) '(0.5 1.0 2.0) #:dtype 'float32))
   (values d (deposit->device-csr-matrix d #:shape '(3 4))))
@@ -193,9 +196,9 @@
                  (lambda ()
                    (define before (counters))
                    (define-values (d G) (csr-from-deposit))
-                   (define triplets (device-csr-matrix->triplets G))
+                   (define triplets (triplets-of G))
                    (deposit-release! d)
-                   (check-equal? (device-csr-matrix->triplets G) triplets)
+                   (check-equal? (triplets-of G) triplets)
                    (for-each device-array-release! (list (csr-indptr G) (csr-indices G) (csr-data G)))
                    (define expected (counts 1 1 1 3 0))
                    (check-equal? (settles-to before expected) expected))

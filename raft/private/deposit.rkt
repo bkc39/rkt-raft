@@ -13,6 +13,7 @@
                   rr-holder-count
                   rr-holder-create
                   rr-holder-record)
+         (only-in "foreign/memory.rkt" rr-holder-free)
          (only-in "resource.rkt" with-release)
          (only-in "resources.rkt" resources-device resources-handle))
 
@@ -26,30 +27,67 @@
          deposit?
          open-deposit)
 
-(struct deposit (handle device [arrays #:mutable])
+(struct deposit (handle device [arrays #:mutable] [state #:mutable])
   #:property prop:custom-write
-  (lambda (d port _mode) (fprintf port "#<deposit device ~a>" (deposit-device d))))
+  (lambda (d port _mode)
+    (fprintf port
+             "#<deposit device ~a~a>"
+             (deposit-device d)
+             (if (released-deposit? d) " released" ""))))
 
 (define (open-deposit who resources)
   (deposit (call/raft who (lambda () (rr-holder-create (resources-handle who resources))))
            (resources-device resources)
-           #f))
+           #f
+           'open))
+
+(define (released-deposit? d)
+  (and (memq (deposit-state d) '(releasing released)) #t))
+
+(define (refuse-released d)
+  (when (released-deposit? d)
+    (raise-raft 'deposit 'logic "used after its release")))
+
+(define (free-holder! d)
+  (set-deposit-state! d 'released)
+  (rr-holder-free (deposit-handle d)))
+
+;; A record handed to native code is freed only once its binding lets go of it:
+;; the state moves from bound to releasing, and the unbind frees the holder.
+(define (unbind! d)
+  (match (deposit-state d)
+    ['releasing (free-holder! d)]
+    [_ (set-deposit-state! d 'open)]))
 
 (define (deposit-record who d)
-  (call/raft who (lambda () (rr-holder-record (deposit-handle d)))))
+  (call-as-atomic (lambda ()
+                    (refuse-released d)
+                    (begin0 (call/raft who (lambda () (rr-holder-record (deposit-handle d))))
+                      (set-deposit-state! d 'bound)))))
 
 (define ((deposit-close d) _record)
-  (call/raft 'with-deposits (lambda () (rr-holder-close (deposit-handle d))))
+  (call-as-atomic (lambda ()
+                    (dynamic-wind void
+                                  (lambda ()
+                                    (call/raft 'with-deposits
+                                               (lambda () (rr-holder-close (deposit-handle d)))))
+                                  (lambda () (unbind! d)))))
   (keep-reachable d))
 
-(define (deposit-release! _d)
-  (error 'deposit-release! "unimplemented"))
+(define (deposit-release! d)
+  (call-as-atomic (lambda ()
+                    (set-deposit-arrays! d #f)
+                    (match (deposit-state d)
+                      ['open (free-holder! d)]
+                      ['bound (set-deposit-state! d 'releasing)]
+                      [_ (void)]))))
 
 (define (call-with-deposits-bound who deposits proc)
   (define handed-over? #f)
   (define ((close-unless-handed-over d) record)
-    (unless handed-over?
-      ((deposit-close d) record)))
+    (if handed-over?
+        (call-as-atomic (lambda () (unbind! d)))
+        ((deposit-close d) record)))
   (let bind ([pending deposits]
              [records '()])
     (match pending
@@ -79,7 +117,9 @@
   arrays)
 
 (define (adopted who d)
-  (call-as-atomic (lambda () (or (deposit-arrays d) (adopt-all who d)))))
+  (call-as-atomic (lambda ()
+                    (refuse-released d)
+                    (or (deposit-arrays d) (adopt-all who d)))))
 
 (define (deposit->list d)
   (adopted 'deposit->list d))

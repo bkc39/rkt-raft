@@ -51,7 +51,9 @@
       (for/list ([what (in-list order)]
                  [i (in-naturals 1)])
         (list what (step-counts (take order i)))))
-    (released-once (format "~a" order) (in-order (lambda () (held 'float64)) steps) (counts 1 1 1 2 0))))
+    (released-once (format "~a" order)
+                   (in-order (lambda () (held 'float64)) steps)
+                   (counts 1 1 1 2 0))))
 
 (test-probe "E4: a deposit released before adoption frees its owner and refuses every use"
   (define d (filled 'float32 3 4))

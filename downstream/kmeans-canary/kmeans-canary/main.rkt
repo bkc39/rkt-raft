@@ -14,7 +14,7 @@
                   dtype
                   list*->device-matrix
                   shape)
-         (only-in raft/unsafe deposit deposit->device-csr-matrix deposit->list)
+         (only-in raft/unsafe deposit deposit->device-csr-matrix deposit->list dtype->code)
          (only-in "private/native.rkt"
                   kc-assignment-graph-job
                   kc-cluster-graph-job
@@ -122,20 +122,13 @@
   (kc-cluster-members-job 'cluster-members resources X labels cluster members)
   (apply values (deposit->list members)))
 
-(define dtype-codes (hasheq 'float32 0 'float64 1 'int32 2 'int64 3))
-
 (define (cluster-graph labels
                        n-clusters
                        #:index-dtype [index-type 'int32]
                        #:resources [resources (current-device-resources)])
   (match-define (list n) (shape labels))
   (define graph (deposit #:resources resources))
-  (kc-cluster-graph-job 'cluster-graph
-                        resources
-                        labels
-                        n-clusters
-                        (hash-ref dtype-codes index-type)
-                        graph)
+  (kc-cluster-graph-job 'cluster-graph resources labels n-clusters (dtype->code index-type) graph)
   (deposit->device-csr-matrix graph #:shape (list n-clusters n)))
 
 (define (assignment-graph labels
