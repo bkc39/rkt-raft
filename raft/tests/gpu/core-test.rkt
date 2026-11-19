@@ -232,18 +232,17 @@
   (and (memq keyword accepted) #t))
 
 (test-case "W1: an exported procedure takes #:who exactly when it takes #:resources, never required"
-  (for* ([mod (in-list '(raft/array raft/compat raft/unsafe))]
-         [export (in-list (procedure-exports mod))])
-    (match-define (cons name p) export)
+  (define takers
+    (for*/list ([mod (in-list '(raft/array raft/compat raft/unsafe))]
+                [export (in-list (procedure-exports mod))]
+                #:when (or (accepts? (cdr export) '#:who) (accepts? (cdr export) '#:resources)))
+      export))
+  (for ([taker (in-list takers)])
+    (match-define (cons name p) taker)
     (define-values (required _accepted) (procedure-keywords p))
-    (check-equal? (accepts? p '#:who) (accepts? p '#:resources) (format "~a ~a" mod name))
-    (check-false (memq '#:who required) (format "~a ~a" mod name)))
-  (check-equal? (sort (remove-duplicates (for*/list ([mod (in-list '(raft/array raft/compat
-                                                                                raft/unsafe))]
-                                                     [export (in-list (procedure-exports mod))]
-                                                     #:when (accepts? (cdr export) '#:who))
-                                           (car export)))
-                      symbol<?)
+    (check-true (and (accepts? p '#:who) (accepts? p '#:resources)) (symbol->string name))
+    (check-false (memq '#:who required) (symbol->string name)))
+  (check-equal? (sort (remove-duplicates (map car takers)) symbol<?)
                 '(array->device-array bytes->device-vector
                                       deposit
                                       device-matrix
