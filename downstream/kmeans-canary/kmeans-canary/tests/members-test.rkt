@@ -1,6 +1,7 @@
 #lang racket/base
 
 (require (only-in racket/list append-map range)
+         (only-in racket/match match-define)
          (only-in rackunit check-equal? check-true)
          (only-in raft
                   current-device-resources
@@ -11,10 +12,10 @@
                   layout
                   shape)
          (only-in raft/private/foreign/memory owner-release-count)
-         (only-in raft/tests/private/collect drain-finalizers!)
+         (only-in raft/tests/private/collect drain-finalizers! settled-count)
          (only-in raft/tests/private/gpu test-gpu)
          (only-in raft/tests/private/raft-error check-raft-error)
-         (only-in raft/unsafe deposit)
+         (only-in raft/unsafe deposit deposit->list deposit-release! device-array-release! with-release)
          (only-in "../main.rkt" blobs cluster-members kmeans-fit kmeans-predict)
          (only-in "../private/native.rkt" kc-cluster-members-job kc-owner-drop-count))
 
@@ -82,3 +83,21 @@
   (check-equal? (- (kc-owner-drop-count) drops) 1)
   (drain-finalizers!)
   (check-equal? (- (owner-release-count) releases) 0))
+
+(test-gpu "C1: a binding releases its deposit at a known point and keeps the regions it returned"
+  (define-values (X labels _centroids) (labelled 'float32))
+  (define-values (expected-indices expected-rows) (host-members X labels 1))
+  (drain-finalizers!)
+  (define releases (settled-count owner-release-count))
+  (define drops (settled-count kc-owner-drop-count))
+  (match-define (list indices rows)
+    (with-release ([d (deposit) deposit-release!])
+      (kc-cluster-members-job 'cluster-members (current-device-resources) X labels 1 d)
+      (deposit->list d)))
+  (check-equal? (settled-count owner-release-count) releases)
+  (check-equal? (device-vector->list indices) expected-indices)
+  (check-equal? (device-matrix->list* rows) expected-rows)
+  (device-array-release! indices)
+  (device-array-release! rows)
+  (check-equal? (settled-count owner-release-count) (add1 releases))
+  (check-equal? (settled-count kc-owner-drop-count) (add1 drops)))

@@ -2,6 +2,7 @@
 
 (require (only-in racket/flonum flvector in-flvector)
          (only-in rackunit check-equal? check-exn check-pred check-true)
+         (only-in "../../main.rkt" device-vector)
          (only-in "../../private/error.rkt" exn:fail:raft-kind exn:fail:raft?)
          (only-in "../../private/foreign/memory.rkt"
                   buffer-drop-count
@@ -9,7 +10,7 @@
                   resources-drop-count
                   rr-buffer-free
                   rr-resources-free)
-         (only-in "../../private/resource.rkt" with-release)
+         (only-in "../../unsafe.rkt" device-array-release! with-release)
          (only-in "../private/collect.rkt" collect-until settled-count)
          (only-in "../private/gpu.rkt" test-gpu)
          (only-in "../private/native.rkt" copy-in! copy-out new-buffer new-resources))
@@ -84,6 +85,14 @@
     (with-release ([buffer (new-buffer resources 8) rr-buffer-free])
       (rr-buffer-free buffer))
     (check-equal? (settled-count buffer-drop-count) (add1 before))))
+
+(test-gpu "E13: with-release over device-array-release! after an explicit release frees once"
+  (define before (settled-count buffer-drop-count))
+  (define v (device-vector 8))
+  (with-release ([a v device-array-release!])
+    (device-array-release! a))
+  (check-equal? (settled-count buffer-drop-count) (add1 before))
+  (check-equal? (format "~a" v) "#<device-vector float32[8] cuda:0 <released>>"))
 
 (test-gpu "no release failed"
   (collect-until (lambda () #f))

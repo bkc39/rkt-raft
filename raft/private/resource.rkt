@@ -5,7 +5,8 @@
          syntax/parse/define
          (only-in "exn.rkt" exn:fail:raft))
 
-(provide with-release)
+(provide call-with-release
+         with-release)
 
 (begin-for-syntax
   (define-syntax-class release-binding
@@ -25,7 +26,7 @@
 ;; that jumps back into the body (a generator resume) cannot acquire again. The
 ;; release runs on every exit; a thread killed inside the extent never runs it,
 ;; so the resource's finalizer stays the backstop.
-(define (call-with-release who acquired release proc) ;; noqa
+(define (call-with-release acquired release proc #:who [who #f] #:exn [_exn exn:fail:raft])
   (define held acquired)
   (define entered? #f)
   (dynamic-wind (lambda ()
@@ -39,13 +40,20 @@
                     (set! held #f)))))
 
 (define-syntax-parser with-release
-  [(_ (~optional (~seq #:who who:expr) #:defaults ([who #'#f])) () body:expr ...+)
+  [(_ (~alt (~optional (~seq #:who who:expr) #:defaults ([who #'#f]))
+            (~optional (~seq #:exn exn:expr) #:defaults ([exn #'exn:fail:raft])))
+      ...
+      ()
+      body:expr ...+)
    #'(let ()
        body ...)]
-  [(_ (~optional (~seq #:who who:expr) #:defaults ([who #'#f]))
+  [(_ (~alt (~optional (~seq #:who who:expr) #:defaults ([who #'#f]))
+            (~optional (~seq #:exn exn:expr) #:defaults ([exn #'exn:fail:raft])))
+      ...
       (b:release-binding more:release-binding ...)
       body:expr ...+)
-   #'(call-with-release who
-                        b.acquire
+   #'(call-with-release b.acquire
                         b.release
-                        (lambda (b.name) (with-release #:who who (more ...) body ...)))])
+                        #:who who
+                        #:exn exn
+                        (lambda (b.name) (with-release #:who who #:exn exn (more ...) body ...)))])

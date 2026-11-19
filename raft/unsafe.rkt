@@ -4,32 +4,40 @@
          (only-in ffi/unsafe/atomic call-as-atomic)
          ;; whole-module: it also provides syntax/parse at phase 1
          syntax/parse/define
-         (only-in "private/array.rkt" settled-view)
+         (only-in "private/array.rkt" release-array! settled-view)
          (only-in "private/deposit.rkt"
                   deposit->device-csr-matrix
                   deposit->list
+                  deposit-close
                   deposit-record
-                  deposit-release
+                  deposit-release!
                   deposit?
                   open-deposit)
+         (only-in "private/dtype.rkt" code->dtype dtype->code)
          (only-in "private/error.rkt" call/raft)
          (only-in "private/exn.rkt" exn:fail:raft raise-native)
          (only-in "private/foreign/array.rkt" clear-view! keep-reachable)
          (only-in "private/foreign/core.rkt" rr-abi rr-resources-handle)
          (only-in "private/job.rkt" define-job)
-         (only-in "private/resource.rkt" with-release)
+         (only-in "private/resource.rkt" call-with-release with-release)
          (only-in "private/resources.rkt" define/resources resources-handle))
 
-(provide define-job ;; noqa
+(provide call-with-release ;; noqa
+         code->dtype ;; noqa
+         define-job ;; noqa
          deposit
          deposit->device-csr-matrix ;; noqa
          deposit->list ;; noqa
+         deposit-release! ;; noqa
          deposit? ;; noqa
+         (rename-out [release-array! device-array-release!]) ;; noqa
+         dtype->code ;; noqa
          raft-abi-pointer
          resources->handle-pointer
          status-checker
          with-array-views
-         with-deposits)
+         with-deposits
+         with-release)
 
 (define (raft-abi-pointer)
   (rr-abi))
@@ -93,5 +101,5 @@
   #:with (d ...) (generate-temporaries #'(b.name ...))
   (let ([d b.deposit] ...)
     (with-release #:who 'with-deposits
-                  ([b.name (deposit-record 'with-deposits d) (deposit-release d)] ...)
+                  ([b.name (deposit-record 'with-deposits d) (deposit-close d)] ...)
                   body ...)))

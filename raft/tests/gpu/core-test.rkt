@@ -2,7 +2,7 @@
 
 (require (only-in racket/list remove-duplicates)
          (only-in racket/match match match-define)
-         (only-in rackunit check-equal? check-exn check-false check-pred check-true test-case)
+         (only-in rackunit check-eq? check-equal? check-exn check-false check-pred check-true test-case)
          (only-in "../../main.rkt"
                   raft-abi
                   raft-abi-cccl
@@ -114,15 +114,43 @@
         symbol<?))
 
 (define unsafe-names
-  '(define-job deposit
-               deposit->device-csr-matrix
-               deposit->list
-               deposit?
-               raft-abi-pointer
-               resources->handle-pointer
-               status-checker
-               with-array-views
-               with-deposits))
+  '(call-with-release code->dtype
+                      define-job
+                      deposit
+                      deposit->device-csr-matrix
+                      deposit->list
+                      deposit-release!
+                      deposit?
+                      device-array-release!
+                      dtype->code
+                      raft-abi-pointer
+                      resources->handle-pointer
+                      status-checker
+                      with-array-views
+                      with-deposits
+                      with-release))
+
+(define (binding-module mod name)
+  (define ns (make-base-empty-namespace))
+  (parameterize ([current-namespace ns])
+    (namespace-require mod)
+    (match (identifier-binding (namespace-symbol->identifier name))
+      [(list* source _) (resolved-module-path-name (module-path-index-resolve source))])))
+
+(define (private-module name)
+  (collection-file-path (format "~a.rkt" name) "raft" "private"))
+
+(test-case "R1: raft/unsafe's releases and dtype codes are raft's own bindings"
+  (for ([case (in-list '((call-with-release resource call-with-release)
+                         (deposit-release! deposit deposit-release!)
+                         (device-array-release! array release-array!)
+                         (dtype->code dtype dtype->code)
+                         (code->dtype dtype code->dtype)))])
+    (match-define (list public module private) case)
+    (check-eq? (dynamic-require 'raft/unsafe public)
+               (dynamic-require (private-module module) private)
+               (symbol->string public)))
+  (check-equal? (binding-module 'raft/unsafe 'with-release) (private-module 'resource)))
 
 (test-case "raft/core, raft/array, raft/compat, raft/unsafe and raft export exactly the documented names"
   (check-equal? (phase-0-exports 'raft/core) public-names)
@@ -236,7 +264,9 @@
          [export (in-list (procedure-exports mod))])
     (match-define (cons name p) export)
     (define-values (required _accepted) (procedure-keywords p))
-    (check-equal? (accepts? p '#:who) (accepts? p '#:resources) (format "~a ~a" mod name))
+    (check-equal? (accepts? p '#:who)
+                  (or (accepts? p '#:resources) (eq? name 'call-with-release))
+                  (format "~a ~a" mod name))
     (check-false (memq '#:who required) (format "~a ~a" mod name)))
   (check-equal? (sort (remove-duplicates (for*/list ([mod (in-list '(raft/array raft/compat
                                                                                 raft/unsafe))]
@@ -245,6 +275,7 @@
                                            (car export)))
                       symbol<?)
                 '(array->device-array bytes->device-vector
+                                      call-with-release
                                       deposit
                                       device-matrix
                                       device-vector

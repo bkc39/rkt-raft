@@ -9,7 +9,7 @@
          (only-in "../../private/job.rkt" define-job jobs-in-flight jobs-live)
          (only-in "../../private/resource.rkt" with-release)
          (only-in "../../private/resources.rkt" host-resources)
-         (only-in "../../unsafe.rkt" deposit deposit->list with-deposits)
+         (only-in "../../unsafe.rkt" deposit deposit->list deposit-release! with-deposits)
          (only-in "../private/collect.rkt" collect-until drain-finalizers!)
          (only-in "../private/deposits.rkt"
                   call-with-gated-job
@@ -19,6 +19,7 @@
                   counters
                   counts
                   counts-holders
+                  fill!
                   released-once
                   since)
          (only-in "../private/gate.rkt" closed-gate gate-entered-fd gate-fd open-gate! release-gate)
@@ -207,6 +208,54 @@
   (define waited (- (current-inexact-monotonic-milliseconds) start))
   (check-true (< waited 2000) (format "the job waited ~a ms for its gate" waited))
   (check-deposit-closed d))
+
+(define (check-used-after-release d)
+  (check-raft-error 'logic "deposit: used after its release" (lambda () (deposit->list d))))
+
+(test-probe "E9: a deposit released while a job holds it is freed when the job returns"
+  (define d (deposit))
+  (released-once "pinned by a gated job"
+                 (lambda ()
+                   (define before (counters))
+                   (call-with-gated-job (gated probe-deposit-after-gate-job d 'float32)
+                                        (lambda (g caller)
+                                          (deposit-release! d)
+                                          (check-equal? (counts-holders (since before)) 0)
+                                          (open-gate! g)
+                                          (check-true (and (sync/timeout 30 caller) #t))))
+                   (check-used-after-release d))
+                 (counts 1 1 1 0 0)))
+
+(test-probe "E10: a deposit released inside its own with-deposits is freed when the form exits"
+  (define d (deposit))
+  (released-once "released inside its binding"
+                 (lambda ()
+                   (define before (counters))
+                   (fill! d
+                          'float32
+                          3
+                          4
+                          #:first (lambda () (deposit-release! d))
+                          #:then (lambda () (check-equal? (counts-holders (since before)) 0)))
+                   (check-used-after-release d))
+                 (counts 1 1 1 0 0)))
+
+(test-probe "E10: a deposit released between a job's binding and its refused submit is freed at the close"
+  (define d (deposit))
+  (released-once "released before a refused submit"
+                 (lambda ()
+                   (define before (counters))
+                   (check-exn #rx"^submit refused$"
+                              (lambda ()
+                                (call-with-deposits-bound 'demo
+                                                          (list d)
+                                                          (lambda (_records _holders)
+                                                            (deposit-release! d)
+                                                            (check-equal? (counts-holders (since before))
+                                                                          0)
+                                                            (error "submit refused")))))
+                   (check-used-after-release d))
+                 (counts 0 0 1 0 0)))
 
 (define rlimit-nofile 7)
 (define descriptor-limit 256)

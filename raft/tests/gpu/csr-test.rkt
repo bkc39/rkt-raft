@@ -25,9 +25,10 @@
                   nnz
                   shape
                   triplets->device-csr-matrix)
-         (only-in "../../private/array.rkt" buffer->device-array device-array-buffer release-array!)
+         (only-in "../../private/array.rkt" buffer->device-array device-array-buffer)
          (only-in (submod "../../private/csr.rkt" unchecked) unchecked-device-csr-matrix)
          (only-in "../../private/foreign/memory.rkt" release-failure-count)
+         (only-in "../../unsafe.rkt" device-array-release!)
          (only-in "../private/arrays.rkt" part)
          (only-in "../private/collect.rkt" drain-finalizers! drops-after)
          (only-in "../private/csr.rkt" parts triplets)
@@ -217,7 +218,7 @@
   (define indptr (ints '(0 2 2 3)))
   (define vals (floats '(0.5 1.0 2.0)))
   (define indices (ints '(3 0 1)))
-  (release-array! indices)
+  (device-array-release! indices)
   (check-raft-error 'logic
                     "device-array: used after its release"
                     (lambda () (device-csr-matrix indptr indices vals #:shape '(3 4))))
@@ -332,7 +333,7 @@
 
 (test-gpu "law 11: a released part prints <released>, an unreadable one the reason"
   (define G (list*->device-csr-matrix G-rows #:dtype 'float32))
-  (release-array! (csr-data G))
+  (device-array-release! (csr-data G))
   (check-equal? (format "~a" G)
                 "#<device-csr-matrix float32 [3×4] nnz=3 index=int32 cuda:0 <released>>")
   (define indices (ints '(3 0 1)))

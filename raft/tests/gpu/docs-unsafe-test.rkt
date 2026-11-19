@@ -18,6 +18,7 @@
                   ptr-set!)
          (only-in ffi/unsafe/define define-ffi-definer make-not-available)
          (only-in ffi/unsafe/define/conventions convention:hyphen->underscore)
+         (only-in racket/generator generator yield)
          (only-in racket/list drop-right first remove-duplicates)
          (only-in racket/match match-define)
          (only-in racket/string non-empty-string?)
@@ -35,6 +36,7 @@
                   dtype
                   exn:fail:raft
                   list*->device-matrix
+                  list->device-vector
                   nnz
                   raft-abi
                   raft-abi-handle-size
@@ -42,15 +44,22 @@
                   shape
                   with-device-resources)
          (only-in "../../unsafe.rkt"
+                  call-with-release
+                  code->dtype
                   define-job
                   deposit
                   deposit->device-csr-matrix
                   deposit->list
+                  deposit-release!
+                  deposit?
+                  device-array-release!
+                  dtype->code
                   raft-abi-pointer
                   resources->handle-pointer
                   status-checker
                   with-array-views
-                  with-deposits)
+                  with-deposits
+                  with-release)
          (only-in "../private/gpu.rkt" gpu-skip test-unless-skipped)
          (only-in "../private/raft-error.rkt" check-raft-error))
 
@@ -380,3 +389,98 @@
   (check-raft-error 'logic
                     "deposit->device-csr-matrix: the deposit holds 2 regions; a CSR matrix needs 3"
                     (lambda () (deposit->device-csr-matrix members #:shape '(3 3)))))
+
+(define (labelled-blobs)
+  (define check (status-checker kc-last-error kc-last-error-kind))
+  (define handle (resources->handle-pointer (current-device-resources)))
+  (define X (made-blobs check handle))
+  (define fitted (device-matrix 3 2))
+  (fit-with check handle X fitted)
+  (define labels (device-vector 300 #:dtype 'int32))
+  (with-array-views ([c fitted] [x X] [y labels])
+    (check 'kmeans-predict (lambda () (kc-predict handle c x #f 1 y))))
+  (values check X fitted labels))
+
+(test-canary "unsafe reference: element type codes"
+  (define-values (check X _fitted labels) (labelled-blobs))
+  (define F (contiguous X #:layout 'col-major))
+  (check-equal? (map dtype->code '(float32 float64 int32 int64)) '(0 1 2 3))
+  (check-true (with-array-views ([f F])
+                (= (ptr-ref f _int32 'abs 8) (dtype->code (dtype F)))))
+  (define wide (deposit))
+  (with-deposits ([out wide])
+                 (with-array-views #:resources [h (current-device-resources)] ([y labels])
+                   (check 'cluster-graph (lambda () (kc-cluster-graph h y 3 (dtype->code 'int64) out)))))
+  (check-equal? (dtype (first (deposit->list wide))) 'int64)
+  (check-exn #rx"^hash-ref: no value found for key\n  key: 'float16$" (lambda () (dtype->code 'float16)))
+  (check-equal? (map code->dtype '(0 1 2 3)) '(float32 float64 int32 int64))
+  (check-equal? (with-array-views ([f F] [y labels])
+                  (list (code->dtype (ptr-ref f _int32 'abs 8)) (code->dtype (ptr-ref y _int32 'abs 8))))
+                '(float32 int32))
+  (check-exn #rx"^hash-ref: no value found for key\n  key: 4$" (lambda () (code->dtype 4))))
+
+(define reentry "cannot re-enter its body after its resources were released")
+
+(test-canary "unsafe reference: releasing"
+  (define-values (check X fitted labels) (labelled-blobs))
+  (define kc-cluster-members-job (canary-job 'kc-cluster-members-job))
+  (define kc-predict-job (canary-job 'kc-predict-job))
+  (define (members-job c d)
+    (kc-cluster-members-job 'cluster-members (current-device-resources) X labels c d))
+  (define scoped (with-release ([d (deposit) deposit-release!]) d))
+  (check-equal? (format "~a" scoped) "#<deposit device 0 released>")
+  (define cluster-1
+    (with-release ([d (deposit) deposit-release!])
+      (members-job 1 d)
+      (deposit->list d)))
+  (check-equal? (map dtype cluster-1) '(int64 float32))
+  (define members-of
+    (generator ()
+      (with-release #:who 'with-members #:exn exn:fail:canary ([d (deposit) deposit-release!])
+        (yield d)
+        (yield d))))
+  (check-equal? (format "~a" (members-of)) "#<deposit device 0 released>")
+  (check-equal? (with-handlers ([exn:fail:canary? (lambda (e) (list 'canary (exn-message e)))])
+                  (members-of))
+                (list 'canary (format "with-members: ~a" reentry)))
+  (check-true (call-with-release (deposit) deposit-release! deposit?))
+  (define cluster-2
+    (call-with-release (deposit)
+                       deposit-release!
+                       (lambda (d)
+                         (members-job 2 d)
+                         (deposit->list d))))
+  (check-equal? (map dtype cluster-2) '(int64 float32))
+  (define resumed
+    (generator ()
+      (call-with-release (deposit) deposit-release! (lambda (d) (yield d) (yield d)) #:who 'with-members)))
+  (check-equal? (format "~a" (resumed)) "#<deposit device 0 released>")
+  (check-raft-error 'logic (format "with-members: ~a" reentry) resumed)
+  (define kept (deposit))
+  (members-job 0 kept)
+  (match-define (list kept-indices kept-rows) (deposit->list kept))
+  (deposit-release! kept)
+  (check-equal? (format "~a" kept) "#<deposit device 0 released>")
+  (check-equal? (length (device-vector->list kept-indices)) (car (shape kept-rows)))
+  (check-raft-error 'logic "deposit: used after its release" (lambda () (deposit->list kept)))
+  (check-raft-error 'logic "deposit: used after its release" (lambda () (members-job 0 kept)))
+  (define inside (deposit))
+  (with-deposits ([out inside])
+                 (deposit-release! inside)
+                 (with-array-views #:resources [h (current-device-resources)] ([x X] [y labels])
+                   (check 'cluster-members (lambda () (kc-cluster-members h x y 1 out)))))
+  (check-equal? (format "~a" inside) "#<deposit device 0 released>")
+  (define early (list->device-vector '(1 2 3)))
+  (device-array-release! early)
+  (check-equal? (format "~a" early) "#<device-vector int64[3] cuda:0 <released>>")
+  (check-raft-error 'logic "device-array: used after its release" (lambda () (device-vector->list early)))
+  (device-array-release! kept-indices)
+  (device-array-release! kept-rows)
+  (check-equal? (format "~a" kept-rows)
+                (format "#<device-matrix float32[~a×2] row-major cuda:0 <released>>"
+                        (car (shape kept-rows))))
+  (check-raft-error 'logic "device-array: used after its release" (lambda () (with-array-views ([v early]) v)))
+  (check-raft-error 'logic
+                    "device-array: used after its release"
+                    (lambda ()
+                      (kc-predict-job 'kmeans-predict (current-device-resources) fitted early #f 1 labels))))

@@ -19,7 +19,7 @@
                   list->device-vector
                   shape
                   with-device-resources)
-         (only-in "../../private/array.rkt" array-device release-array!)
+         (only-in "../../private/array.rkt" array-device)
          (only-in "../../private/deposit.rkt" deposit-handle)
          (only-in "../../private/foreign/memory.rkt" resources-drop-count)
          (only-in "../../unsafe.rkt" deposit deposit->list deposit? with-array-views with-deposits)
@@ -36,6 +36,8 @@
                   counters
                   fill!
                   filled
+                  held
+                  in-order
                   region-values
                   released-once
                   settles-to
@@ -62,33 +64,6 @@
            (thread (lambda () (deposit->list shared)) #:keep 'results))))
   (check-true (andmap eq? first second))
   (check-pattern first 'int64 5 #f))
-
-(define (held dt #:resources [r (current-device-resources)])
-  (define d (filled dt 3 4 #:resources r))
-  (make-hasheq (list (cons 'deposit d) (cons 'arrays (deposit->list d)) (cons 'dtype dt))))
-
-(define (drop! h what)
-  (match what
-    ['released-arrays
-     (for-each release-array! (hash-ref h 'arrays))
-     (hash-remove! h 'arrays)]
-    [_ (hash-remove! h what)]))
-
-(define (read-back h label)
-  (match (hash-ref h 'arrays #f)
-    [#f (void)]
-    [arrays (check-pattern arrays (hash-ref h 'dtype) 3 4 label)]))
-
-(define (in-order make steps)
-  (lambda ()
-    (define before (counters))
-    (define h (make))
-    (for ([step (in-list steps)])
-      (match-define (list what expected) step)
-      (define label (symbol->string what))
-      (drop! h what)
-      (check-equal? (settles-to before expected) expected label)
-      (read-back h label))))
 
 (define (held-past-resources)
   (define drops (resources-drop-count))
@@ -117,6 +92,24 @@
                  ("resources first" ,held-past-resources
                                     ((deposit ,(counts 0 0 1 0 0)))
                                     ,(counts 1 1 1 2 0))
+                 ("E1: deposit released" ,(lambda () (held 'float32))
+                                         ((release-deposit ,(counts 0 0 1 0 0)))
+                                         ,(counts 1 1 1 2 0))
+                 ("E3: deposit and one array released, the other held, then dropped"
+                  ,(lambda () (held 'int32))
+                  ((release-deposit ,(counts 0 0 1 0 0)) (release-array-0 ,(counts 0 0 1 1 0))
+                                                         (arrays ,(counts 1 1 1 2 0)))
+                  ,(counts 1 1 1 2 0))
+                 ("E3: both arrays released, then the deposit dropped" ,(lambda () (held 'int64))
+                                                                       ((release-array-0 ,(counts 0 0 0 1 0))
+                                                                        (release-array-1 ,(counts 0 0 0 2 0))
+                                                                        (deposit ,(counts 1 1 1 2 0)))
+                                                                       ,(counts 1 1 1 2 0))
+                 ("E6: resources first, then every release" ,held-past-resources
+                                                            ((release-deposit ,(counts 0 0 1 0 0))
+                                                             (release-array-0 ,(counts 0 0 1 1 0))
+                                                             (release-array-1 ,(counts 1 1 1 2 0)))
+                                                            ,(counts 1 1 1 2 0))
                  ("never converted" ,(lambda () (filled 'float64 7 #f)) () ,(counts 1 1 1 0 0))
                  ("never filled" ,(lambda ()
                                     (with-deposits ([out (deposit)]) (check-pred cpointer? out)))

@@ -20,33 +20,36 @@
          deposit->device-csr-matrix
          deposit->list
          deposit-handle
+         deposit-close
          deposit-record
-         deposit-release
+         deposit-release!
          deposit?
          open-deposit)
 
-(struct deposit (handle device [arrays #:mutable]) ;; noqa
-  #:constructor-name holder->deposit
+(struct deposit (handle device [arrays #:mutable])
   #:property prop:custom-write
   (lambda (d port _mode) (fprintf port "#<deposit device ~a>" (deposit-device d))))
 
 (define (open-deposit who resources)
-  (holder->deposit (call/raft who (lambda () (rr-holder-create (resources-handle who resources))))
-                   (resources-device resources)
-                   #f))
+  (deposit (call/raft who (lambda () (rr-holder-create (resources-handle who resources))))
+           (resources-device resources)
+           #f))
 
 (define (deposit-record who d)
   (call/raft who (lambda () (rr-holder-record (deposit-handle d)))))
 
-(define ((deposit-release d) _record)
+(define ((deposit-close d) _record)
   (call/raft 'with-deposits (lambda () (rr-holder-close (deposit-handle d))))
   (keep-reachable d))
+
+(define (deposit-release! _d)
+  (error 'deposit-release! "unimplemented"))
 
 (define (call-with-deposits-bound who deposits proc)
   (define handed-over? #f)
   (define ((close-unless-handed-over d) record)
     (unless handed-over?
-      ((deposit-release d) record)))
+      ((deposit-close d) record)))
   (let bind ([pending deposits]
              [records '()])
     (match pending
