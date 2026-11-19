@@ -626,8 +626,8 @@ Cluster sizes from labels:
 
 Returns a matrix whose rows are @racket[rows], of @racket[dtype] or the
 inferred type, packed in @racket[layout] on the host. A ragged row raises
-@racket[exn:fail:raft]. With @racket[cols], the matrix has that many columns, even with no rows; a
-row of another length raises.
+@racket[exn:fail:raft]. With @racket[cols], the matrix has that many
+columns, even with no rows; a row of another length raises.
 
 @examples[#:eval ev
 (list*->device-matrix '((1 2) (3 4)))
@@ -903,8 +903,8 @@ Repeats count, and so does a zero that repeats summed to:
 
 Makes a @tech{CSR matrix} of the entries of @racket[rows] that are not zero,
 columns ascending in each row. @racket[rows] is rows as for
-@racket[list*->device-matrix]; a value that converts to zero is not stored. With @racket[cols], the matrix has that many columns, even with no rows; a
-row of another length raises.
+@racket[list*->device-matrix]; a value that converts to zero is not stored.
+@racket[cols] is as for @racket[list*->device-matrix].
 
 @examples[#:eval ev
 (device-csr-matrix->list* G)

@@ -162,8 +162,8 @@ The best score and its index:
                                  [#:who who symbol? 'vector*->device-matrix])
          device-matrix?]{
 
-Like @racket[list*->device-matrix], for a vector of vector rows. With @racket[cols], the matrix has that many columns, even with no rows; a
-row of another length raises.
+Like @racket[list*->device-matrix], for a vector of vector rows;
+@racket[cols] is as for @racket[list*->device-matrix].
 
 @examples[#:eval ev
 (vector*->device-matrix #(#(1 2 3) #(4 5 6)))
