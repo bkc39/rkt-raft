@@ -41,6 +41,7 @@
          read-all
          read-array
          release-array!
+         settled-arguments
          settled-descriptor
          settled-view
          strides->layout
@@ -198,6 +199,9 @@
 (define (settled-descriptor who a)
   (await who a)
   (descriptor a))
+
+(define (settled-arguments who a)
+  (list (array-buffer-handle a) (device-array-offset a) (settled-descriptor who a)))
 
 (define (settled-view who a)
   (await who a)

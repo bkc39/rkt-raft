@@ -16,31 +16,21 @@ namespace rr {
 
 namespace {
 
-void require_dtype_among(const char* part, int32_t dtype, int32_t first,
-                         int32_t second) {
-  if (dtype != first && dtype != second) {
-    throw logic_error(std::string(part) + ": expected " +
-                      raftrkt::dtype_name(first) + " or " +
-                      raftrkt::dtype_name(second) + ", got " +
-                      raftrkt::dtype_name(dtype));
-  }
-}
-
-std::string fault_message(const csr_fault& fault, int64_t nnz, int64_t cols) {
+std::string fault_message(const csr_fault& fault, const rr_view& indices,
+                          int64_t cols) {
   const auto text = [](int64_t n) { return std::to_string(n); };
   switch (fault.kind) {
     case csr_bad_start:
       return "indptr: starts at " + text(fault.value) + ", expected 0";
     case csr_bad_end:
       return "indptr: ends at " + text(fault.value) + ", expected " +
-             text(nnz) + ", the length of indices";
+             text(indices.shape[0]) + ", the length of indices";
     case csr_descent:
       return "indptr: entry " + text(fault.at) + " (" + text(fault.value) +
              ") is less than entry " + text(fault.at - 1) + " (" +
              text(fault.previous) + ")";
     default:
-      return "indices: entry " + text(fault.at) + " is " + text(fault.value) +
-             ", outside [0, " + text(cols) + ")";
+      return outside_message("indices", fault.at, fault.value, cols);
   }
 }
 
@@ -85,7 +75,7 @@ int rr_csr_check(const rr_buffer* indptr, uint64_t indptr_offset,
                           fault = rr::scan_parts<T, Index>(*owner.owner, p, i,
                                                            d, rows, cols)));
     if (fault.kind != rr::csr_sound) {
-      throw rr::logic_error(rr::fault_message(fault, i.shape[0], cols));
+      throw rr::logic_error(rr::fault_message(fault, i, cols));
     }
   });
 }

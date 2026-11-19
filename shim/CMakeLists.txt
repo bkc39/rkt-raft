@@ -47,10 +47,14 @@ find_package(CUDAToolkit REQUIRED)
 add_library(raftrkt SHARED
   src/array/array.cpp
   src/array/buffer.cpp
+  src/array/compare.cu
   src/array/copy.cu
   src/array/csr.cpp
   src/array/csr_check.cu
   src/array/deposit.cpp
+  src/array/gather.cpp
+  src/array/gather.cu
+  src/array/select.cu
   src/core/core.cpp
   src/core/executor.cpp
   src/core/exit.cpp
@@ -109,6 +113,7 @@ if(BUILD_TESTING)
     tests/executor_test.cpp
     tests/exit_test.cpp
     tests/exit_worker_test.cpp
+    tests/gather_test.cpp
     tests/job_header_test.cpp
     tests/memory_test.cpp
     tests/resources_test.cpp

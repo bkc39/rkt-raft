@@ -1,28 +1,19 @@
-#include <thrust/iterator/counting_iterator.h>
-#include <thrust/transform_reduce.h>
-
 #include <cstdint>
-#include <limits>
 #include <raft/core/handle.hpp>
 #include <raft/core/resource/cuda_stream.hpp>
 #include <rmm/cuda_stream_view.hpp>
-#include <rmm/exec_policy.hpp>
 
 #include "array/csr_check.hpp"
+#include "array/scan.cuh"
 #include "detail/dispatch.hpp"
-#include "detail/error.hpp"
 
 namespace rr {
 
 namespace {
 
-constexpr int64_t none = std::numeric_limits<int64_t>::max();
-
-struct earliest {
-  __device__ int64_t operator()(int64_t a, int64_t b) const {
-    return a < b ? a : b;
-  }
-};
+using scan::first_where;
+using scan::none;
+using scan::read_one;
 
 template <typename Index>
 struct descent {
@@ -31,37 +22,6 @@ struct descent {
     return indptr[i] < indptr[i - 1] ? i : none;
   }
 };
-
-template <typename Index>
-struct outside {
-  const Index* indices;
-  int64_t cols;
-  __device__ int64_t operator()(int64_t j) const {
-    const int64_t c = indices[j];
-    return c < 0 || c >= cols ? j : none;
-  }
-};
-
-template <typename Index>
-int64_t read_one(const Index* from, int64_t at, rmm::cuda_stream_view stream) {
-  Index value{};
-  cuda_check(cudaMemcpyAsync(&value, from + at, sizeof(Index),
-                             cudaMemcpyDeviceToHost, stream.value()),
-             "cudaMemcpyAsync");
-  cuda_check(cudaStreamSynchronize(stream.value()), "cudaStreamSynchronize");
-  return value;
-}
-
-template <typename Fn>
-int64_t first_where(int64_t begin, int64_t end, Fn fn,
-                    rmm::cuda_stream_view stream) {
-  if (begin >= end) {
-    return none;
-  }
-  const thrust::counting_iterator<int64_t> first(begin);
-  return thrust::transform_reduce(rmm::exec_policy(stream), first,
-                                  first + (end - begin), fn, none, earliest{});
-}
 
 }  // namespace
 
@@ -84,7 +44,7 @@ csr_fault find_csr_fault(const raft::handle_t& handle, const Index* indptr,
             read_one(indptr, down - 1, stream)};
   }
   const int64_t bad =
-      first_where(0, nnz, outside<Index>{indices, cols}, stream);
+      first_where(0, nnz, scan::outside<Index>{indices, cols}, stream);
   if (bad != none) {
     return {csr_bad_index, bad, read_one(indices, bad, stream), 0};
   }

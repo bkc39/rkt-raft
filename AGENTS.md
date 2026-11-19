@@ -89,6 +89,7 @@ raft/                         the Racket package and collection
   private/{abi,error,resource,resources,install-native,deposit}.rkt
   private/{array,dtype,pack,print}.rkt   arrays over buffers, the tables, packing, printing
   private/csr.rkt             device-csr-matrix over three device vectors (#72)
+  private/gather.rkt          gather, select and compare (#70)
   scribblings/                the manual: guide/ chapters, reference/ sections, logs/ the
                                 recorded examples
   tests/                      raco tests that need no libraftrkt; tests/gpu/ those that do;
@@ -376,7 +377,8 @@ plans/scoping-plan.md         the approved plan (revision 5), as Markdown
   says so at the declaration. The entry points only raft's Racket uses are
   internal:
   `rr_dtype_table` and `rr_op_table` in `internal_api.h`, and
-  `rr_array_create`, `rr_array_contiguous`, `rr_buffer_ready`,
+  `rr_array_create`, `rr_array_contiguous`, `rr_array_gather`,
+  `rr_array_select`, `rr_array_compare`, `rr_buffer_ready`,
   `rr_buffer_read` and `rr_buffer_write` in `src/detail/array_api.h`
   (bound in `private/foreign/array-api.rkt`).
 - **One table per fact.** `src/detail/dtypes.def` lists the dtypes and
@@ -413,6 +415,18 @@ plans/scoping-plan.md         the approved plan (revision 5), as Markdown
   `dtypes.def` with a `static_assert` against `ops.def`; validation and
   dispatch are in `array.cpp`, which clang-tidy reads. cuBLAS is linked
   explicitly (`CUDA::cublas`).
+- **gather, select and compare** (#70): `src/array/gather.cpp` checks and
+  dispatches. `gather.cu` holds the bounds scan (`scan.cuh`'s
+  `first_where`, shared with `csr_check.cu`) and the row copy:
+  `raft::matrix::gather` for row-major (a vector is n×1) and a thrust
+  transform for col-major, since no RAFT gather reads col-major and none
+  checks bounds. `select.cu` counts the mask (`thrust::count_if`, one sync)
+  and writes its nonzero positions (`thrust::copy_if`) to a temporary the
+  row copy reads; `compare.cu` is `raft::linalg::map`. Results are allocated
+  as `contiguous`'s are (`allocate.hpp`), on the source's owner handle; an
+  index or mask buffer of another owner makes the call synchronise that
+  stream before returning, so its own finalizer cannot free it under the
+  copy.
 - **The default memory resource.** `rr_resources_create` calls
   `rr::install_default_memory_resource` (`src/core/memory_resource.cpp`)
   before it builds the handle, so RAFT's workspace factories see the pool.
@@ -567,6 +581,11 @@ plans/scoping-plan.md         the approved plan (revision 5), as Markdown
   printer (`print.rkt`'s pure `csr-text`); construction calls
   `rr_csr_check` through `private/foreign/csr-api.rkt`, and `list*->` and
   `triplets->` call `rr_csr_check_shape` first.
+- `private/gather.rkt`: `gather`, `select` and `compare`. Each settles
+  every input (`private/array.rkt`'s `settled-arguments`, which `csr.rkt`
+  shares), calls `rr_array_gather`, `rr_array_select` or `rr_array_compare`
+  and wraps the result's view; `compare` packs its scalar with
+  `pack-vector`, so it converts as an uploaded element does.
 - `private/job.rkt`: `define-job` and `job-procedure`, which packs the
   arguments into a block laid out as the C side's `run_job` unpacks it,
   binds each `deposit` parameter's record and submits it in one
@@ -1743,3 +1762,22 @@ since cuSPARSE's error string for it is only "out of memory"). The frozen rule i
 - **The probe's job twin takes three views**: `define-job` has no
   host-array parameter.
 - **A CSR deposit's adoption drops three buffers** (law 16).
+
+## Decisions recorded in #70
+
+- **`gather`, `select`, `compare`, not `take`**: `racket/list` exports
+  `take`, and raft's manual and rkt-cuml require both. Each is
+  rank-generic along axis 0; renaming is breaking.
+- **An index outside [0, n) is refused, negatives included**, naming the
+  first; nothing wraps. The scan runs before any read, because RAFT's gather
+  checks nothing.
+- **A mask is int32 or int64 and nonzero keeps; its length must be n**
+  (`np.compress` truncates a short one).
+- **A matrix result keeps the source's layout** (NumPy's is C order); the
+  col-major copy must stay inside the source, as the gtests under
+  compute-sanitizer check.
+- **`compare` converts its scalar as an uploaded element**: an integer
+  dtype truncates it and an unconvertible one is refused, where NumPy
+  compares exactly. The twin pins each departure.
+- **No keywords and no frozen-header additions**: the result is on the
+  source's resources and stream, as `contiguous`'s is.
