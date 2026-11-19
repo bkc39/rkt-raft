@@ -243,7 +243,7 @@ class GatherMatrix : public GatherTest,
     return GetParam().col_major ? row + (col * rows) : (row * cols) + col;
   }
 
-  rr_view matrix_view(const array& backing) const {
+  static rr_view matrix_view(const array& backing) {
     rr_view v = backing.view;
     v.rank = 2;
     v.shape[0] = matrix_rows;
@@ -261,7 +261,7 @@ class GatherMatrix : public GatherTest,
     return upload(values);
   }
 
-  std::vector<float> expected(const std::vector<int64_t>& rows) const {
+  static std::vector<float> expected(const std::vector<int64_t>& rows) {
     const auto k = static_cast<int64_t>(rows.size());
     std::vector<float> out(rows.size() * matrix_cols);
     for (int64_t r = 0; r < k; ++r) {
