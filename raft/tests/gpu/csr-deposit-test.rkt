@@ -9,13 +9,21 @@
                   csr-indptr
                   current-device-resources
                   device-csr-matrix->list*
+                  device-csr-matrix->triplets
                   device-vector->list
                   dtype
                   nnz
                   shape)
          (only-in "../../private/deposit.rkt" deposit-handle)
          (only-in "../../private/dtype.rkt" dtype->code)
-         (only-in "../../unsafe.rkt" deposit deposit->device-csr-matrix deposit->list with-deposits)
+         (only-in "../../private/foreign/array.rkt" keep-reachable)
+         (only-in "../../unsafe.rkt"
+                  deposit
+                  deposit->device-csr-matrix
+                  deposit->list
+                  deposit-release!
+                  device-array-release!
+                  with-deposits)
          (only-in "../private/collect.rkt" drain-finalizers!)
          (only-in "../private/csr.rkt" parts)
          (only-in "../private/deposits.rkt"
@@ -26,7 +34,8 @@
                   fill-csr-job!
                   filled
                   released-once
-                  settles-to)
+                  settles-to
+                  since)
          (only-in "../private/probe.rkt" probe-flags probe-refuse-adoption! test-probe)
          (only-in "../private/raft-error.rkt" check-raft-error))
 
@@ -176,3 +185,28 @@
     (released-once (format "~a two-phase ~a" order two-phase?)
                    (dropped-in order two-phase?)
                    (counts 1 1 1 3 0))))
+
+(define (triplets-of G)
+  (call-with-values (lambda () (device-csr-matrix->triplets G)) list))
+
+(define (csr-from-deposit)
+  (define d (csr-filled '(0 2 2 3) '(3 0 1) '(0.5 1.0 2.0) #:dtype 'float32))
+  (values d (deposit->device-csr-matrix d #:shape '(3 4))))
+
+(test-probe "E12: a CSR outlives its released deposit, and its three parts free the owner"
+  (define-values (d G) (csr-from-deposit))
+  (released-once "a deposit's CSR"
+                 (lambda ()
+                   (define before (counters))
+                   (define triplets (triplets-of G))
+                   (deposit-release! d)
+                   (check-equal? (triplets-of G) triplets)
+                   (for-each device-array-release! (list (csr-indptr G) (csr-indices G) (csr-data G)))
+                   (check-equal? (since before) (counts 1 1 1 3 0)))
+                 (counts 1 1 1 3 0))
+  (keep-reachable (list d G))
+  (define-values (_other H) (csr-from-deposit))
+  (device-array-release! (csr-indices H))
+  (check-raft-error 'logic
+                    "device-array: used after its release"
+                    (lambda () (device-csr-matrix->triplets H))))

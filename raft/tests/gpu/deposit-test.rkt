@@ -19,7 +19,7 @@
                   list->device-vector
                   shape
                   with-device-resources)
-         (only-in "../../private/array.rkt" array-device release-array!)
+         (only-in "../../private/array.rkt" array-device)
          (only-in "../../private/deposit.rkt" deposit-handle)
          (only-in "../../private/foreign/memory.rkt" resources-drop-count)
          (only-in "../../unsafe.rkt" deposit deposit->list deposit? with-array-views with-deposits)
@@ -36,6 +36,8 @@
                   counters
                   fill!
                   filled
+                  held
+                  in-order
                   region-values
                   released-once
                   settles-to
@@ -63,33 +65,6 @@
   (check-true (andmap eq? first second))
   (check-pattern first 'int64 5 #f))
 
-(define (held dt #:resources [r (current-device-resources)])
-  (define d (filled dt 3 4 #:resources r))
-  (make-hasheq (list (cons 'deposit d) (cons 'arrays (deposit->list d)) (cons 'dtype dt))))
-
-(define (drop! h what)
-  (match what
-    ['released-arrays
-     (for-each release-array! (hash-ref h 'arrays))
-     (hash-remove! h 'arrays)]
-    [_ (hash-remove! h what)]))
-
-(define (read-back h label)
-  (match (hash-ref h 'arrays #f)
-    [#f (void)]
-    [arrays (check-pattern arrays (hash-ref h 'dtype) 3 4 label)]))
-
-(define (in-order make steps)
-  (lambda ()
-    (define before (counters))
-    (define h (make))
-    (for ([step (in-list steps)])
-      (match-define (list what expected) step)
-      (define label (symbol->string what))
-      (drop! h what)
-      (check-equal? (settles-to before expected) expected label)
-      (read-back h label))))
-
 (define (held-past-resources)
   (define drops (resources-drop-count))
   (define h
@@ -107,23 +82,42 @@
   (check-pattern (deposit->list d) 'float32 3 4))
 
 (test-probe "law 3: the owner is released exactly once, whatever is dropped first"
-  (for ([case (in-list
-               `(("arrays first" ,(lambda () (held 'float32))
-                                 ((released-arrays ,(counts 0 0 0 2 0)))
+  (for ([row (in-list
+              `(("arrays first" ,(lambda () (held 'float32))
+                                ((released-arrays ,(counts 0 0 0 2 0)))
+                                ,(counts 1 1 1 2 0))
+                ("deposit first" ,(lambda () (held 'float32))
+                                 ((deposit ,(counts 0 0 1 0 0)))
                                  ,(counts 1 1 1 2 0))
-                 ("deposit first" ,(lambda () (held 'float32))
-                                  ((deposit ,(counts 0 0 1 0 0)))
-                                  ,(counts 1 1 1 2 0))
-                 ("resources first" ,held-past-resources
-                                    ((deposit ,(counts 0 0 1 0 0)))
-                                    ,(counts 1 1 1 2 0))
-                 ("never converted" ,(lambda () (filled 'float64 7 #f)) () ,(counts 1 1 1 0 0))
-                 ("never filled" ,(lambda ()
-                                    (with-deposits ([out (deposit)]) (check-pred cpointer? out)))
-                                 ()
-                                 ,(counts 0 0 1 0 0))
-                 ("filled, then the call failed" ,failed-after-filling () ,(counts 1 1 1 2 0))))])
-    (match-define (list label make steps expected) case)
+                ("resources first" ,held-past-resources
+                                   ((deposit ,(counts 0 0 1 0 0)))
+                                   ,(counts 1 1 1 2 0))
+                ("E1b: the deposit released, then a collection frees both arrays"
+                 ,(lambda () (held 'float32))
+                 ((release-deposit ,(counts 0 0 1 0 0)))
+                 ,(counts 1 1 1 2 0))
+                ("E3a: the deposit and array 0 released, then a collection frees array 1"
+                 ,(lambda () (held 'int32))
+                 ((release-deposit ,(counts 0 0 1 0 0)) ((release-array 0) ,(counts 0 0 1 1 0))
+                                                        (arrays ,(counts 1 1 1 2 0)))
+                 ,(counts 1 1 1 2 0))
+                ("E3b: both arrays released, then a collection frees the deposit"
+                 ,(lambda () (held 'int64))
+                 (((release-array 0) ,(counts 0 0 0 1 0)) ((release-array 1) ,(counts 0 0 0 2 0))
+                                                          (deposit ,(counts 1 1 1 2 0)))
+                 ,(counts 1 1 1 2 0))
+                ("E6: the resources released first, then every release"
+                 ,held-past-resources
+                 ((release-deposit ,(counts 0 0 1 0 0)) ((release-array 0) ,(counts 0 0 1 1 0))
+                                                        ((release-array 1) ,(counts 1 1 1 2 0)))
+                 ,(counts 1 1 1 2 0))
+                ("never converted" ,(lambda () (filled 'float64 7 #f)) () ,(counts 1 1 1 0 0))
+                ("never filled" ,(lambda ()
+                                   (with-deposits ([out (deposit)]) (check-pred cpointer? out)))
+                                ()
+                                ,(counts 0 0 1 0 0))
+                ("filled, then the call failed" ,failed-after-filling () ,(counts 1 1 1 2 0))))])
+    (match-define (list label make steps expected) row)
     (released-once label (in-order make steps) expected)))
 
 (test-probe "law 4: adopted arrays outlive their resources object"
@@ -218,7 +212,8 @@
   (define (filled-then-blocked)
     (semaphore-post filled-signal)
     (sync never-evt))
-  (define caller (thread (lambda () (fill! d 'float64 3 4 #:resources r #:then filled-then-blocked))))
+  (define caller
+    (thread (lambda () (fill! d 'float64 3 4 #:resources r #:after filled-then-blocked))))
   (check-equal? (sync filled-signal caller) filled-signal "the caller died before filling")
   (kill-thread caller)
   (check-pattern (deposit->list d) 'float64 3 4))
@@ -229,7 +224,7 @@
 (define (converted-inside-the-form)
   (define d (deposit))
   (define inside #f)
-  (fill! d 'float64 3 4 #:then (lambda () (set! inside (deposit->list d))))
+  (fill! d 'float64 3 4 #:after (lambda () (set! inside (deposit->list d))))
   (check-true (eq? inside (deposit->list d)))
   (check-pattern inside 'float64 3 4))
 

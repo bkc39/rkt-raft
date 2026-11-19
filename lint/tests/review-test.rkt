@@ -32,6 +32,12 @@
                                                  (list `#& ,x `#hash((a . ,y)) `#s(p ,z)))))
                 '()))
 
+(test-case "a splicing syntax class is a definition whose uses review does not check"
+  (check-equal? (problems-in '((require (for-syntax syntax/parse/pre))
+                               (begin-for-syntax
+                                 (define-splicing-syntax-class options (pattern (~seq))))))
+                '()))
+
 (test-case "each test-law body is its own scope, with its state bound in it"
   (define (law name)
     `(test-law ,name (state)

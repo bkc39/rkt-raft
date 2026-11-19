@@ -1,9 +1,11 @@
 #lang racket/base
 
 (require (only-in racket/generator generator in-generator yield)
-         (only-in rackunit check-equal? check-exn check-pred test-case)
-         (only-in "../private/exn.rkt" exn:fail:raft-kind exn:fail:raft?)
-         (only-in "../private/resource.rkt" with-release))
+         (only-in racket/match match-define)
+         (only-in rackunit check-equal? check-exn check-pred check-true test-case)
+         (only-in "../private/exn.rkt" exn:fail:raft exn:fail:raft-kind exn:fail:raft?)
+         (only-in "../private/resource.rkt" call-with-release with-release)
+         (only-in "private/synced.rkt" synced?))
 
 (define released '())
 
@@ -54,17 +56,19 @@
   (check-equal? (with-release ([a 'a release!] [b (list a 'b) release!]) b) '(a b))
   (check-equal? released '(a (a b))))
 
-(test-case "each release expression is evaluated once, after its acquisition"
+(test-case "each release expression, #:who and #:exn are evaluated once per binding, after its acquisition"
   (fresh!)
   (define order '())
   (define (note! tag v)
     (set! order (cons tag order))
     v)
-  (check-equal? (with-release ([a (note! 'acquire-a 'a) (note! 'release-a release!)]
-                               [b (note! 'acquire-b 'b) (note! 'release-b release!)])
+  (check-equal? (with-release #:who (note! 'who 'demo) #:exn
+                  (note! 'exn exn:fail:raft)
+                  ([a (note! 'acquire-a 'a) (note! 'release-a release!)]
+                   [b (note! 'acquire-b 'b) (note! 'release-b release!)])
                   (note! 'body (list a b)))
                 '(a b))
-  (check-equal? (reverse order) '(acquire-a release-a acquire-b release-b body))
+  (check-equal? (reverse order) '(acquire-a release-a who exn acquire-b release-b who exn body))
   (check-equal? released '(a b)))
 
 (test-case "an acquisition answering #f is not released"
@@ -113,3 +117,160 @@
   (check-equal? (exn-message e)
                 "with-device-resources: cannot re-enter its body after its resources were released")
   (check-equal? released '(a)))
+
+(define exits
+  `((return ,(lambda (proc) (call-with-values proc list)))
+    (raise ,(lambda (proc)
+              (with-handlers ([(lambda (e) (eq? e 'raised)) list])
+                (proc (lambda (_a _one _two) (raise 'raised))))))
+    (escape ,(lambda (proc)
+               (call-with-values (lambda ()
+                                   (let/ec k
+                                     (proc k)))
+                                 list)))
+    (yield ,(lambda (proc)
+              (define g
+                (generator ()
+                  (proc yield)))
+              (call-with-values g list)))))
+
+(test-case "R3: every exit calls the release once with the acquired value and answers proc's values"
+  (for ([exit (in-list exits)])
+    (match-define (list kind run) exit)
+    (fresh!)
+    (define label (symbol->string kind))
+    (define results
+      (run (lambda ([leave values]) (call-with-release 'a release! (lambda (a) (leave a 1 2))))))
+    (check-equal? released '(a) label)
+    (check-equal? results
+                  (if (eq? kind 'raise)
+                      (list 'raised)
+                      '(a 1 2))
+                  label)))
+
+(struct exn:fail:demo exn:fail:raft ())
+
+(define (resumed thunk)
+  (with-handlers ([exn:fail:raft? values])
+    (for/list ([x (in-generator (thunk))])
+      x)))
+
+(test-case "R4: a resumed body raises its #:who and #:exn, through the form and the procedure"
+  (fresh!)
+  (define named
+    (resumed (lambda ()
+               (with-release #:who 'demo ([a 'a release!])
+                 (yield a)
+                 (yield a)))))
+  (check-equal? (exn-message named)
+                "demo: cannot re-enter its body after its resources were released")
+  (check-equal? (exn:fail:raft-kind named) 'logic)
+  (define unnamed
+    (resumed (lambda ()
+               (with-release ([a 'a release!])
+                 (yield a)
+                 (yield a)))))
+  (check-equal? (exn-message unnamed) "cannot re-enter its body after its resources were released")
+  (define by-form
+    (resumed (lambda ()
+               (with-release #:exn exn:fail:demo ([a 'a release!])
+                 (yield a)
+                 (yield a)))))
+  (check-pred exn:fail:demo? by-form)
+  (check-equal? (exn:fail:raft-kind by-form) 'logic)
+  (define by-procedure
+    (resumed (lambda ()
+               (call-with-release 'b
+                                  release!
+                                  (lambda (b)
+                                    (yield b)
+                                    (yield b))
+                                  #:who 'demo
+                                  #:exn exn:fail:demo))))
+  (check-pred exn:fail:demo? by-procedure)
+  (check-equal? (exn-message by-procedure)
+                "demo: cannot re-enter its body after its resources were released")
+  (check-equal? released '(b a a a)))
+
+(test-case "R5: a release that raises is not retried, its exception wins, and the outer ones release"
+  (fresh!)
+  (define raising-calls 0)
+  (define (raising tag)
+    (set! raising-calls (add1 raising-calls))
+    (release! tag)
+    (raise 'boom))
+  (check-equal? (with-handlers ([symbol? values])
+                  (with-release ([a 'a release!] [b 'b raising])
+                    (raise 'body)))
+                'boom)
+  (check-equal? raising-calls 1)
+  (check-equal? released '(a b)))
+
+(define breaking-exits
+  `((return ,(lambda (run) (run void))) (raise ,(lambda (run)
+                                                  (with-handlers ([(lambda (e) (eq? e 'raised)) void])
+                                                    (run (lambda () (raise 'raised))))))
+                                        (escape ,(lambda (run)
+                                                   (let/ec k
+                                                     (run (lambda () (k 'escaped))))))))
+
+(test-case "R6: on every exit the release runs with breaks disabled and the break is raised after it"
+  (for ([exit (in-list breaking-exits)])
+    (match-define (list kind leave) exit)
+    (define label (symbol->string kind))
+    (fresh!)
+    (define (breaking tag)
+      (break-thread (current-thread))
+      (sleep 0.05)
+      (release! (list 'done tag (break-enabled))))
+    (define outcome #f)
+    (define t
+      (thread (lambda ()
+                (set! outcome
+                      (with-handlers ([exn:break? (lambda (_e) 'break)])
+                        (leave (lambda (body)
+                                 (with-release ([a 'a breaking])
+                                   (body)))))))))
+    (check-true (synced? t 10) label)
+    (check-equal? outcome 'break label)
+    (check-equal? released '((done a #f)) label)))
+
+(define-namespace-anchor here)
+
+(define (expanded form)
+  (parameterize ([current-namespace (namespace-anchor->namespace here)])
+    (expand form)))
+
+(test-case "R7: #:who and #:exn come in either order, each at most once"
+  (fresh!)
+  (check-equal? (with-release #:who 'demo #:exn
+                  exn:fail:demo
+                  ([a 'a release!])
+                  a)
+                'a)
+  (check-equal? (with-release #:exn exn:fail:demo #:who
+                  'demo
+                  ([b 'b release!])
+                  b)
+                'b)
+  (check-equal? released '(b a))
+  (for ([misuse (in-list '(("#:who" (with-release #:who 'a #:who
+                                      'b
+                                      ([c 'c void])
+                                      c))
+                           ("#:exn" (with-release #:exn exn:fail:demo #:exn
+                                      exn:fail:demo
+                                      ([c 'c void])
+                                      c))
+                           ("#:who" (with-release #:who 'a #:who
+                                      'b
+                                      ()
+                                      'c))))])
+    (match-define (list option form) misuse)
+    (check-exn (lambda (e)
+                 (and (exn:fail:syntax? e)
+                      (regexp-match?
+                       (string-append "^with-release: too many occurrences of the " option " option")
+                       (exn-message e))))
+               (lambda () (expanded form))
+               option)))

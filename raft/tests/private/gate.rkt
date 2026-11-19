@@ -3,7 +3,8 @@
 (require (only-in ffi/unsafe _bytes _fun _int _list _size _ssize get-ffi-obj)
          (only-in ffi/unsafe/port unsafe-file-descriptor->port)
          (only-in racket/match match*)
-         (only-in racket/port read-bytes-evt))
+         (only-in racket/port read-bytes-evt)
+         (only-in "synced.rkt" synced?))
 
 (provide await-entry
          closed-gate
@@ -41,4 +42,4 @@
   (void))
 
 (define (await-entry g [seconds 10])
-  (and (sync/timeout seconds (read-bytes-evt 1 (gate-entries g))) #t))
+  (synced? (read-bytes-evt 1 (gate-entries g)) seconds))

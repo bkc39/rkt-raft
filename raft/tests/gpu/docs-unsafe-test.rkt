@@ -1,6 +1,7 @@
 #lang racket/base
 
 (require (only-in ffi/unsafe
+                  _array
                   _bytes/nul-terminated
                   _double
                   _fun
@@ -10,7 +11,9 @@
                   _pointer
                   _ptr
                   _uint64
+                  array-ref
                   cpointer?
+                  define-cstruct
                   ffi-lib
                   memcpy
                   ptr-equal?
@@ -18,6 +21,7 @@
                   ptr-set!)
          (only-in ffi/unsafe/define define-ffi-definer make-not-available)
          (only-in ffi/unsafe/define/conventions convention:hyphen->underscore)
+         (only-in racket/generator generator yield)
          (only-in racket/list drop-right first remove-duplicates)
          (only-in racket/match match-define)
          (only-in racket/string non-empty-string?)
@@ -34,22 +38,31 @@
                   device-vector->list
                   dtype
                   exn:fail:raft
+                  exn:fail:raft?
                   list*->device-matrix
+                  list->device-vector
                   nnz
                   raft-abi
                   raft-abi-handle-size
                   raft-abi-version
                   shape)
          (only-in "../../unsafe.rkt"
+                  call-with-release
+                  code->dtype
                   define-job
                   deposit
                   deposit->device-csr-matrix
                   deposit->list
+                  deposit-release!
+                  deposit?
+                  device-array-release!
+                  dtype->code
                   raft-abi-pointer
                   resources->handle-pointer
                   status-checker
                   with-array-views
-                  with-deposits)
+                  with-deposits
+                  with-release)
          (only-in "../private/gpu.rkt" gpu-skip test-unless-skipped)
          (only-in "../private/raft-error.rkt" check-raft-error)
          (only-in "../private/resources.rkt" released-resources))
@@ -98,6 +111,24 @@
         -> (status : _int)
         -> (values status inertia)))
 (define-kc kc-cluster-members (_fun _pointer _pointer _pointer _int32 _pointer -> _int))
+
+(define-cstruct _rr-view
+  ([data _pointer]
+   [dtype _int32]
+   [memory _int32]
+   [device _int32]
+   [rank _int32]
+   [shape (_array _int64 8)]
+   [strides (_array _int64 8)]))
+(define-cstruct _rr-deposit
+  ([handle _pointer]
+   [device _int32]
+   [state _int32]
+   [owner _pointer]
+   [release _pointer]
+   [count _int32]
+   [reserved _int32]
+   [regions (_array _rr-view 8)]))
 
 (define (canary-job name)
   (dynamic-require 'kmeans-canary/private/native name))
@@ -207,7 +238,14 @@
                     "kmeans-predict: X: not a view bound to device memory"
                     (lambda ()
                       (with-array-views ([c fitted] [y labels])
-                        (check 'kmeans-predict (lambda () (kc-predict handle c stale #f 1 y)))))))
+                        (check 'kmeans-predict (lambda () (kc-predict handle c stale #f 1 y))))))
+  (define copied (contiguous F #:layout 'row-major))
+  (define copied-score
+    (with-array-views ([c fitted] [x copied] [y labels])
+      (device-array-release! copied)
+      (check 'kmeans-predict (lambda () (kc-predict handle c x #f 1 y)))))
+  (check-true (< (abs (- copied-score inertia)) (* 1e-3 inertia)))
+  (check-equal? (format "~a" copied) "#<device-matrix float32[300×2] row-major cuda:0 <released>>"))
 
 (define (ticks-during thunk)
   (define ticks (box 0))
@@ -380,3 +418,133 @@
   (check-raft-error 'logic
                     "deposit->device-csr-matrix: the deposit holds 2 regions; a CSR matrix needs 3"
                     (lambda () (deposit->device-csr-matrix members #:shape '(3 3)))))
+
+(define (labelled-blobs)
+  (define check (status-checker kc-last-error kc-last-error-kind))
+  (define handle (resources->handle-pointer (current-device-resources)))
+  (define X (made-blobs check handle))
+  (define fitted (device-matrix 3 2))
+  (fit-with check handle X fitted)
+  (define labels (device-vector 300 #:dtype 'int32))
+  (with-array-views ([c fitted] [x X] [y labels])
+    (check 'kmeans-predict (lambda () (kc-predict handle c x #f 1 y))))
+  (values check X fitted labels))
+
+(test-canary "unsafe reference: element type codes"
+  (define-values (check _X _fitted labels) (labelled-blobs))
+  (define wide (deposit))
+  (with-deposits ([out wide])
+                 (with-array-views #:resources [h (current-device-resources)] ([y labels])
+                   (check 'cluster-graph
+                          (lambda () (kc-cluster-graph h y 3 (dtype->code 'int64) out)))))
+  (check-equal? (dtype (first (deposit->list wide))) 'int64)
+  (check-equal? (map dtype->code '(float32 float64 int32 int64)) '(0 1 2 3))
+  (check-exn #rx"^hash-ref: no value found for key" (lambda () (dtype->code 'float16)))
+  (define narrow (deposit))
+  (check-equal?
+   (with-deposits
+    ([out narrow])
+    (with-array-views #:resources [h (current-device-resources)] ([y labels])
+      (check 'cluster-graph (lambda () (kc-cluster-graph h y 3 (dtype->code 'int32) out))))
+    (code->dtype (rr-view-dtype (array-ref (rr-deposit-regions (ptr-ref out _rr-deposit)) 0))))
+   'int32)
+  (check-equal? (map code->dtype '(0 1 2 3)) '(float32 float64 int32 int64))
+  (check-exn #rx"^hash-ref: no value found for key" (lambda () (code->dtype 4))))
+
+(define reentry "cannot re-enter its body after its resources were released")
+
+(test-canary "unsafe reference: releasing"
+  (define-values (check X fitted labels) (labelled-blobs))
+  (define kc-cluster-members-job (canary-job 'kc-cluster-members-job))
+  (define kc-predict-job (canary-job 'kc-predict-job))
+  (define (members-job c d)
+    (kc-cluster-members-job 'cluster-members (current-device-resources) X labels c d))
+  (define scoped (with-release ([d (deposit) deposit-release!]) d))
+  (check-equal? (format "~a" scoped) "#<deposit device 0 released>")
+  (define cluster-1
+    (with-release ([d (deposit) deposit-release!])
+      (members-job 1 d)
+      (deposit->list d)))
+  (check-equal? (map dtype cluster-1) '(int64 float32))
+  (define members-of
+    (generator ()
+      (with-release #:who 'with-members #:exn
+        exn:fail:canary
+        ([d (deposit) deposit-release!])
+        (yield d)
+        (yield d))))
+  (check-equal? (format "~a" (members-of)) "#<deposit device 0 released>")
+  (check-equal? (with-handlers ([exn:fail:canary? (lambda (e) (list 'canary (exn-message e)))])
+                  (members-of))
+                (list 'canary (format "with-members: ~a" reentry)))
+  (define scratch-score
+    (call-with-release
+     (device-vector 300 #:dtype 'int32)
+     device-array-release!
+     (lambda (scratch)
+       (with-array-views #:resources [h (current-device-resources)] ([c fitted] [x X] [y scratch])
+         (check 'kmeans-predict (lambda () (kc-predict h c x #f 1 y)))))))
+  (check-true (> scratch-score 0))
+  (define cluster-2
+    (call-with-release (deposit)
+                       deposit-release!
+                       (lambda (d)
+                         (members-job 2 d)
+                         (deposit->list d))))
+  (check-equal? (map dtype cluster-2) '(int64 float32))
+  (define resumed
+    (generator ()
+      (call-with-release (deposit)
+                         deposit-release!
+                         (lambda (d)
+                           (yield d)
+                           (yield d))
+                         #:who 'with-members)))
+  (check-equal? (format "~a" (resumed)) "#<deposit device 0 released>")
+  (check-raft-error 'logic (format "with-members: ~a" reentry) resumed)
+  (define kept (deposit))
+  (members-job 0 kept)
+  (match-define (list kept-indices kept-rows) (deposit->list kept))
+  (deposit-release! kept)
+  (check-equal? (format "~a" kept) "#<deposit device 0 released>")
+  (check-equal? (length (device-vector->list kept-indices)) (car (shape kept-rows)))
+  (check-raft-error 'logic "deposit: used after its release" (lambda () (deposit->list kept)))
+  (check-raft-error 'logic "deposit: used after its release" (lambda () (members-job 0 kept)))
+  (define inside (deposit))
+  (with-deposits ([out inside])
+                 (deposit-release! inside)
+                 (with-array-views #:resources [h (current-device-resources)] ([x X] [y labels])
+                   (check 'cluster-members (lambda () (kc-cluster-members h x y 1 out)))))
+  (check-equal? (format "~a" inside) "#<deposit device 0 released>")
+  (define early (list->device-vector '(1 2 3)))
+  (device-array-release! early)
+  (check-equal? (format "~a" early) "#<device-vector int64[3] cuda:0 <released>>")
+  (check-raft-error 'logic
+                    "device-array: used after its release"
+                    (lambda () (device-vector->list early)))
+  (define done (deposit))
+  (members-job 2 done)
+  (match-define (list done-indices done-rows) (deposit->list done))
+  (deposit-release! done)
+  (device-array-release! done-indices)
+  (device-array-release! done-rows)
+  (check-equal? (format "~a" done-rows)
+                (format "#<device-matrix float32[~a×2] row-major cuda:0 <released>>"
+                        (car (shape done-rows))))
+  (define held-labels (device-vector 300 #:dtype 'int32))
+  (match-define (list refusal held-score)
+    (with-array-views #:resources [h (current-device-resources)] ([c fitted] [x X] [y held-labels])
+      (device-array-release! held-labels)
+      (list (exn-message (with-handlers ([exn:fail:raft? values])
+                           (device-vector->list held-labels)))
+            (check 'kmeans-predict (lambda () (kc-predict h c x #f 1 y))))))
+  (check-equal? refusal "device-array: used after its release")
+  (check-true (> held-score 0))
+  (check-equal? (format "~a" held-labels) "#<device-vector int32[300] cuda:0 <released>>")
+  (check-raft-error 'logic
+                    "device-array: used after its release"
+                    (lambda () (with-array-views ([v early]) v)))
+  (check-raft-error
+   'logic
+   "device-array: used after its release"
+   (lambda () (kc-predict-job 'kmeans-predict (current-device-resources) fitted early #f 1 labels))))

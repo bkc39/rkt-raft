@@ -4,16 +4,15 @@
          (only-in racket/list append* filter-not make-list)
          (only-in racket/match match* match-define match-lambda struct*)
          (only-in "array.rkt"
-                  array-buffer-handle
                   array-device
                   device-array-dtype
                   device-array-shape
+                  released-array?
                   settled-arguments*)
          (only-in "error.rkt" call/raft exn:fail:raft?)
          (only-in "exn.rkt" raise-raft)
          (only-in "foreign/csr-api.rkt" rr-csr-check rr-csr-check-shape)
          (only-in "foreign/host.rkt" host-getter host-memory host-setter)
-         (only-in "foreign/memory.rkt" released?)
          (only-in "pack.rkt" element-converter elements matrix-shape over-elements)
          (only-in "print.rkt" csr-runs csr-text indented shape-text)
          (only-in "resources.rkt" define/resources)
@@ -241,8 +240,7 @@
 (define (entries-text m)
   (match-define (struct* csr-matrix ([indptr indptr] [indices indices] [data data])) m)
   (cond
-    [(ormap (lambda (part) (released? (array-buffer-handle part))) (list indptr indices data))
-     " <released>"]
+    [(ormap released-array? (list indptr indices data)) " <released>"]
     [(zero? (nnz m)) ""]
     [else
      (with-handlers ([exn:fail:raft? (lambda (e)

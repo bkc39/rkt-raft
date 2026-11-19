@@ -1,10 +1,12 @@
 #lang racket/base
 
-(require (only-in racket/list append* make-list range)
+(require (only-in racket/file find-files)
+         (only-in racket/list append* append-map make-list range)
          (only-in racket/match match match-define)
          ;; whole-module: define-runtime-path needs bindings only-in strips
          racket/runtime-path
-         (only-in rackunit check-equal?)
+         (only-in racket/set subset?)
+         (only-in rackunit check-equal? check-true test-case)
          (only-in raft
                   csr-data
                   csr-indices
@@ -14,16 +16,16 @@
                   dtype
                   list->device-vector
                   shape)
-         (only-in raft/private/array release-array!)
          (only-in raft/tests/private/csr parts triplets)
          (only-in raft/tests/private/gpu test-gpu)
          (only-in raft/tests/private/python-env run-twin test-twin)
          (only-in raft/tests/private/raft-error check-raft-error)
-         (only-in raft/unsafe deposit)
+         (only-in raft/unsafe deposit device-array-release!)
          (only-in "../main.rkt" assignment-graph cluster-graph csr-copy)
          (only-in "../private/native.rkt" kc-csr-copy-job))
 
 (define-runtime-path twin "python/kmeans_twin.py")
+(define-runtime-path package "..")
 
 (define labels-list '(2 0 1 0 2 2 0 1 2))
 (define k 4)
@@ -62,7 +64,7 @@
     (define expected (parts g))
     (check-equal? (parts copied) expected)
     (check-equal? (shape copied) (shape g))
-    (for-each release-array! (list (csr-indptr g) (csr-indices g) (csr-data g)))
+    (for-each device-array-release! (list (csr-indptr g) (csr-indices g) (csr-data g)))
     (check-equal? (parts copied) expected (format "~a after the original's release" index-type))
     (check-equal? (device-csr-matrix->list* copied) (device-csr-matrix->list* (csr-copy copied)))))
 
@@ -124,3 +126,40 @@
     (check-equal? (parts (graph-of index-type))
                   (map (lambda (key) (hash-ref result key)) '(indptr indices data))
                   (symbol->string index-type))))
+
+(define counters
+  (hasheq 'raft/private/foreign/memory '(buffer-drop-count owner-release-count release-failure-count)
+          'raft/private/job '(executor-threads jobs-in-flight jobs-live)))
+
+(define (private? spec)
+  (regexp-match? #rx"^raft/private/" (format "~a" spec)))
+
+(define (private-requires spec)
+  (match spec
+    [(list* 'only-in (? private? module) names) (list (cons module names))]
+    [(? private? module) (list (list module))]
+    [(list* _ specs) (append-map private-requires specs)]
+    [_ '()]))
+
+(define (module-forms path)
+  (match (with-input-from-file path
+                               (lambda ()
+                                 (parameterize ([read-accept-reader #t])
+                                   (read))))
+    [(list 'module _ _ (list* '#%module-begin forms)) forms]
+    [_ '()]))
+
+(define (requires form)
+  (match form
+    [(list* 'require specs) (append-map private-requires specs)]
+    [_ '()]))
+
+(define (allowed? spec)
+  (match spec
+    [(list* module (? pair? names)) (subset? names (hash-ref counters module '()))]
+    [_ #f]))
+
+(test-case "C2: no canary module requires raft/private beyond the test-only counters"
+  (for* ([path (in-list (find-files (lambda (p) (regexp-match? #rx"[.]rkt$" p)) package))]
+         [spec (in-list (append-map requires (module-forms path)))])
+    (check-true (allowed? spec) (format "~a requires ~a" path spec))))

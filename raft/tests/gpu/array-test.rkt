@@ -29,8 +29,7 @@
                   array-buffer-handle
                   bound-view
                   buffer->device-array
-                  device-array-buffer
-                  release-array!)
+                  device-array-buffer)
          (only-in "../../private/error.rkt" call/raft)
          (only-in "../../private/foreign/array-api.rkt" rr-array-contiguous)
          (only-in "../../private/foreign/array.rkt"
@@ -41,8 +40,9 @@
                   view-shape
                   view-strides)
          (only-in "../../private/foreign/memory.rkt" buffer-drop-count)
+         (only-in "../../unsafe.rkt" device-array-release!)
          (only-in "../private/arrays.rkt" check-zero-row-uploads storage)
-         (only-in "../private/collect.rkt" collect-until drain-finalizers!)
+         (only-in "../private/collect.rkt" collect-until drain-finalizers! settled-count)
          (only-in "../private/gpu.rkt" test-gpu)
          (only-in "../private/raft-error.rkt" check-raft-error)
          (only-in "../private/resources.rkt" released-resources))
@@ -344,20 +344,24 @@
                     "list->device-vector: the device resources on device 0 were released"
                     (lambda () (list->device-vector '(1) #:resources released))))
 
-(test-gpu "a released buffer is refused with the public noun, and its phantom bytes are dropped"
+(test-gpu "E13a: device-array-release! frees once, drops its phantom bytes, and is refused after"
   (define bytes (* 1024 1024 8))
   (define v (device-vector (* 1024 1024) #:dtype 'int64))
   (drain-finalizers!)
+  (define drops (settled-count buffer-drop-count))
   (define held (current-memory-use))
-  (release-array! v)
+  (device-array-release! v)
   (check-true (>= (- held (current-memory-use)) (- bytes (* 64 1024))))
+  (check-equal? (settled-count buffer-drop-count) (add1 drops))
+  (device-array-release! v)
+  (check-equal? (settled-count buffer-drop-count) (add1 drops))
   (check-raft-error 'logic
                     "device-array: used after its release"
                     (lambda () (device-vector->list v))))
 
 (test-gpu "a released array prints without raising, and never replaces another error"
   (define v (list->device-vector '(1 2 3)))
-  (release-array! v)
+  (device-array-release! v)
   (check-equal? (format "~a" v) "#<device-vector int64[3] cuda:0 <released>>")
   (check-exn (lambda (e)
                (and (exn:fail:contract? e)

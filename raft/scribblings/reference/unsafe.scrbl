@@ -11,7 +11,7 @@ This module is for native bindings that run their own C++ on raft's resources
 and arrays, such as a cuML binding. It provides the @tt{raft::handle_t} to
 run on, a descriptor for each array, a checker that turns a native status
 into @racket[exn:fail:raft], a form that runs a long native call on a worker
-thread, and the ABI tag. @racketmodname[raft] does not
+thread, the ABI tag, and the releases of scoped native objects. @racketmodname[raft] does not
 re-export it.
 
 It is unsafe as @racketmodname[ffi/unsafe] is: nothing checks that a
@@ -50,6 +50,12 @@ The examples call the canary's library: set @tt{RAFT_KMEANS_CANARY} to
 (define-job kc-fit-job canary "kc_fit_job"
   (handle view view view _int32 _int32 _double _int32 _double _uint64 (out _double) (out _int32)))
 (define-job kc-predict-job canary "kc_predict_job" (handle view view view _int32 view (out _double)))
+(define-cstruct _rr-view
+  ([data _pointer] [dtype _int32] [memory _int32] [device _int32] [rank _int32]
+   [shape (_array _int64 8)] [strides (_array _int64 8)]))
+(define-cstruct _rr-deposit
+  ([handle _pointer] [device _int32] [state _int32] [owner _pointer] [release _pointer]
+   [count _int32] [reserved _int32] [regions (_array _rr-view 8)]))
 ]
 
 @section[#:tag "ref-unsafe-status"]{Checking native calls}
@@ -375,6 +381,10 @@ clears each view: its @tt{data} becomes @tt{NULL} and its device and memory
 pointer is not cleared, so it must not escape the body. Control that jumps
 back into the body raises @racket[exn:fail:raft] of kind @racket['logic].
 
+A @racket[device-array-release!] of a bound array takes effect at once for
+Racket, where every later use raises, but frees the memory only when the last
+binding that holds the array exits, so the views stay valid until then.
+
 Before binding a view, the form waits, by polling, for the work queued on
 the array's stream. It does not wait after the body: a native call that
 returns with work still queued must run on the arrays' own resources or
@@ -412,7 +422,62 @@ is refused:
 (eval:error
  (with-array-views ([c fitted] [y labels])
    (check 'kmeans-predict (lambda () (kc-predict handle c stale #f 1 y)))))
+]
+
+An array released inside the form is still read through its view:
+
+@examples[#:eval ev #:label #f
+(define copied (contiguous F #:layout 'row-major))
+(with-array-views ([c fitted] [x copied] [y labels])
+  (device-array-release! copied)
+  (check 'kmeans-predict (lambda () (kc-predict handle c x #f 1 y))))
+copied
 ]}
+
+@section[#:tag "ref-unsafe-dtypes"]{Element type codes}
+
+@defproc[(dtype->code [dtype (or/c 'float32 'float64 'int32 'int64)]) exact-nonnegative-integer?]{
+
+Returns @racket[dtype]'s @tt{RR_DTYPE_*} code (@secref["ref-unsafe-c"]), as
+a view records it and a native call takes it. Another symbol raises
+@racket[hash-ref]'s @racket[exn:fail:contract].}
+
+@examples[#:eval ev
+(define wide (deposit))
+(with-deposits ([out wide])
+  (with-array-views #:resources [handle (current-device-resources)] ([y labels])
+    (check 'cluster-graph
+           (lambda () (kc-cluster-graph handle y 3 (dtype->code 'int64) out)))))
+(dtype (first (deposit->list wide)))
+]
+
+Each element type, and one raft does not have:
+
+@examples[#:eval ev #:label #f
+(map dtype->code '(float32 float64 int32 int64))
+(eval:error (dtype->code 'float16))
+]
+
+@defproc[(code->dtype [code exact-nonnegative-integer?]) (or/c 'float32 'float64 'int32 'int64)]{
+
+The inverse of @racket[dtype->code]. Another code raises
+@racket[hash-ref]'s @racket[exn:fail:contract].}
+
+@examples[#:eval ev
+(define narrow (deposit))
+(with-deposits ([out narrow])
+  (with-array-views #:resources [handle (current-device-resources)] ([y labels])
+    (check 'cluster-graph
+           (lambda () (kc-cluster-graph handle y 3 (dtype->code 'int32) out))))
+  (code->dtype (rr-view-dtype (array-ref (rr-deposit-regions (ptr-ref out _rr-deposit)) 0))))
+]
+
+Each code, and one raft does not have:
+
+@examples[#:eval ev #:label #f
+(map code->dtype '(0 1 2 3))
+(eval:error (code->dtype 4))
+]
 
 @section[#:tag "ref-unsafe-deposits"]{Outputs sized by the call}
 
@@ -516,6 +581,180 @@ Another shape, or a deposit of other regions, is refused:
 (eval:error (deposit->device-csr-matrix graph #:shape (cons 4 (shape labels))))
 (eval:error (deposit->device-csr-matrix members #:shape '(3 3)))
 ]}
+
+@section[#:tag "ref-unsafe-release"]{Releasing}
+
+A binding that holds native objects of its own, or that is done with a
+deposit or an array before the collector would notice, releases them at a
+known point.
+
+@defform[(with-release option ... ([id acquire-expr release-expr] ...) body ...+)
+         #:grammar ([option (code:line #:who who-expr)
+                            (code:line #:exn exn-expr)])
+         #:contracts ([release-expr (-> any/c any)]
+                      [who-expr (or/c symbol? #f)]
+                      [exn-expr (-> string? continuation-mark-set? symbol? exn?)])]{
+
+Binds each @racket[id] in order and runs the @racket[body]s. Every exit
+releases each @racket[id] once, innermost first, by calling its
+@racket[release-expr]'s value on it as a @racket[dynamic-wind] post thunk,
+so with breaks disabled. An @racket[id] bound to @racket[#f] is not
+released. Jumping back in raises @racket[exn-expr]'s exception (default
+@racket[exn:fail:raft]) of kind @racket['logic], its message prefixed by
+@racket[who-expr]; each option is given at most once and evaluated once per
+binding, after its @racket[acquire-expr]. A thread killed in the
+@racket[body]s releases nothing; the finalizer is the backstop.}
+
+@examples[#:eval ev
+(define scoped (with-release ([d (deposit) deposit-release!]) d))
+scoped
+(define cluster-1
+  (with-release ([d (deposit) deposit-release!])
+    (kc-cluster-members-job 'cluster-members (current-device-resources) X labels 1 d)
+    (deposit->list d)))
+(map dtype cluster-1)
+]
+
+A generator that resumes the body is refused, under the binding's own name
+and exception:
+
+@examples[#:eval ev #:label #f
+(require racket/generator)
+(define members-of
+  (generator ()
+    (with-release #:who 'with-members #:exn exn:fail:canary ([d (deposit) deposit-release!])
+      (yield d)
+      (yield d))))
+(members-of)
+(with-handlers ([exn:fail:canary? (lambda (e) (list 'canary (exn-message e)))])
+  (members-of))
+]
+
+@defproc[(call-with-release [acquired any/c]
+                            [release (-> any/c any)]
+                            [proc (-> any/c any)]
+                            [#:who who (or/c symbol? #f) #f]
+                            [#:exn exn (-> string? continuation-mark-set? symbol? exn?)
+                                   exn:fail:raft])
+         any]{
+
+Calls @racket[(proc acquired)] and returns its results, releasing
+@racket[acquired] on every exit as @racket[with-release] does for one
+binding; @racket[with-release] expands into it.}
+
+@examples[#:eval ev
+(call-with-release (device-vector 300 #:dtype 'int32)
+                   device-array-release!
+                   (lambda (scratch)
+                     (with-array-views #:resources [handle (current-device-resources)]
+                                       ([c fitted] [x X] [y scratch])
+                       (check 'kmeans-predict (lambda () (kc-predict handle c x #f 1 y))))))
+(define cluster-2
+  (call-with-release (deposit)
+                     deposit-release!
+                     (lambda (d)
+                       (kc-cluster-members-job 'cluster-members (current-device-resources)
+                                               X labels 2 d)
+                       (deposit->list d))))
+(map dtype cluster-2)
+(define resumed
+  (generator ()
+    (call-with-release (deposit) deposit-release! (lambda (d) (yield d) (yield d))
+                       #:who 'with-members)))
+(resumed)
+(eval:error (resumed))
+]
+
+@defproc[(deposit-release! [d deposit?]) void?]{
+
+Releases @racket[d] now. The arrays already adopted from it stay valid; its
+owner is released once they are all released or collected too. A second
+release does nothing. While @racket[with-deposits] binds @racket[d], the
+release waits for the form's exit, and a @tech{job} that holds @racket[d]
+keeps it until it returns. A later use of @racket[d] raises
+@racket[exn:fail:raft] of kind @racket['logic]: ``deposit: used after its
+release''.}
+
+@examples[#:eval ev
+(define kept (deposit))
+(kc-cluster-members-job 'cluster-members (current-device-resources) X labels 0 kept)
+(match-define (list kept-indices kept-rows) (deposit->list kept))
+(deposit-release! kept)
+kept
+(= (length (device-vector->list kept-indices)) (car (shape kept-rows)))
+]
+
+A released deposit cannot be converted or filled again:
+
+@examples[#:eval ev #:label #f
+(eval:error (deposit->list kept))
+(eval:error (kc-cluster-members-job 'cluster-members (current-device-resources) X labels 0 kept))
+]
+
+Released inside its own @racket[with-deposits], the deposit is still filled,
+and released when the form exits:
+
+@examples[#:eval ev #:label #f
+(define inside (deposit))
+(with-deposits ([out inside])
+  (deposit-release! inside)
+  (with-array-views #:resources [handle (current-device-resources)] ([x X] [y labels])
+    (check 'cluster-members (lambda () (kc-cluster-members handle x y 1 out)))))
+inside
+]
+
+@defproc[(device-array-release! [a device-array?]) void?]{
+
+Releases @racket[a]'s memory now instead of at collection. An array adopted
+from a deposit releases its share of the deposit's owner, which goes once
+the deposit and its other arrays are gone too; its phantom bytes drop to 0
+when its memory is released, though the owner's memory lives until then. Releasing a part of a
+@racket[deposit->device-csr-matrix] result, which is one of the deposit's
+cached arrays, releases that part of the matrix. A @tech{job} that holds
+@racket[a] keeps its memory until it returns, and a @racket[with-array-views]
+binding of @racket[a] until it exits; nothing else does, so a native object
+that keeps a pointer into @racket[a] past its call does not. A second
+release does nothing; a later use raises @racket[exn:fail:raft] of kind
+@racket['logic]: ``device-array: used after its release''.}
+
+@examples[#:eval ev
+(define early (list->device-vector '(1 2 3)))
+(device-array-release! early)
+early
+(eval:error (device-vector->list early))
+]
+
+The arrays of a released deposit, released one by one:
+
+@examples[#:eval ev #:label #f
+(define done (deposit))
+(kc-cluster-members-job 'cluster-members (current-device-resources) X labels 2 done)
+(match-define (list done-indices done-rows) (deposit->list done))
+(deposit-release! done)
+(device-array-release! done-indices)
+(device-array-release! done-rows)
+done-rows
+]
+
+Released inside a binding, an array is refused at once but read through the
+binding's view until the binding exits:
+
+@examples[#:eval ev #:label #f
+(define held-labels (device-vector 300 #:dtype 'int32))
+(with-array-views #:resources [handle (current-device-resources)]
+                  ([c fitted] [x X] [y held-labels])
+  (device-array-release! held-labels)
+  (list (exn-message (with-handlers ([exn:fail:raft? values]) (device-vector->list held-labels)))
+        (check 'kmeans-predict (lambda () (kc-predict handle c x #f 1 y)))))
+held-labels
+]
+
+A released array is refused wherever it is passed:
+
+@examples[#:eval ev #:label #f
+(eval:error (with-array-views ([v early]) v))
+(eval:error (kc-predict-job 'kmeans-predict (current-device-resources) fitted early #f 1 labels))
+]
 
 @section[#:tag "ref-unsafe-c"]{The C interface}
 

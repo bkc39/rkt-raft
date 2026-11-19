@@ -13,6 +13,7 @@
                   ptr-ref)
          (only-in ffi/unsafe/atomic in-atomic-mode?)
          (only-in racket/generator in-generator yield)
+         (only-in racket/match match-define)
          (only-in rackunit
                   check-equal?
                   check-exn
@@ -38,11 +39,14 @@
                   view-dtype-code
                   view-shape
                   view-strides)
+         (only-in "../../private/foreign/internal.rkt" rr-dtype-table)
          (only-in "../../private/foreign/memory.rkt" buffer-drop-count resources-drop-count)
          (only-in "../../private/resource.rkt" with-release)
          (only-in "../../private/resources.rkt" resources-handle)
          (only-in "../../unsafe.rkt"
+                  code->dtype
                   deposit
+                  dtype->code
                   raft-abi-pointer
                   resources->handle-pointer
                   status-checker
@@ -52,6 +56,20 @@
          (only-in "../private/probe.rkt" probe-hold! probe-release! test-probe)
          (only-in "../private/raft-error.rkt" check-raft-error exn:fail:canary exn:fail:canary?)
          (only-in "../private/resources.rkt" released-resources))
+
+(test-case "#84: dtype->code and code->dtype are the shim's dtype table, both ways"
+  (for ([row (in-list (rr-dtype-table))])
+    (match-define (list name code _itemsize) row)
+    (check-equal? (dtype->code name) code (symbol->string name))
+    (check-equal? (code->dtype code) name (symbol->string name)))
+  (check-equal? (map dtype->code '(float32 float64 int32 int64)) '(0 1 2 3)))
+
+(define (hash-ref-refusal? e)
+  (and (exn:fail:contract? e) (regexp-match? #rx"^hash-ref: no value found for key" (exn-message e))))
+
+(test-case "#84: an unknown dtype or code raises hash-ref's refusal"
+  (check-exn hash-ref-refusal? (lambda () (dtype->code 'float16)))
+  (check-exn hash-ref-refusal? (lambda () (code->dtype 4))))
 
 (test-case "raft-abi-pointer points at the tag raft-abi reads"
   (define tag (raft-abi-pointer))

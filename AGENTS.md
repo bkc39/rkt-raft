@@ -169,7 +169,10 @@ plans/scoping-plan.md         the approved plan (revision 5), as Markdown
    generator resume, a re-entered continuation) raises `exn:fail:raft`
    (kind `'logic`) instead of acquiring again. A public form passes its own name as `#:who`
    (`with-device-resources`), which prefixes that message; without it the
-   message names nothing internal. No raw `malloc`/`free` outside that module
+   message names nothing internal. `raft/unsafe` exports the form and
+   `call-with-release` (#66); the release is claimed before it is called,
+   and it runs with breaks disabled, as a `dynamic-wind` post thunk. No raw
+   `malloc`/`free` outside that module
    and `raft/private/foreign/host.rkt`, which allocates the non-moving host
    staging memory (`'atomic-interior`, owned by the GC, so it has no free and
    nothing to scope): `scripts/no-raw-malloc.sh` gates it.
@@ -667,6 +670,8 @@ plans/scoping-plan.md         the approved plan (revision 5), as Markdown
   until the test's `open-gate!`, and `await-entry` reads the entry byte
   through a port, so a test checks mid-job state without a clock or a held
   place),
+  `tests/private/synced.rkt` (`synced?`, a `sync/timeout` answered as a
+  boolean, the bound on every wait for a thread or a gate),
   `tests/private/exit-run.rkt` (`run-exit-program`, which writes a fixture's
   module to a temporary `program.rkt`, runs it with `PLTSTDERR=debug@raft`,
   and answers its code, stdout and stderr lines; `in-flight-line` and
@@ -675,8 +680,10 @@ plans/scoping-plan.md         the approved plan (revision 5), as Markdown
   a temp directory, JSON in and out, `check-close`, `test-twin`),
   `tests/private/bindings.rkt` (the binding reader shared by the audit and
   the census), `tests/private/deposits.rkt` (the probe's fill helpers,
-  owner and drop counters and `released-once`, shared by `deposit-test.rkt`
-  and `deposit-job-test.rkt`).
+  owner and drop counters, `released-once`, and the `held` table with its
+  `drop!` steps (`deposit`, `arrays`, `released-arrays`, `release-deposit`,
+  `(release-array i)`) and `in-order`, shared by `deposit-test.rkt`,
+  `deposit-release-test.rkt` and `deposit-job-test.rkt`).
 
 ## Build and test
 
@@ -954,7 +961,9 @@ gates' own tests), `no-syntax-rule`, `no-raw-malloc`,
   clash with another's. It also treats `define-syntax-parse-rule` as review
   treats `define-syntax-rule`, recording the name and skipping the template;
   without it review reads the header as a function's and reports every
-  `x:expr` as an unused argument. It skips quoted data and reads quasiquoted
+  `x:expr` as an unused argument. It records a `define-splicing-syntax-class`
+  name as review records a `define-syntax-class` one, without checking its
+  uses, which review cannot see in an `x:name` pattern. It skips quoted data and reads quasiquoted
   data (lists, vectors, boxes, hash values, prefab fields) only at its
   unquotes. `;; noqa` is allowed only where review cannot see a
   binding's definition or use: names that `define-cpointer-type` and
@@ -1365,6 +1374,10 @@ canary changes with it in the same pull request:
   `("raft" #:version "0.3")` or `__has_include(<raftrkt/csr.hpp>)`.
 - **Additions at version 1 (#65):** `deposit`'s `#:who`; a downstream
   detects it with `("raft" #:version "0.3")`.
+- **Additions at version 1 (#66):** `with-release`, `call-with-release`,
+  `deposit-release!` and `device-array-release!` in `raft/unsafe`, and
+  `dtype->code` and `code->dtype` (#84); detect with
+  `("raft" #:version "0.3")`.
 
 Not part of the ABI:
 
@@ -1805,3 +1818,87 @@ since cuSPARSE's error string for it is only "out of memory"). The frozen rule i
 - **`(check-resources who r)` declined:** a second name for a check
   `#:who` already places, which would leave out-of-memory and conversion
   refusals under raft's name and race with a release on another thread.
+
+## Decisions recorded in #66
+
+- **`deposit-release!` releases the holder only**, never the arrays
+  adopted from it (Q-B1-2): it composes, and a binding's regions handed to
+  users survive the binding's release, as rkt-cuml's Q-C requires. Freeing
+  everything at a known point is one `deposit-release!` and one
+  `device-array-release!` per adopted array; the owner, and any opaque C++
+  object in it, goes once the last of them is released or collected. The
+  release clears the deposit's cached list, so the arrays are no longer
+  reachable through it.
+- **Type-first names** (Q-B1-1): `deposit-release!`, `device-array-release!`,
+  as the `device-array:` noun of the use-after-release message. The private
+  `release-array!` keeps its name; `deposit.rkt`'s curried close is
+  `deposit-close`.
+- **A release while a binding holds the record is deferred** (Q-B1-5), never
+  refused: `deposit-record` moves the deposit from open to bound, and
+  `deposit-release!` of a bound deposit moves it to releasing; the close of
+  `with-deposits`, or the hand-over or refused submit of a job's binding,
+  frees the holder then. Every state change, and `deposit-release!` itself,
+  runs in one `call-as-atomic`, so a second thread, or a finalizer, sees
+  either state and never a half-done release. E7 covers release-once only;
+  E7b races `with-deposits` and its fill against `deposit-release!` and
+  passes with the atomic sections removed too, so they are covered by
+  reading. The close's `rr-holder-close` can raise, so its unbind is a
+  `with-release` around it. A job's binding and its
+  submit run in one `call-as-atomic`, so no other thread can release a
+  deposit between them; the E10 job law calls `deposit-release!` from inside
+  `call-with-deposits-bound`'s procedure instead of from a gated thread.
+  A thread killed inside `with-deposits` leaves the deposit bound, and a later
+  release of it waits for the finalizer.
+- **A released deposit refuses every use** with `deposit: used after its
+  release` (raft's check, since a deferred holder is not yet retagged),
+  prints `#<deposit device 0 released>`, and a job's deposit argument is
+  refused at binding.
+- **`with-release` takes `#:exn`** (Q-B1-4), which makes the re-entry
+  refusal as `status-checker`'s `#:exn` does, and its options in either
+  order, each at most once (one splicing syntax class, whose error names the
+  option given twice); `call-with-release` takes `#:who` and `#:exn` as
+  keywords (Q-B1-6). Both options are evaluated once per binding, with its
+  release expression, as rule 7 states for `#:who`; `resource-test.rkt`
+  pins the order.
+- **The release runs with breaks disabled because it is a `dynamic-wind`
+  post thunk**: Racket runs post thunks so for every exit and raises a
+  break that arrived meanwhile after the thunk returns, so the private form
+  already did and raft adds no `parameterize-break`. R6 pins it for a
+  return, a raise and an escape. A `(break-enabled v)` in the body persists
+  past the form. The claim before the release is defensive: re-entry is
+  refused in the pre thunk, so no post thunk runs twice and no test can
+  observe the claim.
+- **W1's exemption is data**: an export that takes `#:resources` takes an
+  optional `#:who`, `who-without-resources` lists the exports that take
+  `#:who` without `#:resources` (`call-with-release`, which names the form a
+  binding defines, not a call on resources), and the list of every name that
+  takes `#:who` is pinned.
+- **`device-array-release!` while a `with-array-views` binding holds the
+  array is deferred**, never refused (H1): views nest and two threads can
+  hold views of one array, so the buffer keeps a view count beside a
+  `released?` flag. Three atomic sections, each one `call-as-atomic` in
+  `raft/private/array.rkt`, hold every read-modify-write of them:
+  `acquire-view` (refuse a released array, bind the view, count it up),
+  `release-view!` (clear the view, count it down, free a released buffer at
+  0) and `release-array!` (mark it released, free it at 0; a second release
+  does nothing). From the release on, `array-buffer-handle` refuses the
+  array with `device-array: used after its release`, so every Racket use
+  raises as for a freed one, a job's pins are the arrays themselves, and the
+  printers read `released-array?`; the memory stays valid for the views
+  already bound, and `buffer-drop-count` and the pool move only when the
+  last binding exits. An adopted array keeps its rule: its region is the
+  owner's, and the count gates the views. A thread killed inside a binding,
+  or a break between the acquire and the form's entry, leaves the count up,
+  as the deposit's same window leaves it bound: the finalizer frees the
+  buffer once the array is unreachable. `view-release-test.rkt`'s V1-V7 pin
+  the behaviour and pass with the three atomic sections removed too, so
+  they are covered by reading.
+- **`resource-test.rkt` stays on `raft/private/resource`** so it runs on
+  pkg-build (no libraftrkt); `core-test.rkt`'s R1 pins that `raft/unsafe`'s
+  names are those bindings.
+- **`dtype->code` and `code->dtype` are `raft/private/dtype.rkt`'s**, built
+  from the shim's dtype table; an unknown name or code raises `hash-ref`'s
+  `exn:fail:contract`, pinned by its message's prefix in `unsafe-test.rkt`
+  and `docs-unsafe-test.rkt`. The canary takes its CSR
+  index codes from `dtype->code`.
+- No C, header or layout change; the ABI version stays 1.
