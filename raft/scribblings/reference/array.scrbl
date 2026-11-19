@@ -513,8 +513,9 @@ A mask of the wrong length:
 Returns an @racket['int32] array of @racket[a]'s shape and layout, 1 where
 @racket[(op e x)] holds for @racket[a]'s element e and 0 elsewhere.
 @racket[x] is first converted to @racket[a]'s dtype as an element of
-@racket[list->device-vector] is, so an integer dtype truncates it. A NaN
-compares false.
+@racket[list->device-vector] is, except that an integer dtype refuses an
+@racket[x] that is not an integer, raising @racket[exn:fail:raft] of kind
+@racket['logic]. A NaN compares false.
 
 @examples[#:eval ev
 (device-vector->list (compare labels '>= 0))
@@ -535,10 +536,12 @@ Counting the samples in a cluster, and the long petals:
 (apply + (device-vector->list (compare petals '> 4.0)))
 ]
 
-A threshold the dtype cannot hold:
+A threshold the dtype cannot hold, and a float it holds exactly:
 
 @examples[#:eval ev #:label #f
 (eval:error (compare labels '< 3000000000))
+(eval:error (compare labels '>= 0.5))
+(compare labels '>= 1.0)
 ]}
 
 @section[#:tag "ref-array-convert"]{Converting Racket data}
@@ -626,8 +629,8 @@ Cluster sizes from labels:
 
 Returns a matrix whose rows are @racket[rows], of @racket[dtype] or the
 inferred type, packed in @racket[layout] on the host. A ragged row raises
-@racket[exn:fail:raft]. With @racket[cols], the matrix has that many columns, even with no rows; a
-row of another length raises.
+@racket[exn:fail:raft]. With @racket[cols], the matrix has that many
+columns, even with no rows; a row of another length raises.
 
 @examples[#:eval ev
 (list*->device-matrix '((1 2) (3 4)))
@@ -903,8 +906,8 @@ Repeats count, and so does a zero that repeats summed to:
 
 Makes a @tech{CSR matrix} of the entries of @racket[rows] that are not zero,
 columns ascending in each row. @racket[rows] is rows as for
-@racket[list*->device-matrix]; a value that converts to zero is not stored. With @racket[cols], the matrix has that many columns, even with no rows; a
-row of another length raises.
+@racket[list*->device-matrix]; a value that converts to zero is not stored.
+@racket[cols] is as for @racket[list*->device-matrix].
 
 @examples[#:eval ev
 (device-csr-matrix->list* G)

@@ -43,15 +43,14 @@
                   contiguous?
                   device-matrix
                   device-matrix?
-                  device-resources
                   device-vector
                   device-vector?
                   dtype
-                  shape
-                  with-device-resources)
+                  shape)
          (only-in "../private/arrays.rkt" check-zero-row-uploads storage)
          (only-in "../private/gpu.rkt" test-gpu)
-         (only-in "../private/raft-error.rkt" check-raft-error))
+         (only-in "../private/raft-error.rkt" check-raft-error)
+         (only-in "../private/resources.rkt" released-resources))
 
 (define (flvector->list v)
   (for/list ([x (in-flvector v)])
@@ -214,7 +213,7 @@
    (lambda () (bytes->device-vector (make-bytes 4) #:dtype 'float16))))
 
 (test-gpu "released resources are refused, naming the procedure"
-  (define released (with-device-resources ([r (device-resources)]) r))
+  (define released (released-resources))
   (check-raft-error 'logic
                     "vector->device-vector: the device resources on device 0 were released"
                     (lambda () (vector->device-vector #(1) #:resources released)))

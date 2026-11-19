@@ -55,21 +55,20 @@
       (vector-length row)
       (length row)))
 
-(define (matrix-shape who rows cols)
-  (define width
-    (or cols
-        (for/first ([row rows])
-          (extent row))))
-  (define expected
-    (if cols
-        (format "#:cols is ~a" cols)
-        (format "row 0 has ~a" width)))
+(define (matrix-shape who rows [cols #f])
+  (define-values (width source)
+    (cond
+      [cols (values cols "#:cols is")]
+      [else
+       (values (for/first ([row rows])
+                 (extent row))
+               "row 0 has")]))
   (over-elements
    (for ([row rows]
          [i (in-naturals)])
      (define n (extent row))
      (unless (= n width)
-       (raise-raft who 'logic "row ~a has ~a, but ~a: ~e" i (elements n) expected row))))
+       (raise-raft who 'logic "row ~a has ~a, but ~a ~a: ~e" i (elements n) source width row))))
   (list (extent rows) (or width 0)))
 
 (define (elements n)
@@ -90,31 +89,32 @@
         (refuse who x (format "does not fit ~a" dtype))
         converted)))
 
-(define (integer-converter who dtype)
+(define (integer-converter who dtype exact?)
   (define half (expt 2 (sub1 (hash-ref integer-bits dtype))))
   (lambda (x)
     (define n
       (cond
         [(exact-integer? x) x]
-        [(and (real? x) (rational? x)) (exact-truncate x)]
+        [(and (real? x) (rational? x) (or (not exact?) (integer? x))) (exact-truncate x)]
+        [(and (real? x) (rational? x)) (refuse who x (format "does not fit ~a exactly" dtype))]
         [(real? x) (refuse who x "is not a finite number")]
         [else (refuse who x "is not a real number")]))
     (if (<= (- half) n (sub1 half))
         n
         (refuse who x (format "does not fit ~a" dtype)))))
 
-(define (element-converter who dtype)
+(define (element-converter who dtype #:exact? [exact? #f])
   (case dtype
-    [(int32 int64) (integer-converter who dtype)]
+    [(int32 int64) (integer-converter who dtype exact?)]
     [else (float-converter who dtype)]))
 
 (define (host-for dtype count)
   (host-memory (* count (dtype-itemsize dtype))))
 
-(define (pack-vector who dtype n xs)
+(define (pack-vector who dtype n xs #:exact? [exact? #f])
   (define host (host-for dtype n))
   (define set (host-setter dtype))
-  (define convert (element-converter who dtype))
+  (define convert (element-converter who dtype #:exact? exact?))
   (over-elements (for ([x xs]
                        [i (in-range n)])
                    (set host i (convert x))))

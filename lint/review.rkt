@@ -38,6 +38,9 @@
     [(head:id _ _ _ ...)
      #:when (named? #'head 'test-unless-skipped)
      #t]
+    [(head:id _ (_:id) _ ...)
+     #:when (named? #'head 'test-law)
+     #t]
     [(head:id _ _ ...)
      #:when (set-member? scoped-test-forms (syntax-e #'head))
      #t]
@@ -68,9 +71,10 @@
     [(prefab-struct-key datum) (cdr (vector->list (struct->vector datum)))]
     [else '()]))
 
-(define (review-scoped-body leading body)
+(define (review-scoped-body leading body #:bindings [bindings '()])
   (for-each recur leading)
   (push-scope)
+  (for-each track-binding bindings)
   (for-each recur body)
   (pop-scope))
 
@@ -91,4 +95,7 @@
     [(head:id reason name body ...)
      #:when (named? #'head 'test-unless-skipped)
      (review-scoped-body (list #'reason #'name) (syntax->list #'(body ...)))]
+    [(head:id name (state:id) body ...)
+     #:when (named? #'head 'test-law)
+     (review-scoped-body (list #'head #'name) (syntax->list #'(body ...)) #:bindings (list #'state))]
     [(_ name body ...) (review-scoped-body (list #'name) (syntax->list #'(body ...)))]))

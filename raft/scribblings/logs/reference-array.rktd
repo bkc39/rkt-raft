@@ -349,6 +349,14 @@
  (raise "compare: 3000000000 does not fit int32")
  ""
  "")
+((compare labels '>= 0.5)
+ (raise "compare: 0.5 does not fit int32 exactly")
+ ""
+ "")
+((compare labels '>= 1.0)
+ (values "#<device-vector int32[4] cuda:0 [0 0 1 1]>\n")
+ ""
+ "")
 ((list->device-vector '(3 1 4 1 5))
  (values "#<device-vector int64[5] cuda:0 [3 1 4 1 5]>\n")
  ""

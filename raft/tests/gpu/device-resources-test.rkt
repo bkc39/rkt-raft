@@ -25,7 +25,8 @@
          (only-in "../private/collect.rkt" collect-until drain-finalizers! releases-settled?)
          (only-in "../private/gpu.rkt" test-gpu test-without-gpu)
          (only-in "../private/python-env.rkt" run-twin test-twin)
-         (only-in "../private/raft-error.rkt" check-raft-error))
+         (only-in "../private/raft-error.rkt" check-raft-error)
+         (only-in "../private/resources.rkt" released-resources))
 
 (define-runtime-path device-count-twin "../python/device_count.py")
 
@@ -162,7 +163,7 @@
   (check-true (collect-until (lambda () (>= (resources-drop-count) (+ before 3))))))
 
 (test-gpu "released resources raise exn:fail:raft naming the call"
-  (define r (with-device-resources ([r (device-resources)]) r))
+  (define r (released-resources))
   (check-raft-error 'logic
                     "resources-sync!: the device resources on device 0 were released"
                     (lambda () (resources-sync! r)))

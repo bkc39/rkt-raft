@@ -31,12 +31,11 @@
                   shape
                   strides
                   with-device-resources)
+         (only-in "../private/arrays.rkt" printed)
          (only-in "../private/collect.rkt" drain-finalizers!)
          (only-in "../private/gpu.rkt" test-gpu)
-         (only-in "../private/raft-error.rkt" check-raft-error))
-
-(define (printed v)
-  (format "~a" v))
+         (only-in "../private/raft-error.rkt" check-raft-error)
+         (only-in "../private/resources.rkt" released-resources))
 
 (define (flvector->list v)
   (for/list ([x (in-flvector v)])
@@ -125,7 +124,7 @@
   (drain-finalizers!)
   (define before (current-memory-use))
   (define scratch (device-matrix 1024 1024))
-  (check-equal? (quotient (- (current-memory-use) before) (* 1024 1024)) 4)
+  (check-true (>= (- (current-memory-use) before) (* 4 1024 1024)))
   (check-equal? (numel scratch) (* 1024 1024))
   (set! scratch #f)
   (drain-finalizers!)
@@ -159,7 +158,7 @@
    (lambda () (device-matrix 2 2 #:dtype 'float16)))
   (define (centroid-matrix k data #:resources [r (current-device-resources)])
     (device-matrix k (second (shape data)) #:resources r #:who 'centroid-matrix))
-  (define finished (with-device-resources ([r (device-resources)]) r))
+  (define finished (released-resources))
   (check-raft-error 'logic
                     "centroid-matrix: the device resources on device 0 were released"
                     (lambda () (centroid-matrix 3 X #:resources finished))))

@@ -270,22 +270,22 @@
 (define who-without-resources '(call-with-release))
 
 (test-case "W1: an exported procedure that takes #:resources takes #:who, never required"
-  (define exports
+  (define takers
     (for*/list ([mod (in-list '(raft/array raft/compat raft/unsafe))]
-                [export (in-list (procedure-exports mod))])
-      (match-define (cons name p) export)
-      (list (format "~a ~a" mod name) name p)))
-  (for ([export (in-list exports)])
-    (match-define (list label _ p) export)
+                [export (in-list (procedure-exports mod))]
+                #:when (or (accepts? (cdr export) '#:who) (accepts? (cdr export) '#:resources)))
+      export))
+  (for ([taker (in-list takers)])
+    (match-define (cons name p) taker)
     (define-values (required _accepted) (procedure-keywords p))
-    (check-true (implies (accepts? p '#:resources) (accepts? p '#:who)) label)
-    (check-false (memq '#:who required) label))
+    (check-true (implies (accepts? p '#:resources) (accepts? p '#:who)) (symbol->string name))
+    (check-false (memq '#:who required) (symbol->string name)))
   (define (names-where keep?)
     (sort (remove-duplicates (filter-map (match-lambda
-                                           [(list _ name p) (and (keep? p) name)])
-                                         exports))
+                                           [(cons name p) (and (keep? p) name)])
+                                         takers))
           symbol<?))
-  (check-equal? (names-where (lambda (p) (and (accepts? p '#:who) (not (accepts? p '#:resources)))))
+  (check-equal? (names-where (lambda (p) (not (accepts? p '#:resources))))
                 who-without-resources)
   (check-equal? (names-where (lambda (p) (accepts? p '#:who)))
                 '(array->device-array bytes->device-vector

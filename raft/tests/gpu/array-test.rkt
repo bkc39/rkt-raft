@@ -44,7 +44,8 @@
          (only-in "../private/arrays.rkt" check-zero-row-uploads storage)
          (only-in "../private/collect.rkt" collect-until drain-finalizers! settled-count)
          (only-in "../private/gpu.rkt" test-gpu)
-         (only-in "../private/raft-error.rkt" check-raft-error))
+         (only-in "../private/raft-error.rkt" check-raft-error)
+         (only-in "../private/resources.rkt" released-resources))
 
 (define (flvector->list xs)
   (for/list ([x (in-flvector xs)])
@@ -133,7 +134,7 @@
   (check-zero-row-uploads list*->device-matrix '() device-matrix->list*))
 
 (test-gpu "Z3: a row that disagrees with #:cols is refused, before the resources are read"
-  (define released (with-device-resources ([r (device-resources)]) r))
+  (define released (released-resources))
   (check-raft-error 'logic
                     "list*->device-matrix: row 0 has 2 elements, but #:cols is 3: '(1 2)"
                     (lambda () (list*->device-matrix '((1 2)) #:cols 3)))
@@ -335,7 +336,7 @@
   (check-equal? (device-matrix->list* c) sample))
 
 (test-gpu "released resources are refused by the constructors, naming the caller"
-  (define released (with-device-resources ([r (device-resources)]) r))
+  (define released (released-resources))
   (check-raft-error 'logic
                     "device-matrix: the device resources on device 0 were released"
                     (lambda () (device-matrix 2 2 #:resources released)))
