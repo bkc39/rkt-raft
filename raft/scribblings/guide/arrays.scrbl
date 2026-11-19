@@ -7,7 +7,7 @@
 
 A @tech{device array} is a matrix or a vector in GPU memory. This chapter
 loads a dataset, puts it on the GPU, inspects it, changes its layout, moves
-other forms of Racket data, brings values back and lets it go.
+other forms of Racket data, chooses rows, brings values back and lets it go.
 
 @section[#:tag "arrays-upload"]{A dataset on the GPU}
 
@@ -147,6 +147,24 @@ w
 
 Narrowing to @racket['float32] raises on a value too large rather than giving
 an infinity.
+
+@section[#:tag "arrays-select"]{Choosing rows}
+
+@racket[compare] turns the labels into a mask, and @racket[select] keeps the
+rows where it is 1, here the setosa flowers:
+
+@examples[#:eval ev #:label #f
+(define setosa (select X (compare labels '= 0)))
+(shape setosa)
+]
+
+@racket[gather] takes rows by index, here the first flower of each species:
+
+@examples[#:eval ev #:label #f
+(define firsts (map (lambda (name) (index-of species name)) names))
+firsts
+(gather X (list->device-vector firsts #:dtype 'int32))
+]
 
 @section[#:tag "arrays-back"]{Bringing values back}
 

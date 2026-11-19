@@ -3,29 +3,15 @@ csr_matrix, checks its format in full and reports its parts, its dense form
 and its COO triplets; CuPy builds the same case from the same input."""
 
 import json
-import math
 import sys
 
 import cupy as cp
 import cupyx.scipy.sparse as cusparse
 import numpy as np
 import scipy.sparse
+from twin import decoded, encoded
 
 DENSE_LIMIT = 10**6
-
-
-def decoded(xs):
-    if isinstance(xs, list):
-        return [decoded(x) for x in xs]
-    return math.nan if xs == "nan" else xs
-
-
-def encoded(xs):
-    if isinstance(xs, list):
-        return [encoded(x) for x in xs]
-    if isinstance(xs, float) and math.isnan(xs):
-        return "nan"
-    return xs
 
 
 def csr_matrix(case, xp, sparse):

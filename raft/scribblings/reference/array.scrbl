@@ -414,6 +414,117 @@ Integer matrices:
             #:layout 'col-major)
 ]}
 
+@section[#:tag "ref-array-select"]{Choosing elements and rows}
+
+These read a vector's elements, or a matrix's rows, into a new @tech{device
+array} on the source's resources and @tech{stream}. A matrix result keeps the
+source's columns and layout.
+
+@defproc[(gather [a device-array?] [indices device-vector?]) device-array?]{
+
+Returns the elements of vector @racket[a], or the rows of matrix @racket[a],
+at @racket[indices], in their order; an index may repeat. @racket[indices] is
+@racket['int32] or @racket['int64]. An index outside [0, n), n being
+@racket[a]'s length or row count, raises @racket[exn:fail:raft] of kind
+@racket['logic], naming the first.
+
+@examples[#:eval ev
+(define order (list->device-vector '(2 0 0) #:dtype 'int32))
+(gather X order)
+(device-vector->list (gather (list->device-vector '(10 20 30)) order))
+]
+
+Rows sorted by petal length:
+
+@examples[#:eval ev #:label #f
+(define by-petal (sort (range 4) < #:key (lambda (i) (third (list-ref samples i)))))
+(gather X (list->device-vector by-petal #:dtype 'int32))
+]
+
+Each sample's centroid, by its cluster label:
+
+@examples[#:eval ev #:label #f
+(define centroids
+  (list*->device-matrix '((5.0 3.25 1.4 0.2) (6.7 3.2 4.6 1.45)) #:dtype 'float32))
+(gather centroids (list->device-vector '(0 0 1 1) #:dtype 'int32))
+]
+
+Out of range:
+
+@examples[#:eval ev #:label #f
+(eval:error (gather X (list->device-vector '(1 4) #:dtype 'int32)))
+(eval:error (gather X (list->device-vector '(-1) #:dtype 'int32)))
+]}
+
+@defproc[(select [a device-array?] [mask device-vector?]) device-array?]{
+
+Returns the elements of vector @racket[a], or the rows of matrix @racket[a],
+where @racket[mask] is not zero, in order. @racket[mask] is @racket['int32] or
+@racket['int64], one element per element or row of @racket[a];
+@racket[compare] makes one.
+
+@examples[#:eval ev
+(select X (list->device-vector '(1 0 0 1) #:dtype 'int32))
+(shape (select X (list->device-vector '(0 0 0 0) #:dtype 'int32)))
+]
+
+Only the clustered samples, noise being @racket[-1]:
+
+@examples[#:eval ev #:label #f
+(define labels (list->device-vector '(0 -1 1 1) #:dtype 'int32))
+(define clustered (compare labels '>= 0))
+(list (device-vector->list (select labels clustered)) (shape (select X clustered)))
+]
+
+A training and a held-out split by fold:
+
+@examples[#:eval ev #:label #f
+(define fold (list->device-vector '(0 1 0 1) #:dtype 'int32))
+(define training (select X (compare fold '= 0)))
+(define held-out (select X fold))
+(list (shape training) (shape held-out))
+]
+
+A mask of the wrong length:
+
+@examples[#:eval ev #:label #f
+(eval:error (select X (list->device-vector '(1 0 1) #:dtype 'int32)))
+]}
+
+@defproc[(compare [a device-array?] [op (or/c '= '< '<= '> '>=)] [x real?])
+         device-array?]{
+
+Returns an @racket['int32] array of @racket[a]'s shape and layout, 1 where
+@racket[(op e x)] holds for @racket[a]'s element e and 0 elsewhere.
+@racket[x] is first converted to @racket[a]'s dtype as an element of
+@racket[list->device-vector] is, so an integer dtype truncates it. A NaN
+compares false.
+
+@examples[#:eval ev
+(device-vector->list (compare labels '>= 0))
+(compare X '< 3.0)
+]
+
+Long petals:
+
+@examples[#:eval ev #:label #f
+(define petals (list->device-vector (map third samples) #:dtype 'float32))
+(select X (compare petals '> 4.0))
+]
+
+Counting the samples in a cluster, and the long petals:
+
+@examples[#:eval ev #:label #f
+(apply + (device-vector->list (compare labels '= 1)))
+(apply + (device-vector->list (compare petals '> 4.0)))
+]
+
+A threshold the dtype cannot hold:
+
+@examples[#:eval ev #:label #f
+(eval:error (compare labels '< 3000000000))
+]}
+
 @section[#:tag "ref-array-convert"]{Converting Racket data}
 
 Without @racket[#:dtype], the element type is inferred: all

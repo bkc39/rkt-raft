@@ -3,6 +3,8 @@
 (require (only-in json read-json write-json)
          (only-in racket/dict in-dict)
          (only-in racket/file delete-directory/files make-temporary-directory)
+         (only-in racket/match match)
+         (only-in racket/math nan?)
          (only-in racket/port open-output-nowhere)
          (only-in racket/system system*)
          (only-in rackunit check-equal? check-true)
@@ -13,6 +15,8 @@
 
 (provide check-close
          close?
+         decoded
+         encoded
          run-twin
          test-twin)
 
@@ -48,6 +52,22 @@
         [(not python) "no Python twin (python3 is not on PATH)"]
         [(not (python-imports? "pylibraft")) "no Python twin (import pylibraft failed)"]
         [else #f])))
+
+(define (encoded x)
+  (cond
+    [(list? x) (map encoded x)]
+    [(and (flonum? x) (nan? x)) "nan"]
+    [(eqv? x +inf.0) "inf"]
+    [(eqv? x -inf.0) "-inf"]
+    [else x]))
+
+(define (decoded x)
+  (match x
+    [(? list?) (map decoded x)]
+    ["nan" +nan.0]
+    ["inf" +inf.0]
+    ["-inf" -inf.0]
+    [_ x]))
 
 (define (remove-directory dir)
   (delete-directory/files dir #:must-exist? #f))

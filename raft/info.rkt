@@ -46,6 +46,7 @@
                     "private/foreign/job-api.rkt"
                     "private/foreign/library.rkt"
                     "private/foreign/memory.rkt"
+                    "private/gather.rkt"
                     "private/job.rkt"
                     "private/pack.rkt"
                     "private/resources.rkt"

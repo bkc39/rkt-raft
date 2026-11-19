@@ -6,10 +6,7 @@ import sys
 
 import numpy as np
 from pylibraft.common import device_ndarray
-
-
-def in_order(arr, order):
-    return np.asfortranarray(arr) if order == "F" else np.ascontiguousarray(arr)
+from twin import in_order
 
 
 def element_strides(arr):
