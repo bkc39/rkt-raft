@@ -520,7 +520,7 @@ Counting the samples in a cluster, and the long petals:
 (apply + (device-vector->list (compare petals '> 4.0)))
 ]
 
-A threshold the dtype cannot hold:
+A threshold the dtype cannot hold, and a float it holds exactly:
 
 @examples[#:eval ev #:label #f
 (eval:error (compare labels '< 3000000000))
