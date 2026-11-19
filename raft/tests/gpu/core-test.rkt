@@ -141,8 +141,8 @@
   (define ns (make-base-empty-namespace))
   (parameterize ([current-namespace ns])
     (namespace-require mod)
-    (match (identifier-binding (namespace-symbol->identifier name))
-      [(list* source _) (resolved-module-path-name (module-path-index-resolve source))])))
+    (match-define (list* source _) (identifier-binding (namespace-symbol->identifier name)))
+    (resolved-module-path-name (module-path-index-resolve source))))
 
 (define (private-module name)
   (collection-file-path (format "~a.rkt" name) "raft" "private"))
