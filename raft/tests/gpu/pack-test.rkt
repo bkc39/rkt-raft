@@ -23,12 +23,12 @@
                     (lambda () (infer-dtype 'f '(1 "x")))))
 
 (test-case "a matrix's shape comes from its rows, and a ragged row is named"
-  (check-equal? (matrix-shape 'f '((1 2 3) (4 5 6)) #f) '(2 3))
-  (check-equal? (matrix-shape 'f '() #f) '(0 0))
-  (check-equal? (matrix-shape 'f '(() ()) #f) '(2 0))
+  (check-equal? (matrix-shape 'f '((1 2 3) (4 5 6))) '(2 3))
+  (check-equal? (matrix-shape 'f '()) '(0 0))
+  (check-equal? (matrix-shape 'f '(() ())) '(2 0))
   (check-raft-error 'logic
                     "f: row 1 has 3 elements, but row 0 has 2: '(3 4 5)"
-                    (lambda () (matrix-shape 'f '((1 2) (3 4 5)) #f))))
+                    (lambda () (matrix-shape 'f '((1 2) (3 4 5))))))
 
 (test-case "elements convert as NumPy casts them"
   (check-equal? ((element-converter 'f 'float32) 1/4) 0.25)
@@ -95,11 +95,11 @@
                     (lambda () (infer-rows-dtype 'f #(#(1) #(1+2i))))))
 
 (test-case "nested vectors have a shape, and a ragged vector row is named"
-  (check-equal? (matrix-shape 'f #(#(1 2 3) #(4 5 6)) #f) '(2 3))
-  (check-equal? (matrix-shape 'f #() #f) '(0 0))
+  (check-equal? (matrix-shape 'f #(#(1 2 3) #(4 5 6))) '(2 3))
+  (check-equal? (matrix-shape 'f #()) '(0 0))
   (check-raft-error 'logic
                     "f: row 1 has 1 element, but row 0 has 2: '#(3)"
-                    (lambda () (matrix-shape 'f #(#(1 2) #(3)) #f))))
+                    (lambda () (matrix-shape 'f #(#(1 2) #(3))))))
 
 (test-case "nested vectors pack as nested lists do"
   (define rows '((1 2 3) (4 5 6)))

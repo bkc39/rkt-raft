@@ -55,21 +55,20 @@
       (vector-length row)
       (length row)))
 
-(define (matrix-shape who rows cols)
-  (define width
-    (or cols
-        (for/first ([row rows])
-          (extent row))))
-  (define expected
-    (if cols
-        (format "#:cols is ~a" cols)
-        (format "row 0 has ~a" width)))
+(define (matrix-shape who rows [cols #f])
+  (define-values (width source)
+    (cond
+      [cols (values cols "#:cols is")]
+      [else
+       (values (for/first ([row rows])
+                 (extent row))
+               "row 0 has")]))
   (over-elements
    (for ([row rows]
          [i (in-naturals)])
      (define n (extent row))
      (unless (= n width)
-       (raise-raft who 'logic "row ~a has ~a, but ~a: ~e" i (elements n) expected row))))
+       (raise-raft who 'logic "row ~a has ~a, but ~a ~a: ~e" i (elements n) source width row))))
   (list (extent rows) (or width 0)))
 
 (define (elements n)
