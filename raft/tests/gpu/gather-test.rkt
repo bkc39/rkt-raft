@@ -22,7 +22,12 @@
          (only-in "../private/collect.rkt" drain-finalizers! drops-after)
          (only-in "../private/gather.rkt" gather-state kept)
          (only-in "../private/gpu.rkt" gpu-skip test-gpu)
-         (only-in "../private/probe.rkt" probe-hold! probe-pool-used probe-release! test-pools test-probe)
+         (only-in "../private/probe.rkt"
+                  probe-hold!
+                  probe-pool-used
+                  probe-release!
+                  test-pools
+                  test-probe)
          (only-in "../private/raft-error.rkt" check-raft-error)
          (only-in "../private/skip.rkt" test-unless-skipped))
 
@@ -148,7 +153,9 @@
         [expected (in-list '((40 10 30) (10 30 40)))])
     (define result (box #f))
     (define worker
-      (with-release ([held (probe-hold! (resources-handle 'hold other)) (lambda (_) (probe-release!))])
+      (with-release ([held
+                      (probe-hold! (resources-handle 'hold other))
+                      (lambda (_) (probe-release!))])
         (check-true held "the probe queued its hold")
         (define worker (thread (lambda () (set-box! result (call)))))
         (check-false (sync/timeout 1 worker) "the call waits while the input's stream is held")

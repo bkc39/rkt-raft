@@ -58,8 +58,7 @@
 
 (define (checked-csr who indptr indices data extents)
   (define checked (int64-extents extents))
-  (define arguments
-    (append (settled-arguments* who (list indptr indices data)) checked))
+  (define arguments (append (settled-arguments* who (list indptr indices data)) checked))
   (call/raft who (lambda () (apply rr-csr-check arguments)))
   (unchecked-device-csr-matrix indptr indices data checked))
 

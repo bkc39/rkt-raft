@@ -64,13 +64,17 @@
     ("no indices" (gather (int64 row-major (5) (1 2 3 4 5)) (int32)) agrees)
     ("an all-zero mask" (select (float32 row-major (4 2) ,rows-4) (int64 0 0 0 0)) agrees)
     ("a repeat" (gather (float32 row-major (5 2) ,rows-5) (int32 1 1 1)) agrees)
-    ("the reverse permutation" (gather (int32 row-major (5) (10 20 30 40 50)) (int64 4 3 2 1 0)) agrees)
-    ("NaN and -0.0 payloads" (gather (float32 row-major (4) (+nan.0 -0.0 0.0 1.5)) (int32 1 0 2 0)) agrees)
-    ("int64 beyond int32" (gather (int64 row-major (3) (,(expt 2 62) ,(- (expt 2 62)) 1)) (int32 1 0)) agrees)
+    ("the reverse permutation" (gather (int32 row-major (5) (10 20 30 40 50)) (int64 4 3 2 1 0))
+                               agrees)
+    ("NaN and -0.0 payloads" (gather (float32 row-major (4) (+nan.0 -0.0 0.0 1.5)) (int32 1 0 2 0))
+                             agrees)
+    ("int64 beyond int32" (gather (int64 row-major (3) (,(expt 2 62) ,(- (expt 2 62)) 1)) (int32 1 0))
+                          agrees)
     ("an F-order 4×3 by index" (gather (float32 col-major (4 3) ,f-4x3) (int32 3 0 2)) agrees)
     ("an F-order 4×3 by mask" (select (float64 col-major (4 3) ,f-4x3) (int32 1 0 1 1)) agrees)
     ("an F-order 4×3 compared" (compare (float32 col-major (4 3) ,f-4x3) >= 5.0) agrees)
-    ("an int64 mask holding 2^32" (select (float32 row-major (4 2) ,rows-4) (int64 ,(expt 2 32) 0 -1 0))
+    ("an int64 mask holding 2^32" (select (float32 row-major (4 2) ,rows-4)
+                                          (int64 ,(expt 2 32) 0 -1 0))
                                   agrees)
     ("NaN compares false" (compare (float64 row-major (3) (+nan.0 1.0 -0.0)) <= 0.0) agrees)))
 
@@ -141,8 +145,9 @@
       [('col-major (list rows cols)) (and (> rows 1) (> cols 1))]
       [(_ _) #f]))
   (check-true (contiguous? m #:layout (if col-major? 'col-major 'row-major)) label)
-  (check-true (hash-ref r (if (and (eq? layout 'col-major) (eq? kind 'compare)) 'f_contiguous 'c_contiguous))
-              label))
+  (check-true
+   (hash-ref r (if (and (eq? layout 'col-major) (eq? kind 'compare)) 'f_contiguous 'c_contiguous))
+   label))
 
 (define (check-case name form expected r)
   (define m (ours form))

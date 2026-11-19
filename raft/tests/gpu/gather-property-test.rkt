@@ -93,8 +93,7 @@
   (define spec (random-spec state))
   (define a (upload spec))
   (for ([index-type (in-list '(int32 int64))])
-    (define r
-      (gather a (list->device-vector (range (spec-length spec)) #:dtype index-type)))
+    (define r (gather a (list->device-vector (range (spec-length spec)) #:dtype index-type)))
     (check-equal? (summary r) (summary a) (format "~s by ~a" spec index-type))
     (check-false (eq? (device-array-buffer r) (device-array-buffer a)))))
 
@@ -180,9 +179,7 @@
   (define r (compare a op x))
   (define label (format "~s ~a ~s" spec op x))
   (check-equal? (contents r) (elementwise (lambda (e) (if (holds? e x*) 1 0)) spec) label)
-  (check-equal? (list (dtype r) (shape r) (strides r))
-                (list 'int32 (shape a) (strides a))
-                label))
+  (check-equal? (list (dtype r) (shape r) (strides r)) (list 'int32 (shape a) (strides a)) label))
 
 (define-law "law 11: < and >=, and > and <=, are complements except at NaN" (state)
   (define spec (random-spec state))
