@@ -680,6 +680,12 @@ Dispatching on the kind of matrix:
     [else (device-matrix->list* a)]))
 (->dense G)
 (->dense (list*->device-matrix '((1.0 2.0))))
+]
+
+The sparse ones among a list of arrays:
+
+@examples[#:eval ev #:label #f
+(map shape (filter device-csr-matrix? (list X G (csr-indptr G))))
 ]}
 
 @deftogether[(@defproc[(csr-indptr [m device-csr-matrix?]) device-vector?]

@@ -461,6 +461,10 @@
  ""
  "")
 ((->dense (list*->device-matrix '((1.0 2.0)))) (values "'((1.0 2.0))\n") "" "")
+((map shape (filter device-csr-matrix? (list X G (csr-indptr G))))
+ (values "'((3 4))\n")
+ ""
+ "")
 ((device-vector->list (csr-indptr G)) (values "'(0 1 1 3)\n") "" "")
 ((device-vector->list (csr-indices G)) (values "'(1 0 3)\n") "" "")
 ((device-vector->list (csr-data G)) (values "'(1.5 2.0 -3.0)\n") "" "")

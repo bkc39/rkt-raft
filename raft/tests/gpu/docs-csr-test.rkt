@@ -83,7 +83,10 @@
       [(device-csr-matrix? a) (device-csr-matrix->list* a)]
       [else (device-matrix->list* a)]))
   (check-equal? (->dense g) G-rows)
-  (check-equal? (->dense (list*->device-matrix '((1.0 2.0)))) '((1.0 2.0))))
+  (check-equal? (->dense (list*->device-matrix '((1.0 2.0)))) '((1.0 2.0)))
+  (check-equal?
+   (map shape (filter device-csr-matrix? (list (list*->device-matrix '((1.0))) g (csr-indptr g))))
+   '((3 4))))
 
 (test-gpu "reference: csr-indptr, csr-indices and csr-data"
   (define g (G))
