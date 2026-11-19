@@ -3,6 +3,7 @@
 #include <array>
 #include <atomic>
 #include <chrono>
+#include <cstddef>
 #include <cstdint>
 #include <cstring>
 #include <functional>
@@ -12,10 +13,10 @@
 #include <vector>
 
 #include "deposit_fixture.hpp"
-#include "detail/deposit_api.h"
 #include "gpu.hpp"
 #include "raftrkt/c_api.h"
 #include "raftrkt/deposit.hpp"
+#include "raftrkt/holder.h"
 
 namespace rr::test::deposit {
 namespace {
@@ -232,6 +233,101 @@ TEST(Deposit, AFailedAdoptionForgetsEveryAdoptionSoARetryStartsAgain) {
   rr_resources_free(s.resources);
   EXPECT_EQ(t.stale, 0);
   expect_released(before, {1, 1, 3});
+}
+
+constexpr std::size_t prechecking_fillers = 8;
+constexpr std::size_t prechecking_rounds = 200;
+constexpr auto prechecking_budget = std::chrono::seconds(2);
+
+struct dropped {
+  explicit dropped(int& drops) : drops_(&drops) {}
+  ~dropped() {
+    ++*drops_;
+  }
+  dropped(const dropped&) = delete;
+  dropped& operator=(const dropped&) = delete;
+  dropped(dropped&&) = delete;
+  dropped& operator=(dropped&&) = delete;
+
+ private:
+  int* drops_;
+};
+
+struct precheck_race {
+  std::array<int, prechecking_fillers> drops{};
+  std::array<bool, prechecking_fillers> won{};
+  std::array<std::string, prechecking_fillers> refusals;
+};
+
+void prechecked_fill(const session& s, const std::atomic<bool>& go,
+                     precheck_race& r, std::size_t f) {
+  auto o = std::make_unique<dropped>(r.drops.at(f));
+  while (!go.load(std::memory_order_acquire)) {
+    std::this_thread::yield();
+  }
+  try {
+    raftrkt::require_open(s.record, "out", *s.handle);
+    raftrkt::deposit(s.record, "out", *s.handle, std::move(o),
+                     {raftrkt::region(static_cast<float*>(nullptr), 0)});
+    r.won.at(f) = true;
+  } catch (const raftrkt::logic_error& e) {
+    r.refusals.at(f) = e.what();
+  }
+}
+
+void expect_one_prechecked_winner(const precheck_race& r) {
+  int wins = 0;
+  for (std::size_t f = 0; f < prechecking_fillers; ++f) {
+    if (r.won.at(f)) {
+      ++wins;
+      EXPECT_EQ(r.drops.at(f), 0);
+    } else {
+      EXPECT_EQ(r.drops.at(f), 1);
+      EXPECT_TRUE(r.refusals.at(f) == "out: being filled" ||
+                  r.refusals.at(f) == "out: already filled")
+          << r.refusals.at(f);
+    }
+  }
+  EXPECT_EQ(wins, 1);
+}
+
+void prechecked_round(const session& shared) {
+  session s = shared;
+  EXPECT_EQ(rr_holder_create(s.resources, &s.holder), RR_OK) << rr_last_error();
+  EXPECT_EQ(rr_holder_record(s.holder, &s.record), RR_OK) << rr_last_error();
+  precheck_race r;
+  std::atomic<bool> go{false};
+  std::array<std::thread, prechecking_fillers> fillers;
+  for (std::size_t f = 0; f < fillers.size(); ++f) {
+    fillers.at(f) = std::thread([&, f] { prechecked_fill(s, go, r, f); });
+  }
+  go.store(true, std::memory_order_release);
+  for (std::thread& t : fillers) {
+    t.join();
+  }
+  expect_one_prechecked_winner(r);
+  EXPECT_EQ(rr_holder_close(s.holder), RR_OK) << rr_last_error();
+  rr_holder_free(s.holder);
+  EXPECT_TRUE(releases_settled());
+  for (const int drops : r.drops) {
+    EXPECT_EQ(drops, 1);
+  }
+}
+
+TEST(Deposit, StressPrecheckedFillersLeaveExactlyOneOwnerPerRecord) {
+  RR_REQUIRE_GPU();
+  const counters before;
+  const session shared = holderless_session();
+  std::size_t rounds = 0;
+  const auto start = std::chrono::steady_clock::now();
+  while (rounds < prechecking_rounds &&
+         std::chrono::steady_clock::now() - start < prechecking_budget) {
+    prechecked_round(shared);
+    ++rounds;
+  }
+  rr_resources_free(shared.resources);
+  EXPECT_GT(rounds, 0U);
+  expect_released(before, {rounds, rounds, 0});
 }
 
 }  // namespace

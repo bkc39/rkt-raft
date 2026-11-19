@@ -305,5 +305,22 @@ TEST(Pool, CumlAllocatesFromThePoolRaftInstalled) {
   EXPECT_EQ(run.after.used, run.before.used);
   EXPECT_GT(run.after.high, run.before.used);
 }
+
+TEST(Graph, AnUnusableDepositIsRefusedBeforeTheInputs) {
+  KC_REQUIRE_GPU();
+  const resources res;
+  const uint64_t drops = kc_owner_drop_count();
+  for (const unusable& u : unusable_records) {
+    rr_deposit graph = stack_record(res, u.state);
+    EXPECT_EQ(outcome(kc_cluster_graph(res.handle, nullptr, clusters,
+                                       RR_DTYPE_INT32, &graph)),
+              u.message);
+    rr_deposit copy = stack_record(res, u.state);
+    EXPECT_EQ(outcome(kc_csr_copy(res.handle, nullptr, nullptr, nullptr,
+                                  clusters, &copy)),
+              u.message);
+  }
+  EXPECT_EQ(kc_owner_drop_count(), drops);
+}
 }  // namespace
 }  // namespace kc::test

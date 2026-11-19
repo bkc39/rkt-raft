@@ -133,6 +133,7 @@ if(BUILD_TESTING)
     src/detail/view.cpp
     tests/csr_header_test.cpp
     tests/deposit_header_test.cpp
+    tests/deposit_precheck_test.cpp
     tests/driver_test.cpp
     tests/error_test.cpp
     tests/headers_test.cpp

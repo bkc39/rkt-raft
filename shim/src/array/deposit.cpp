@@ -7,10 +7,10 @@
 #include <string>
 #include <utility>
 
-#include "detail/deposit_api.h"
 #include "detail/error.hpp"
 #include "detail/handles.hpp"
 #include "raftrkt/deposit.hpp"
+#include "raftrkt/holder.h"
 
 namespace rr {
 

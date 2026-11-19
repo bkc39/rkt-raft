@@ -16,12 +16,12 @@
 #include <vector>
 
 #include "detail/array_api.h"
-#include "detail/deposit_api.h"
 #include "detail/executor_api.h"
 #include "detail/internal_api.h"
 #include "gpu.hpp"
 #include "jobs.hpp"
 #include "raftrkt/c_api.h"
+#include "raftrkt/holder.h"
 
 namespace {
 

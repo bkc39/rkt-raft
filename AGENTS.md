@@ -67,6 +67,7 @@ nix/racket-tools.nix          raco fmt and raco review, pinned as a fixed-output
 lint/                         raft-lint: the raco review extension for the test macros
 shim/                         libraftrkt: C++20 over RAFT's headers (CMake, g++; nvcc for .cu)
   include/raftrkt/            C headers: core.h memory.h array.h abi.h job.h, umbrella c_api.h;
+                                holder.h for downstream gtests (not in c_api.h, not frozen);
                                 header-only C++: error.hpp view.hpp job.hpp deposit.hpp
                                 csr.hpp (all frozen, below)
   cmake/raftrkt-config.cmake  find_package(raftrkt): raftrkt::headers, in packages.raft-dev
@@ -573,7 +574,7 @@ plans/scoping-plan.md         the approved plan (revision 5), as Markdown
   of the FFI a downstream binding uses; it runs the call and both error
   reads in one `call-as-atomic`. `with-deposits` takes its records and
   closes them through `private/deposit.rkt` (the `deposit` struct over an
-  `_rr-holder`, `deposit->list`), which binds `src/detail/deposit_api.h`
+  `_rr-holder`, `deposit->list`), which binds `raftrkt/holder.h`
   through `private/foreign/deposit-api.rkt`; the record is the borrowed
   `_rr-deposit`. `deposit->device-csr-matrix` adopts through
   `deposit->list` and runs `private/csr.rkt`'s `checked-csr`, the
@@ -1377,6 +1378,9 @@ canary changes with it in the same pull request:
   `deposit-release!` and `device-array-release!` in `raft/unsafe`, and
   `dtype->code` and `code->dtype` (#84); detect with
   `("raft" #:version "0.3")`.
+- **Additions at version 1 (#64):** `raftrkt::require_open` in
+  `raftrkt/deposit.hpp`; a downstream detects it with
+  `("raft" #:version "0.3")`.
 
 Not part of the ABI:
 
@@ -1384,6 +1388,10 @@ Not part of the ABI:
   the interface rkt-cuml requires to read pins and find the CUDA libraries raft
   fetched; versioned with the package version. `cuda-wheels-test.rkt` pins the
   export set.
+- **Holder entry points (#67):** `raftrkt/holder.h` (`rr_holder_create`,
+  `_record`, `_close`, `_count`, `_adopt`), installed for downstream gtests,
+  which link `libraftrkt`; versioned with the package version. A binding
+  takes its records from `with-deposits`.
 
 What a downstream binding must do, which the canary does: compile against `packages.rapids` and
 `packages.raft-dev` of this flake (never another RAPIDS); check the tag at
@@ -1395,7 +1403,8 @@ select the handle's device (`device_scope`) and refuse arrays on another one
 (`require_on_device`); read arrays only through `view.hpp`; allocate outputs
 with raft's constructors on the resources the call runs on, or deposit
 outputs sized by the call (`raftrkt::deposit` into a record from
-`with-deposits`, on the call's handle); and synchronise
+`with-deposits`, on the call's handle), calling `raftrkt::require_open`
+before any work in an entry that deposits; and synchronise
 the handle's stream on every exit, a throw included (`sync_guard`), until
 the stream API (#13) gives it events; and run each call that can run long
 as a job: an `extern "C"` entry over `raftrkt::run_job`, bound with
@@ -1897,3 +1906,36 @@ since cuSPARSE's error string for it is only "out of memory"). The frozen rule i
   and `docs-unsafe-test.rkt`. The canary takes its CSR
   index codes from `dtype->code`.
 - No C, header or layout change; the ABI version stays 1.
+
+## Decisions recorded in #67 and #64
+
+- **`raftrkt/holder.h` is installed, not frozen** (Q-B2-1): a binding does
+  not link `libraftrkt` and cannot call it, and a downstream's gtests build
+  against the same flake pin, so the refusal texts and the count rule (#30)
+  stay raft's to change. It is listed under "Not part of the ABI", as
+  `rr_holder_free` and `rr_resources_create` are installed and unfrozen.
+- **`holder.h` is not in `c_api.h`** (Q-B2-2): `c_api.h` stays what a
+  binding uses, and the include itself marks a test. The five prototypes
+  moved verbatim; `src/detail/deposit_api.h` is gone, and `deposit.cpp`
+  includes the installed header, so prototype and definition are checked
+  against each other. `rr_probe_refuse_adoption` and `rr_executor_*` stay
+  private.
+- **`require_open(into, name, handle)`** (Q-B2-3), `deposit`'s argument
+  order, so the refusal names the caller's argument. It is advisory: one
+  acquire load of `state` and one pointer compare, no claim, no CUDA call;
+  `deposit`'s claim and publish still refuse a fill or close that comes
+  between. No Racket path hands an entry a non-open record, so it guards a
+  shim's own second deposit and C callers.
+- **It refuses a record on other resources too** (Q-B2-4), so it agrees
+  with `deposit` on every refusal before the owner check;
+  `deposit_precheck_test.cpp` pins the agreement over every state and
+  handle. The handle check is one helper, shared with `checked_bytes`.
+- **`deposit` and `deposit_csr` do not call it**: the claim is the same
+  check done atomically, and `deposit_csr` keeps its indptr and data-length
+  refusals before the claim.
+- **No Racket counterpart**: a binding's records come open from
+  `with-deposits`, which refuses a filled, closed or bound deposit itself.
+- **The canary calls it first** in `kc_cluster_members`, `kc_cluster_graph`
+  and `kc_csr_copy`, so a deposit on other resources is now refused before
+  the owner is made: law 16 of `members-test.rkt` counts no canary drop.
+- No new export, layout or signature; the ABI version stays 1.

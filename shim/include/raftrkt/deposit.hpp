@@ -271,4 +271,11 @@ void deposit(rr_deposit* into, const char* name, const raft::handle_t& handle,
                   owner);
 }
 
+inline void require_open(const rr_deposit* into, const char* name,
+                         const raft::handle_t& handle) {
+  static_cast<void>(into);
+  static_cast<void>(name);
+  static_cast<void>(handle);
+}
+
 }  // namespace raftrkt

@@ -923,7 +923,18 @@ and its contents are complete when the call returns.
        again, or closed if it was closed meanwhile, and its other fields are
        as they were. Otherwise it fills the record, moves it to
        @tt{FILLED} and takes the owner; a record closed during the fill is
-       refused with @tt{"out: closed"}, as above.}]
+       refused with @tt{"out: closed"}, as above.}
+ @item{@tt{void raftrkt::require_open(const rr_deposit* into, const char*
+       name, const raft::handle_t& handle)}: throws what @tt{deposit} would
+       throw on the same record before its owner check, in the same order: a
+       @tt{NULL} record, a record that is not open, a record on other
+       resources than @tt{handle}'s. It reads @tt{state} once, writes
+       nothing and makes no CUDA call. It is advisory: it claims nothing, and
+       @tt{deposit} still claims atomically, so a fill or a close between the
+       two is refused there. An entry point that deposits calls it first, so
+       an unusable record is refused before any work. Racket hands every
+       call an open record; the check is for a shim that deposits twice into
+       one record and for C callers.}]
 
 @listing["C++"]|{
 auto owner = std::make_unique<members<T>>(handle, m, d);
@@ -931,6 +942,11 @@ auto owner = std::make_unique<members<T>>(handle, m, d);
 raftrkt::deposit(out, "out", handle, std::move(owner),
                  {raftrkt::region(owner->indices),
                   raftrkt::region(owner->rows.data(), m, d, raftrkt::layout::row_major)});
+}|
+
+@listing["C++"]|{
+raftrkt::require_open(out, "out", handle);
+auto owner = std::make_unique<members<T>>(handle, m, d);
 }|
 
 @bold{@tt{raftrkt/csr.hpp}.} Header-only host C++, for a @tech{CSR matrix}
@@ -993,6 +1009,37 @@ returns @tt{int} and takes only @tt{void*} (the handle), @tt{const rr_view*},
 anything else does not compile (@tt{raftrkt::job_parameter}).
 @tt{raftrkt::job_args_size<&f>} is the block's size.
 
+@bold{@tt{raftrkt/holder.h}.} The holder entry points, for a downstream
+library's tests, which link @tt{libraftrkt}; a binding uses
+@racket[with-deposits] instead. Not frozen, and not in @tt{c_api.h}. Each
+sets @tt{*out} to its empty value first and answers @tt{RR_OK} or
+@tt{RR_ERROR}:
+
+@itemlist[
+ @item{@tt{int rr_holder_create(rr_resources* resources, rr_holder** out)}:
+       an open holder on the resources' device, sharing their handle, which
+       outlives @tt{rr_resources_free} while the holder or a buffer adopted
+       from it lives.}
+ @item{@tt{int rr_holder_record(rr_holder* holder, rr_deposit** out)}: the
+       holder's record, once (@tt{"the deposit is already bound"}); refuses
+       a filled or closed holder. The record lives as long as the holder.}
+ @item{@tt{int rr_holder_close(rr_holder* holder)}: closes an open, filling
+       or filled holder; closing twice does nothing. A filler racing it is
+       refused with @tt{"out: closed"}.}
+ @item{@tt{int rr_holder_count(const rr_holder* holder, int32_t* out)}: the
+       region count once closed, or once filled by a call no job holds; 0
+       for a holder closed unfilled; otherwise @tt{"the deposit is still
+       open"}.}
+ @item{@tt{int rr_holder_adopt(rr_holder* holder, int32_t index, rr_view*
+       view, rr_buffer** out)}: region @tt{index} as a new @tt{rr_buffer}
+       sharing the owner, each region once; a refusal forgets every adoption
+       of the holder.}]
+
+@tt{rr_holder_free} (@tt{memory.h}) drops the caller's reference. The
+holder, its adopted buffers and the resources may be freed in any order: the
+owner's @tt{release} runs once, with its handle alive, after the last of the
+holder and its buffers, and never for a holder left unfilled.
+
 @bold{What is frozen.} @tt{rr_view}, @tt{RR_MAX_RANK} and the dtype and memory
 codes; @tt{rr_buffer_view}; @tt{rr_resources_handle}; @tt{rr_abi_tag},
 @tt{rr_abi} and @tt{RR_ABI_VERSION}; the status codes, error kinds and
@@ -1010,6 +1057,7 @@ states, @tt{rr_release_fn}, @tt{deposit.hpp}, @racket[deposit],
 is a job; a downstream detects them by requiring @racketmodname[raft] version
 0.2, or with @tt{__has_include}. Then @tt{csr.hpp} and
 @racket[deposit->device-csr-matrix], detected by @racketmodname[raft] version
-0.3 or @tt{__has_include(<raftrkt/csr.hpp>)}.
+0.3 or @tt{__has_include(<raftrkt/csr.hpp>)}; then @tt{require_open} (#64),
+detected by @racketmodname[raft] version 0.3. @tt{holder.h} is not frozen.
 
 @(close-eval ev)

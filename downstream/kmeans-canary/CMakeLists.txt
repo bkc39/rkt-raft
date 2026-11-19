@@ -65,7 +65,7 @@ if(BUILD_TESTING)
   find_package(GTest REQUIRED)
   find_library(RAFTRKT_LIBRARY NAMES raftrkt REQUIRED)
 
-  add_executable(kmeans_canary_tests tests/canary_test.cpp tests/members_test.cpp)
+  add_executable(kmeans_canary_tests tests/canary_test.cpp tests/holder_test.cpp tests/members_test.cpp)
   target_include_directories(kmeans_canary_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
   target_link_libraries(kmeans_canary_tests
     PRIVATE kmeans_canary raftrkt::headers "${RAFTRKT_LIBRARY}" GTest::gtest_main)
@@ -74,7 +74,7 @@ if(BUILD_TESTING)
   set(kc_gtest_timeout_seconds 2)
   gtest_discover_tests(kmeans_canary_tests DISCOVERY_MODE PRE_TEST DISCOVERY_TIMEOUT 60
     PROPERTIES TIMEOUT ${kc_gtest_timeout_seconds})
-  list(APPEND kc_tidy_sources tests/canary_test.cpp tests/members_test.cpp)
+  list(APPEND kc_tidy_sources tests/canary_test.cpp tests/holder_test.cpp tests/members_test.cpp)
 endif()
 
 find_program(CLANG_TIDY_EXECUTABLE NAMES clang-tidy)

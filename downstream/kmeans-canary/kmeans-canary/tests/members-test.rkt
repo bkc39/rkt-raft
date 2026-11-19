@@ -74,7 +74,7 @@
     (check-true (andmap (lambda (l) (= l c)) (device-vector->list predicted))
                 (format "cluster ~a" c))))
 
-(test-gpu "law 16: a deposit on other resources is refused and its owner dropped by the canary"
+(test-gpu "law 16: a deposit on other resources is refused before the canary makes an owner"
   (define-values (X labels _centroids) (labelled 'float32))
   (define elsewhere (deposit #:resources (device-resources)))
   (drain-finalizers!)
@@ -85,7 +85,7 @@
    "cluster-members: out: on resources other than the call's"
    (lambda ()
      (kc-cluster-members-job 'cluster-members (current-device-resources) X labels 0 elsewhere)))
-  (check-equal? (- (kc-owner-drop-count) drops) 1)
+  (check-equal? (- (kc-owner-drop-count) drops) 0)
   (drain-finalizers!)
   (check-equal? (- (owner-release-count) releases) 0))
 

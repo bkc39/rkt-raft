@@ -2,6 +2,7 @@
 #include <stdint.h>
 
 #include "raftrkt/c_api.h"
+#include "raftrkt/holder.h"
 
 _Static_assert(sizeof(rr_view) == 152, "rr_view is 152 bytes");
 _Static_assert(offsetof(rr_view, dtype) == 8, "dtype follows data");
@@ -62,6 +63,12 @@ void raftrkt_c_api_compile_check(void) {
   int (*copy_h2d)(rr_buffer*, const void*, size_t) = rr_copy_h2d;
   int (*buffer_view)(const rr_buffer*, uint64_t, rr_view*) = rr_buffer_view;
   int (*copy_d2h)(void*, const rr_buffer*, size_t) = rr_copy_d2h;
+  int (*holder_create)(rr_resources*, rr_holder**) = rr_holder_create;
+  int (*holder_record)(rr_holder*, rr_deposit**) = rr_holder_record;
+  int (*holder_close)(rr_holder*) = rr_holder_close;
+  int (*holder_count)(const rr_holder*, int32_t*) = rr_holder_count;
+  int (*holder_adopt)(rr_holder*, int32_t, rr_view*, rr_buffer**) =
+      rr_holder_adopt;
   rr_job_fn job_entry = compile_job_entry;
   rr_abi_tag tag = {0};
   rr_view view = {0};
@@ -88,6 +95,11 @@ void raftrkt_c_api_compile_check(void) {
   (void)copy_h2d;
   (void)buffer_view;
   (void)copy_d2h;
+  (void)holder_create;
+  (void)holder_record;
+  (void)holder_close;
+  (void)holder_count;
+  (void)holder_adopt;
   (void)job_entry;
   (void)tag;
   (void)view;

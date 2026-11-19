@@ -2,6 +2,7 @@
 
 #include <gtest/gtest.h>
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
@@ -111,6 +112,26 @@ struct device_array {
   rr_buffer* buffer = nullptr;
   rr_view view{};
 };
+
+inline rr_deposit stack_record(const resources& res,
+                               int32_t state = RR_DEPOSIT_OPEN) {
+  rr_deposit record{};
+  record.handle = res.handle;
+  record.device = 0;
+  record.state = state;
+  return record;
+}
+
+struct unusable {
+  int32_t state;
+  const char* message;
+};
+
+constexpr std::array<unusable, 3> unusable_records{{
+    {RR_DEPOSIT_CLOSED, "out: closed"},
+    {RR_DEPOSIT_FILLED, "out: already filled"},
+    {RR_DEPOSIT_FILLING, "out: being filled"},
+}};
 
 inline std::string outcome(int status) {
   return status == RR_OK ? std::string("accepted")

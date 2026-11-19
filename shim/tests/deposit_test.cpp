@@ -21,9 +21,9 @@
 
 #include "deposit_fixture.hpp"
 #include "detail/array_api.h"
-#include "detail/deposit_api.h"
 #include "gpu.hpp"
 #include "raftrkt/c_api.h"
+#include "raftrkt/holder.h"
 
 namespace rr::test::deposit {
 namespace {
@@ -430,6 +430,59 @@ TEST(Deposit, EveryOrderOfFreeingReleasesTheOwnerOnceWithItsHandleAlive) {
     ++orders;
   } while (std::next_permutation(order.begin(), order.end()));
   EXPECT_EQ(orders, 6);
+}
+
+std::string refused_after_precheck(const session& s,
+                                   std::unique_ptr<owner>& o) {
+  const std::initializer_list<rr_view> regions{raftrkt::region(
+      o->matrix.data(), rows, cols, raftrkt::layout::row_major)};
+  try {
+    raftrkt::deposit(s.record, "out", *s.handle, std::move(o), regions);
+  } catch (const raftrkt::logic_error& e) {
+    return e.what();
+  }
+  return "no refusal";
+}
+
+void expect_owner_left_to_caller(const session& s, tally& ours,
+                                 const std::string& message) {
+  auto o = prepared(s, ours);
+  EXPECT_EQ(refused_after_precheck(s, o), message);
+  EXPECT_NE(o, nullptr);
+  EXPECT_EQ(ours.drops, 0);
+}
+
+TEST(Deposit, APrecheckThatLosesToAFillerLeavesItsOwnerToTheCaller) {
+  RR_REQUIRE_GPU();
+  const counters before;
+  tally theirs;
+  tally ours;
+  session s = open_session();
+  EXPECT_NO_THROW(raftrkt::require_open(s.record, "out", *s.handle));
+  fill(s, theirs);
+  expect_owner_left_to_caller(s, ours, "out: already filled");
+  EXPECT_EQ(ours.drops, 1);
+  EXPECT_EQ(rr_holder_close(s.holder), RR_OK) << rr_last_error();
+  rr_holder_free(s.holder);
+  rr_resources_free(s.resources);
+  expect_released(before, {1, 1, 0});
+  EXPECT_EQ(theirs.drops, 1);
+  EXPECT_EQ(ours.drops, 1);
+}
+
+TEST(Deposit, APrecheckThatLosesToACloseLeavesItsOwnerToTheCaller) {
+  RR_REQUIRE_GPU();
+  const counters before;
+  tally ours;
+  session s = open_session();
+  EXPECT_NO_THROW(raftrkt::require_open(s.record, "out", *s.handle));
+  EXPECT_EQ(rr_holder_close(s.holder), RR_OK) << rr_last_error();
+  expect_owner_left_to_caller(s, ours, "out: closed");
+  EXPECT_EQ(ours.drops, 1);
+  rr_holder_free(s.holder);
+  rr_resources_free(s.resources);
+  expect_released(before, {1, 0, 0});
+  EXPECT_EQ(ours.drops, 1);
 }
 
 }  // namespace
