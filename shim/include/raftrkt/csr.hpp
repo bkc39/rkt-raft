@@ -85,7 +85,7 @@ template <typename Index>
 void require_shape(const std::string& who, int64_t rows, int64_t cols,
                    bool infer_rows) {
   // NOLINTEND(bugprone-easily-swappable-parameters)
-  if (!(infer_rows && rows == any_extent)) {
+  if (!infer_rows || rows != any_extent) {
     require_nonnegative(who, rows);
   }
   require_nonnegative(who, cols);
@@ -214,7 +214,8 @@ int64_t read_nnz(const raft::handle_t& handle, const Index* indptr,
   return static_cast<int64_t>(last);
 }
 
-// NOLINTBEGIN(bugprone-easily-swappable-parameters)
+// NOLINTBEGIN(bugprone-easily-swappable-parameters) -- the C interface's
+// order: indptr and its rows, then indices, data and their length
 template <typename Owner, typename T, typename Index>
 void deposit_csr(rr_deposit* into, const char* name,
                  const raft::handle_t& handle, std::unique_ptr<Owner>&& owner,

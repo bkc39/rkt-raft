@@ -169,8 +169,10 @@ void on_index(int32_t dtype, const char* name, Fn&& fn) {
 
 extern "C" {
 
+// NOLINTBEGIN(bugprone-easily-swappable-parameters) -- the canary C ABI
 int kc_cluster_graph(void* handle, const rr_view* labels, int32_t n_clusters,
                      int32_t index_dtype, rr_deposit* out) {
+  // NOLINTEND(bugprone-easily-swappable-parameters)
   return raftrkt::translate_exceptions(kc::last_error_slot(), [&] {
     const raft::handle_t& h = raftrkt::handle_of(handle);
     const int device = raftrkt::device_of(h);

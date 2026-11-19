@@ -246,7 +246,8 @@ std::string refused_buffers(void (*shrink)(float_buffers&,
   rr_deposit record{};
   record.handle = &handle;
   record.state = RR_DEPOSIT_OPEN;
-  auto owner = std::make_unique<float_buffers>(handle, 3, 5);
+  const int64_t entries = 5;
+  auto owner = std::make_unique<float_buffers>(handle, 3, entries);
   shrink(*owner, raft::resource::get_cuda_stream(handle));
   try {
     raftrkt::deposit_csr(&record, "out", handle, std::move(owner));
