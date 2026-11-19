@@ -1057,9 +1057,12 @@ states, @tt{rr_release_fn}, @tt{deposit.hpp}, @racket[deposit],
 @tt{rr_job_outcome}, @tt{RR_JOB_MESSAGE_BYTES}, @tt{rr_job_fn},
 @tt{job.hpp}, @racket[define-job], and the rule that a call that can run long
 is a job; a downstream detects them by requiring @racketmodname[raft] version
-0.2, or with @tt{__has_include}. Then @tt{csr.hpp} and
-@racket[deposit->device-csr-matrix], detected by @racketmodname[raft] version
-0.3 or @tt{__has_include(<raftrkt/csr.hpp>)}; then @tt{require_open} (#64),
-detected by @racketmodname[raft] version 0.3. @tt{holder.h} is not frozen.
+0.2, or with @tt{__has_include}. Then, detected by @racketmodname[raft]
+version 0.3: @tt{csr.hpp} and @racket[deposit->device-csr-matrix] (or
+@tt{__has_include(<raftrkt/csr.hpp>)}), @tt{require_open},
+@racket[deposit]'s @racket[#:who], @racket[with-release],
+@racket[call-with-release], @racket[deposit-release!],
+@racket[device-array-release!], @racket[dtype->code] and
+@racket[code->dtype]. @tt{holder.h} is not frozen.
 
 @(close-eval ev)

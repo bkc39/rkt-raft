@@ -274,16 +274,16 @@ grep -qxF "(define native-version \"$native_version\")" "$versions/raft/info.rkt
   problem "$versions/raft/info.rkt: native-version is not $native_version, $RELEASE_NATIVE_PACKAGE's version"
 [ -f "$versions/$native_version/$RELEASE_NATIVE_PACKAGE/info.rkt" ] ||
   problem "$versions: no $native_version/$RELEASE_NATIVE_PACKAGE, $RELEASE_NATIVE_PACKAGE's version"
-version_check versions-same "$versions/0.2/$RELEASE_NATIVE_PACKAGE" "$versions/raft" ""
-want_version versions-same 0.2
-version_check versions-tag "$versions/0.2/$RELEASE_NATIVE_PACKAGE" "$versions/raft" v0.2
-want_version versions-tag 0.2
+version_check versions-same "$versions/0.3/$RELEASE_NATIVE_PACKAGE" "$versions/raft" ""
+want_version versions-same 0.3
+version_check versions-tag "$versions/0.3/$RELEASE_NATIVE_PACKAGE" "$versions/raft" v0.3
+want_version versions-tag 0.3
 version_check versions-older "$versions/0.1/$RELEASE_NATIVE_PACKAGE" "$versions/raft" ""
-want_refused versions-older "$RELEASE_NATIVE_PACKAGE is version 0.1, raft needs version 0.2"
-version_check versions-dependency "$versions/0.2/$RELEASE_NATIVE_PACKAGE" "$versions/raft-dep-0.1" ""
-want_refused versions-dependency "raft depends on $RELEASE_NATIVE_PACKAGE #:version 0.1, not 0.2"
-version_check versions-wrong-tag "$versions/0.2/$RELEASE_NATIVE_PACKAGE" "$versions/raft" v0.3
-want_refused versions-wrong-tag "tag v0.3 does not name version 0.2 (want v0.2)"
+want_refused versions-older "$RELEASE_NATIVE_PACKAGE is version 0.1, raft needs version 0.3"
+version_check versions-dependency "$versions/0.3/$RELEASE_NATIVE_PACKAGE" "$versions/raft-dep-0.1" ""
+want_refused versions-dependency "raft depends on $RELEASE_NATIVE_PACKAGE #:version 0.1, not 0.3"
+version_check versions-wrong-tag "$versions/0.3/$RELEASE_NATIVE_PACKAGE" "$versions/raft" v0.4
+want_refused versions-wrong-tag "tag v0.4 does not name version 0.3 (want v0.3)"
 
 for copyright in "Copyright (c) 2016 Gabi Melman." \
   "Copyright (c) 2012 - present, Victor Zverovich and {fmt} contributors"; do
@@ -316,7 +316,9 @@ draft_case() {
 }
 raft_version=$(sed -n 's/^(define version "\(.*\)")$/\1/p' "$here/../../raft/info.rkt")
 draft_case "v$native_version" "v$native_version"
-draft_case "v$raft_version" ""
+raft_only=""
+[ "$raft_version" != "$native_version" ] || raft_only="v$raft_version"
+draft_case "v$raft_version" "$raft_only"
 draft_case "" ""
 draft_refused() {
   local tag=$1 got status=0

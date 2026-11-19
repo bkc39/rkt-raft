@@ -51,7 +51,13 @@ Parity, §10 Build and §12 Starting cuML work before changing the design.
   `raftrkt/deposit.hpp`, and the canary's `cluster-members` (raft 0.2).
   #72 added `device-csr-matrix` in `raft/array`, `raftrkt/csr.hpp`,
   `deposit->device-csr-matrix` in `raft/unsafe`, and the canary's
-  `cluster-graph`, `csr-copy` and `assignment-graph`.
+  `cluster-graph`, `csr-copy` and `assignment-graph`. The rest of the
+  downstream arc (#74, raft 0.3): native messages cut to their first line
+  (#69); `gather`, `select` and `compare` (#70); `#:who` on every procedure
+  that takes `#:resources` (#65) and `#:cols` (#68); `with-release`,
+  `call-with-release`, `deposit-release!`, `device-array-release!`,
+  `dtype->code` and `code->dtype` in `raft/unsafe` (#66, #84); the installed
+  `raftrkt/holder.h` (#67) and `raftrkt::require_open` (#64).
 
 ## Layout
 
@@ -740,7 +746,8 @@ own pin (`raft/private/cuda-wheels.rktd`), and runs
 files, at the version `raft/info.rkt` names as `native-version` (`deps`
 requires it, the loader checks it; `package` refuses a mismatch). raft's
 own `version` moves alone. Tag `v<native version>` to draft a native
-release, `v<raft version>` for a raft-only one; `draft-tag.sh` refuses any
+release, `v<raft version>` for a raft-only one (when the two are equal, as
+at 0.3, the tag drafts the native release); `draft-tag.sh` refuses any
 other tag. `catalog-test`, in
 `manylinux_2_28` with Racket 9.3 and no nix, serves it and raft from a
 directory catalog ahead of the official ones; what it asserts is in
@@ -1371,8 +1378,7 @@ canary changes with it in the same pull request:
   `csr_parts`, `csr_view`, `csr_buffers`, `read_nnz`, `deposit_csr`) and
   `deposit->device-csr-matrix` in `raft/unsafe`. No layout changes: a CSR
   reaches a downstream as three ordinary views plus `cols`, and leaves it
-  as a deposit of three regions. They ship in raft 0.3, which #73 bumps
-  (`raft/info.rkt` is 0.2.1 until then); a downstream detects them with
+  as a deposit of three regions. A downstream detects them with
   `("raft" #:version "0.3")` or `__has_include(<raftrkt/csr.hpp>)`.
 - **Additions at version 1 (#65):** `deposit`'s `#:who`; a downstream
   detects it with `("raft" #:version "0.3")`.
@@ -1383,9 +1389,20 @@ canary changes with it in the same pull request:
 - **Additions at version 1 (#64):** `raftrkt::require_open` in
   `raftrkt/deposit.hpp`; a downstream detects it with
   `("raft" #:version "0.3")`.
+- **At version 1, no addition (#69):** the message of an `exn:fail:raft`
+  that `status-checker` or a job raises from a downstream's error text is
+  that text's first non-blank line; a text of more than one goes whole to
+  the `raft` logger at `debug`. No layout or signature changes; a
+  downstream shim gets it without a rebuild, and detects it with
+  `("raft" #:version "0.3")`.
 
 Not part of the ABI:
 
+- **The public Racket modules' additions in 0.3:** `gather`, `select` and
+  `compare` in `raft/array` (#70, internal shim entry points only), `#:who`
+  on every `raft/array` and `raft/compat` procedure that takes `#:resources`
+  (#65) and `#:cols` (#68); versioned with the package, detected with
+  `("raft" #:version "0.3")`.
 - **Racket CUDA wheels (#44):** the provides of `raft/private/cuda-wheels.rkt`,
   the interface rkt-cuml requires to read pins and find the CUDA libraries raft
   fetched; versioned with the package version. `cuda-wheels-test.rkt` pins the

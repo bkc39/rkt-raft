@@ -3,8 +3,8 @@
 #|review: ignore|#
 
 (define collection "raft")
-(define version "0.2.1")
-(define native-version "0.2")
+(define version "0.3")
+(define native-version "0.3")
 (define deps
   `("base" "math-lib" ("raft-x86_64-linux" #:platform "x86_64-linux" #:version ,native-version)))
 (define build-deps
