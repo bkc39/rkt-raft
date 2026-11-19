@@ -12,8 +12,16 @@
          (only-in "../../private/foreign/host.rkt" host-memory)
          (only-in "../../private/pack.rkt" unpack-vector))
 
-(provide part
+(provide ints
+         part
+         printed
          storage)
+
+(define (ints xs [element-type 'int32])
+  (list->device-vector xs #:dtype element-type))
+
+(define (printed v)
+  (format "~a" v))
 
 (define (part spec)
   (match spec

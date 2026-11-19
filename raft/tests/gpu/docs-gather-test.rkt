@@ -13,6 +13,7 @@
                   list->device-vector
                   select
                   shape)
+         (only-in "../private/arrays.rkt" ints printed)
          (only-in "../private/gather.rkt" taken)
          (only-in "../private/gpu.rkt" test-gpu)
          (only-in "../private/raft-error.rkt" check-raft-error))
@@ -24,12 +25,6 @@
 
 (define (float32-rows rows)
   (device-matrix->list* (list*->device-matrix rows #:dtype 'float32)))
-
-(define (ints xs)
-  (list->device-vector xs #:dtype 'int32))
-
-(define (printed v)
-  (format "~a" v))
 
 (test-gpu "reference: gather"
   (define x (X))
@@ -85,7 +80,11 @@
   (check-equal? (apply + (device-vector->list (compare petals '> 4.0))) 2)
   (check-raft-error 'logic
                     "compare: 3000000000 does not fit int32"
-                    (lambda () (compare labels '< 3000000000))))
+                    (lambda () (compare labels '< 3000000000)))
+  (check-raft-error 'logic
+                    "compare: 0.5 does not fit int32 exactly"
+                    (lambda () (compare labels '>= 0.5)))
+  (check-equal? (printed (compare labels '>= 1.0)) "#<device-vector int32[4] cuda:0 [0 0 1 1]>"))
 
 (define measurements '("sepal-length" "sepal-width" "petal-length" "petal-width"))
 
