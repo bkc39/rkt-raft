@@ -1,6 +1,7 @@
 """Twin of kmeans-canary/tests/twin-test.rkt: cuml.cluster.KMeans fits the data
 the canary made, with the canary's init and seed, and sklearn scores both;
-NumPy selects the members of a cluster as cluster-members does."""
+NumPy selects the members of a cluster as cluster-members does, and SciPy
+builds the membership matrix cluster-graph does."""
 
 import json
 import sys
@@ -8,6 +9,7 @@ import sys
 import cuml
 import cupy as cp
 import numpy as np
+import scipy.sparse
 from sklearn.cluster import KMeans as SkKMeans
 from sklearn.metrics import adjusted_rand_score
 
@@ -31,9 +33,23 @@ def members(case):
     return {"indices": idx.tolist(), "rows": X[idx].tolist()}
 
 
+def graph(case):
+    labels = np.asarray(case["labels"])
+    n = labels.size
+    ones = np.ones(n, dtype=np.float32)
+    A = scipy.sparse.csr_matrix((ones, (labels, np.arange(n))), shape=(case["k"], n))
+    return {
+        "indptr": A.indptr.tolist(),
+        "indices": A.indices.tolist(),
+        "data": A.data.tolist(),
+    }
+
+
 def run(case):
     if case.get("op") == "members":
         return members(case)
+    if case.get("op") == "graph":
+        return graph(case)
     dtype = np.dtype(case["dtype"])
     X = np.asarray(case["X"], dtype=dtype)
     init = case["init"]

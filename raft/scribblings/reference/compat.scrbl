@@ -675,12 +675,14 @@ Host arithmetic, sent back:
 
 @section[#:tag "ref-compat-reexports"]{From @racketmodname[raft/array]}
 
-Re-exported from @secref["ref-array-convert"]:
+Re-exported from @secref["ref-array-convert"] and @secref["ref-array-csr"]:
 
 @itemlist[
  @item{@racket[list->device-vector] and @racket[device-vector->list]}
  @item{@racket[list*->device-matrix] and @racket[device-matrix->list*]}
  @item{@racket[flvector->device-vector] and @racket[device-vector->flvector]}
+ @item{@racket[list*->device-csr-matrix] and @racket[device-csr-matrix->list*]}
+ @item{@racket[triplets->device-csr-matrix] and @racket[device-csr-matrix->triplets]}
 ]
 
 @(close-eval ev)

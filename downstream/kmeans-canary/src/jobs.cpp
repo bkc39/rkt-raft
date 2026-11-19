@@ -73,6 +73,24 @@ KC_API void kc_cluster_members_job(void* args, size_t args_len,
                                         kc::last_error_slot());
 }
 
+KC_API void kc_cluster_graph_job(void* args, size_t args_len,
+                                 rr_job_outcome* outcome) {
+  raftrkt::run_job<&kc_cluster_graph>(args, args_len, outcome,
+                                      kc::last_error_slot());
+}
+
+KC_API void kc_csr_copy_job(void* args, size_t args_len,
+                            rr_job_outcome* outcome) {
+  raftrkt::run_job<&kc_csr_copy>(args, args_len, outcome,
+                                 kc::last_error_slot());
+}
+
+KC_API void kc_assignment_graph_job(void* args, size_t args_len,
+                                    rr_job_outcome* outcome) {
+  raftrkt::run_job<&kc_assignment_graph>(args, args_len, outcome,
+                                         kc::last_error_slot());
+}
+
 KC_API void kc_noop_job(void* args, size_t args_len, rr_job_outcome* outcome) {
   raftrkt::run_job<&kc_noop>(args, args_len, outcome, kc::last_error_slot());
 }

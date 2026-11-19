@@ -87,7 +87,8 @@ echo "== binding census"
 racket scripts/check-bindings.rkt
 
 unexpected=$(grep "^SKIP" "$log" | grep -v "^SKIP: a GPU is present" |
-  grep -v "^SKIP: no memory-pool support" || true)
+  grep -v "^SKIP: no memory-pool support" |
+  grep -v "^SKIP: needs two devices" || true)
 if [ -n "$unexpected" ]; then
   echo "== cases that should have run here were skipped:" >&2
   echo "$unexpected" >&2

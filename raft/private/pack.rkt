@@ -10,6 +10,7 @@
          (only-in "foreign/host.rkt" host-getter host-memory host-setter))
 
 (provide element-converter
+         elements
          infer-dtype
          infer-rows-dtype
          matrix-shape
@@ -99,8 +100,8 @@
 
 (define (element-converter who dtype)
   (case dtype
-    [(float32 float64) (float-converter who dtype)]
-    [else (integer-converter who dtype)]))
+    [(int32 int64) (integer-converter who dtype)]
+    [else (float-converter who dtype)]))
 
 (define (host-for dtype count)
   (host-memory (* count (dtype-itemsize dtype))))

@@ -1,1 +1,3 @@
 RR_OP(array, contiguous, RR_ALL_DTYPES, RR_ALL_LAYOUTS)
+RR_OP(array, csr_indices, RR_INDEX_DTYPES, RR_ALL_LAYOUTS)
+RR_OP(array, csr_data, RR_FLOAT_DTYPES, RR_ALL_LAYOUTS)

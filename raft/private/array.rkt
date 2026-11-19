@@ -1,6 +1,6 @@
 #lang racket/base
 
-(require (only-in racket/string string-contains? string-join string-replace)
+(require (only-in racket/string string-contains? string-join)
          (only-in "dtype.rkt" code->dtype dtype->code dtype-itemsize)
          (only-in "error.rkt" call/raft exn:fail:raft?)
          (only-in "foreign/array-api.rkt"
@@ -19,7 +19,7 @@
                   view-strides)
          (only-in "foreign/host.rkt" host-getter host-memory)
          (only-in "foreign/memory.rkt" released? rr-buffer-free)
-         (only-in "print.rkt" array-text summarised?)
+         (only-in "print.rkt" array-text indented shape-text summarised?)
          (only-in "resources.rkt" in-backoff resources-handle))
 
 (provide allocate-array
@@ -32,6 +32,7 @@
          contiguous-array
          device-array-buffer
          device-array-dtype
+         device-array-offset
          device-array-shape
          device-array-strides
          device-array?
@@ -40,6 +41,7 @@
          read-all
          read-array
          release-array!
+         settled-descriptor
          settled-view
          strides->layout
          view->array
@@ -120,12 +122,14 @@
                  (rr-array-create (resources-handle who resources) dtype shape layout view))))
   (view->array handle view))
 
+(define (descriptor a)
+  (describe-view! (blank-view)
+                  (dtype->code (device-array-dtype a))
+                  (device-array-shape a)
+                  (device-array-strides a)))
+
 (define (contiguous-array who a layout)
-  (define source
-    (describe-view! (blank-view)
-                    (dtype->code (device-array-dtype a))
-                    (device-array-shape a)
-                    (device-array-strides a)))
+  (define source (descriptor a))
   (define view (blank-view))
   (define handle
     (call/raft
@@ -187,13 +191,13 @@
                    (lambda indices (read-element (apply + (map * indices strides))))))]))
 
 (define (bound-view who a)
-  (define view
-    (describe-view! (blank-view)
-                    (dtype->code (device-array-dtype a))
-                    (device-array-shape a)
-                    (device-array-strides a)))
+  (define view (descriptor a))
   (call/raft who (lambda () (rr-buffer-view (array-buffer-handle a) (device-array-offset a) view)))
   view)
+
+(define (settled-descriptor who a)
+  (await who a)
+  (descriptor a))
 
 (define (settled-view who a)
   (await who a)
@@ -214,8 +218,5 @@
      " "))
   (define kind (if matrix? "device-matrix" "device-vector"))
   (if (string-contains? text "\n")
-      (format "#<~a ~a\n ~a>" kind header (string-replace text "\n" "\n "))
+      (format "#<~a ~a~a>" kind header (indented text))
       (format "#<~a ~a ~a>" kind header text)))
-
-(define (shape-text shape)
-  (string-join (map number->string shape) "×" #:before-first "[" #:after-last "]"))

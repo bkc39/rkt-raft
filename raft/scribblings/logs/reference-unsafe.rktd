@@ -72,6 +72,12 @@
  (values "")
  ""
  "")
+((define-kc
+  kc-cluster-graph
+  (_fun _pointer _pointer _int32 _int32 _pointer -> _int))
+ (values "")
+ ""
+ "")
 ((define-job
   kc-make-blobs-job
   canary
@@ -490,5 +496,40 @@
    ((x X) (y labels))
    (check 'cluster-members (lambda () (kc-cluster-members handle x y 0 out)))))
  (raise "cluster-members: out: on resources other than the call's")
+ ""
+ "")
+((define graph (deposit)) (values "") "" "")
+((with-deposits
+  ((out graph))
+  (with-array-views
+   #:resources
+   (handle (current-device-resources))
+   ((y labels))
+   (check 'cluster-graph (lambda () (kc-cluster-graph handle y 3 2 out)))))
+ (values)
+ ""
+ "")
+((define clusters
+   (deposit->device-csr-matrix graph #:shape (cons 3 (shape labels))))
+ (values "")
+ ""
+ "")
+((list (shape clusters) (nnz clusters) (dtype (csr-indptr clusters)))
+ (values "'((3 300) 300 int32)\n")
+ ""
+ "")
+((eq? (csr-indptr clusters) (first (deposit->list graph)))
+ (values "#t\n")
+ ""
+ "")
+((define p (device-vector->list (csr-indptr clusters))) (values "") "" "")
+((map - (cdr p) (drop-right p 1)) (values "'(100 100 100)\n") "" "")
+((deposit->device-csr-matrix graph #:shape (cons 4 (shape labels)))
+ (raise "deposit->device-csr-matrix: indptr: expected 5 elements, got 4")
+ ""
+ "")
+((deposit->device-csr-matrix members #:shape '(3 3))
+ (raise
+  "deposit->device-csr-matrix: the deposit holds 2 regions; a CSR matrix needs 3")
  ""
  "")

@@ -2,7 +2,13 @@
 
 (require (only-in racket/string string-split)
          (only-in rackunit check-equal? check-true test-case)
-         (only-in "../private/print.rkt" array-text float32->string summarised?))
+         (only-in "../private/print.rkt"
+                  array-text
+                  csr-runs
+                  csr-text
+                  float32->string
+                  shape-text
+                  summarised?))
 
 (define (counting-ref)
   (define reads 0)
@@ -49,3 +55,21 @@
   (define-values (ref* reads*) (counting-ref))
   (array-text 'float32 '(500 2) ref*)
   (check-equal? (reads*) 12))
+
+(test-case "a CSR matrix's entries print one a line, as (row col) value"
+  (check-equal? (csr-text 'float32 '(((0 1 1.5) (2 0 2.0) (2 3 -3.0))))
+                "(0 1) 1.5\n(2 0) 2.0\n(2 3) -3.0")
+  (check-equal? (csr-text 'float32 '(((0 0 0.10000000149011612)))) "(0 0) 0.1")
+  (check-equal? (csr-text 'float64 '(((0 0 0.1)) ((7 3000000000 +nan.0))))
+                "(0 0) 0.1\n...\n(7 3000000000) +nan.0")
+  (check-equal? (csr-text 'float64 '()) ""))
+
+(test-case "up to 50 entries print whole, more by the first and last 25"
+  (check-equal? (csr-runs 0) '((0 . 0)))
+  (check-equal? (csr-runs 50) '((0 . 50)))
+  (check-equal? (csr-runs 51) '((0 . 25) (26 . 25)))
+  (check-equal? (csr-runs 1000000) '((0 . 25) (999975 . 25))))
+
+(test-case "a shape prints in brackets, its extents joined by ×"
+  (check-equal? (shape-text '(3 4)) "[3×4]")
+  (check-equal? (shape-text '(7)) "[7]"))

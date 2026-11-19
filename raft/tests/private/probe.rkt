@@ -10,6 +10,7 @@
                   _int32
                   _int64
                   _int8
+                  _list
                   _pointer
                   _ptr
                   _uint16
@@ -33,6 +34,8 @@
          gate-job
          probe-current-is-async?
          probe-deposit
+         probe-deposit-csr
+         probe-deposit-csr-job
          probe-deposit-after-gate-job
          probe-deposit-before-gate-job
          probe-deposit-job
@@ -106,6 +109,20 @@
 (define-probe probe-deposit
               (_fun _pointer _pointer _int32 _int32 _int64 _int64 _uint32 -> _int)
               #:c-id rr_probe_deposit)
+
+(define-probe probe-deposit-csr
+              (_fun _pointer
+                    _pointer
+                    _int32
+                    _int32
+                    [indptr : (_list i _int64)]
+                    [rows : _int64 = (sub1 (length indptr))]
+                    [indices : (_list i _int64)]
+                    [data : (_list i _double)]
+                    [nnz : _int64 = (length indices)]
+                    _int32
+                    -> _int)
+              #:c-id rr_probe_deposit_csr)
 
 (define-probe probe-owner-drops (_fun -> _uint64) #:c-id rr_probe_owner_drops)
 (define-probe probe-owner-stale (_fun -> _uint64) #:c-id rr_probe_owner_stale)
@@ -195,6 +212,9 @@
 (define-probe-job probe-deposit-before-gate-job
                   "rr_probe_deposit_before_gate_job"
                   (_int32 _int32 handle deposit _int32 _int32 _int64 _int64 _uint32))
+(define-probe-job probe-deposit-csr-job
+                  "rr_probe_deposit_csr_job"
+                  (handle deposit _int32 _int32 view view view _int32))
 
 (define (gate-job who r g #:timeout-ms [timeout-ms 10000] #:say? [say? #f] #:fail-kind [fail-kind -1])
   (probe-gate-job who r (gate-entered-fd g) (gate-fd g) timeout-ms (if say? 1 0) fail-kind))

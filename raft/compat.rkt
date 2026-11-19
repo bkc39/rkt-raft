@@ -12,12 +12,16 @@
          (only-in racket/flonum flvector? for/flvector make-flvector)
          (only-in racket/match match match-define)
          (only-in "array.rkt"
+                  device-csr-matrix->list*
+                  device-csr-matrix->triplets
                   device-matrix->list*
                   device-vector->flvector
                   device-vector->list
                   flvector->device-vector
+                  list*->device-csr-matrix
                   list*->device-matrix
-                  list->device-vector)
+                  list->device-vector
+                  triplets->device-csr-matrix)
          (only-in "private/array.rkt"
                   allocate-array
                   device-array-dtype

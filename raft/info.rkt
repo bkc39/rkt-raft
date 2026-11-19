@@ -32,6 +32,7 @@
                     "unsafe.rkt"
                     "private/abi.rkt"
                     "private/array.rkt"
+                    "private/csr.rkt"
                     "private/deposit.rkt"
                     "private/dtype.rkt"
                     "private/error.rkt"
@@ -39,6 +40,7 @@
                     "private/foreign/array-api.rkt"
                     "private/foreign/array.rkt"
                     "private/foreign/core.rkt"
+                    "private/foreign/csr-api.rkt"
                     "private/foreign/deposit-api.rkt"
                     "private/foreign/internal.rkt"
                     "private/foreign/job-api.rkt"
@@ -46,6 +48,7 @@
                     "private/foreign/memory.rkt"
                     "private/job.rkt"
                     "private/pack.rkt"
-                    "private/resources.rkt")
+                    "private/resources.rkt"
+                    "private/vector.rkt")
               '())))
 (define test-timeouts '(("tests/gpu/exit-test.rkt" 360)))

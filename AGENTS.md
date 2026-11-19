@@ -49,6 +49,9 @@ Parity, §10 Build and §12 Starting cuML work before changing the design.
   call: `deposit`, `deposit?`, `with-deposits` and `deposit->list` in
   `raft/unsafe`, `raftrkt/deposit.h` and the header-only
   `raftrkt/deposit.hpp`, and the canary's `cluster-members` (raft 0.2).
+  #72 added `device-csr-matrix` in `raft/array`, `raftrkt/csr.hpp`,
+  `deposit->device-csr-matrix` in `raft/unsafe`, and the canary's
+  `cluster-graph`, `csr-copy` and `assignment-graph`.
 
 ## Layout
 
@@ -64,14 +67,16 @@ nix/racket-tools.nix          raco fmt and raco review, pinned as a fixed-output
 lint/                         raft-lint: the raco review extension for the test macros
 shim/                         libraftrkt: C++20 over RAFT's headers (CMake, g++; nvcc for .cu)
   include/raftrkt/            C headers: core.h memory.h array.h abi.h job.h, umbrella c_api.h;
-                                header-only C++: error.hpp view.hpp job.hpp (all frozen, below)
+                                header-only C++: error.hpp view.hpp job.hpp deposit.hpp
+                                csr.hpp (all frozen, below)
   cmake/raftrkt-config.cmake  find_package(raftrkt): raftrkt::headers, in packages.raft-dev
   src/{core,array,detail}/    host C++ (.cpp); a .cu only for code that launches kernels
   src/detail/dtypes.def       the dtypes: name, C++ type, code
   src/array/ops.def           what the array module instantiates, per op
   tests/                      gtest; GPU cases print SKIP without a device
   tests/probe/                libraftrkt_probe, a second RMM user for the tests, and a
-                                downstream that fills deposits (rr_probe_deposit);
+                                downstream that fills deposits (rr_probe_deposit, and
+                                CSR deposits in csr.cpp: rr_probe_deposit_csr);
                                 and the loader fixtures: libraftrkt_stale_abi (the next
                                 ABI version), libraftrkt_abi_only (this ABI version and
                                 no other export), libraftrkt_null_abi (rr_abi is NULL)
@@ -83,6 +88,7 @@ raft/                         the Racket package and collection
   unsafe.rkt                  raft/unsafe, the frozen interface for native bindings
   private/{abi,error,resource,resources,install-native,deposit}.rkt
   private/{array,dtype,pack,print}.rkt   arrays over buffers, the tables, packing, printing
+  private/csr.rkt             device-csr-matrix over three device vectors (#72)
   scribblings/                the manual: guide/ chapters, reference/ sections, logs/ the
                                 recorded examples
   tests/                      raco tests that need no libraftrkt; tests/gpu/ those that do;
@@ -94,7 +100,8 @@ bench/README.md               how to run the benchmarks, and the last measured t
 bench/conversions.rkt         the conversion speed table (raft/compat), 10^6 elements
 bench/typed-arrays.rkt        math/array arrays built in Typed Racket against untyped (typed-table.rkt)
 downstream/kmeans-canary/     the k-means canary, a minimal cuML binding (packages.kmeans-canary)
-  include/ src/ tests/        the C API (kc_), its C++ over libcuml, gtests with libraftrkt
+  include/ src/ tests/        the C API (kc_), its C++ over libcuml (src/graph.cpp: the CSR
+                                deposits and a graph into three caller views), gtests with libraftrkt
   kmeans-canary/              the Racket package: private/native.rkt, main.rkt, pool.rkt,
                                 tests/ (the cuML twin, 1,000 fits, the shared pool)
 plans/scoping-plan.md         the approved plan (revision 5), as Markdown
@@ -469,6 +476,16 @@ plans/scoping-plan.md         the approved plan (revision 5), as Markdown
   `--exclude-libs,ALL`; `--no-undefined` catches a missing library at link
   (except under `RAFTRKT_SANITIZE`, where the sanitizer runtime's symbols
   resolve from the executable).
+- CSR (#72): `src/array/csr.cpp` is `rr_csr_check` (`src/detail/csr_api.h`),
+  which checks extents and dtypes on the host and indptr's order and the
+  index range in `csr_check.cu`, one kernel and one sync, and
+  `rr_csr_check_shape`, which refuses a shape and dtypes before anything is
+  packed. `raftrkt/csr.hpp` is host C++ for downstreams (its items are
+  listed under the frozen interface). The probe's `rr_probe_deposit_csr`
+  (and its job twin over three views) fills a CSR deposit from host lists,
+  malformed included, in one phase or two (`resize_entries` after
+  `read_nnz`); it counts the two-phase owner, a plain `csr_buffers`, by
+  specialising `raftrkt::detail::release_owner` for it.
 - Two gtest binaries, installed in the shim derivation's `tests` output
   (`bin/`): `raftrkt_tests` (the C API, plus white-box cases that include
   `detail/handles.hpp` and `detail/memory_resource.hpp`) and
@@ -541,7 +558,15 @@ plans/scoping-plan.md         the approved plan (revision 5), as Markdown
   closes them through `private/deposit.rkt` (the `deposit` struct over an
   `_rr-holder`, `deposit->list`), which binds `src/detail/deposit_api.h`
   through `private/foreign/deposit-api.rkt`; the record is the borrowed
-  `_rr-deposit`.
+  `_rr-deposit`. `deposit->device-csr-matrix` adopts through
+  `deposit->list` and runs `private/csr.rkt`'s `checked-csr`, the
+  constructor's check, under its own name.
+- `private/csr.rkt`: the `device-csr-matrix` struct over three
+  `device-vector`s and `#:shape`, its conversions (dense rows drop zeros,
+  triplets sum duplicates and keep a zero sum, as SciPy does) and its
+  printer (`print.rkt`'s pure `csr-text`); construction calls
+  `rr_csr_check` through `private/foreign/csr-api.rkt`, and `list*->` and
+  `triplets->` call `rr_csr_check_shape` first.
 - `private/job.rkt`: `define-job` and `job-procedure`, which packs the
   arguments into a block laid out as the C side's `run_job` unpacks it,
   binds each `deposit` parameter's record and submits it in one
@@ -640,7 +665,8 @@ nix develop                        # the GPU shell (first entry builds and provi
 nix flake check --max-jobs 1 --cores 4   # the CI-equivalent; GPU cases print SKIP
 scripts/gpu-suite.sh               # in the shell, on the GPU host: gtests, LD_BIND_NOW
                                    #   load, raco tests with twin parity, the census;
-                                   #   red on any SKIP but the no-driver cases
+                                   #   red on any SKIP but the no-driver and
+                                   #   two-device cases
 raco test raft                     # the Racket tests
 racket scripts/check-bindings.rkt  # rr_ exports against the bindings
 scripts/render-docs.sh <dir>       # the manual, red on any warning or broken link
@@ -1310,6 +1336,13 @@ canary changes with it in the same pull request:
   `rr_deposit*`) and `define-job` in
   `raft/unsafe`. A downstream detects them with
   `__has_include(<raftrkt/job.hpp>)`.
+- **Additions at version 1 (#72):** `raftrkt/csr.hpp` (`csr_data`,
+  `csr_parts`, `csr_view`, `csr_buffers`, `read_nnz`, `deposit_csr`) and
+  `deposit->device-csr-matrix` in `raft/unsafe`. No layout changes: a CSR
+  reaches a downstream as three ordinary views plus `cols`, and leaves it
+  as a deposit of three regions. They ship in raft 0.3, which #73 bumps
+  (`raft/info.rkt` is 0.2.1 until then); a downstream detects them with
+  `("raft" #:version "0.3")` or `__has_include(<raftrkt/csr.hpp>)`.
 
 Not part of the ABI:
 
@@ -1693,3 +1726,20 @@ since cuSPARSE's error string for it is only "out of memory"). The frozen rule i
 - **The probe raises a real `raft::logic_error`** (`rr_probe_raft_fail`,
   built with `ENABLE_COLLECT_CALLSTACK`), as a short call and as a job, for
   `tests/gpu/native-message-test.rkt`.
+
+## Decisions recorded in #72
+
+- **One index dtype**: indptr and indices are both int32 or both int64.
+- **`#:shape` is required**: inferring cols from the largest index narrows
+  a kNN graph whose last sample no row reaches.
+- **Contents are checked at construction and adoption only**; a downstream
+  call re-checks extents and dtypes, not order or range.
+- **An indptr ending short of the indices is refused**, where SciPy and
+  CuPy prune it.
+- **`csr_parts` refuses a negative extent itself**; raft's own constructors
+  meet `rr_csr_check`'s refusal first.
+- **Zeros are dropped after the dtype conversion**: a float32 underflow in
+  `list*->device-csr-matrix` is not stored.
+- **The probe's job twin takes three views**: `define-job` has no
+  host-array parameter.
+- **A CSR deposit's adoption drops three buffers** (law 16).

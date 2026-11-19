@@ -19,11 +19,13 @@
   (for ([d (in-list dtypes)])
     (check-true (dtype-itemsize-matches? d (dtype-itemsize d)) (format "~a" d))))
 
-(test-case "the op table lists contiguous for every dtype and both layouts"
+(test-case "the op table lists each op with its dtypes and layouts"
+  (define (entry dtypes)
+    (hasheq 'module 'array 'dtypes dtypes 'layouts '(row-major col-major)))
   (check-equal? op-table
-                (hasheq 'contiguous (hasheq 'module 'array
-                                            'dtypes '(float32 float64 int32 int64)
-                                            'layouts '(row-major col-major)))))
+                (hasheq 'contiguous (entry '(float32 float64 int32 int64))
+                        'csr_indices (entry '(int32 int64))
+                        'csr_data (entry '(float32 float64)))))
 
 (test-case "the rr_view mirror has the C struct's size"
   (check-equal? rr-view-size 152))

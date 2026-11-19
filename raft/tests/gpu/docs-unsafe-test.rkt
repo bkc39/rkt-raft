@@ -18,7 +18,7 @@
                   ptr-set!)
          (only-in ffi/unsafe/define define-ffi-definer make-not-available)
          (only-in ffi/unsafe/define/conventions convention:hyphen->underscore)
-         (only-in racket/list first remove-duplicates)
+         (only-in racket/list drop-right first remove-duplicates)
          (only-in racket/match match-define)
          (only-in racket/string non-empty-string?)
          (only-in rackunit check-equal? check-exn check-true)
@@ -26,6 +26,7 @@
          syntax/parse/define
          (only-in "../../main.rkt"
                   contiguous
+                  csr-indptr
                   current-device-resources
                   device-matrix
                   device-resources
@@ -34,6 +35,7 @@
                   dtype
                   exn:fail:raft
                   list*->device-matrix
+                  nnz
                   raft-abi
                   raft-abi-handle-size
                   raft-abi-version
@@ -42,6 +44,7 @@
          (only-in "../../unsafe.rkt"
                   define-job
                   deposit
+                  deposit->device-csr-matrix
                   deposit->list
                   raft-abi-pointer
                   resources->handle-pointer
@@ -342,3 +345,38 @@
   (check-raft-error 'logic
                     "cluster-members: out: on resources other than the call's"
                     (lambda () (members-of elsewhere))))
+
+(define-kc kc-cluster-graph (_fun _pointer _pointer _int32 _int32 _pointer -> _int))
+
+(test-canary "unsafe reference: deposit->device-csr-matrix"
+  (define check (status-checker kc-last-error kc-last-error-kind))
+  (define handle (resources->handle-pointer (current-device-resources)))
+  (define X (made-blobs check handle))
+  (define fitted (device-matrix 3 2))
+  (fit-with check handle X fitted)
+  (define labels (device-vector 300 #:dtype 'int32))
+  (with-array-views ([c fitted] [x X] [y labels])
+    (check 'kmeans-predict (lambda () (kc-predict handle c x #f 1 y))))
+  (define graph (deposit))
+  (with-deposits ([out graph])
+                 (with-array-views #:resources [h (current-device-resources)] ([y labels])
+                   (check 'cluster-graph (lambda () (kc-cluster-graph h y 3 2 out)))))
+  (define clusters (deposit->device-csr-matrix graph #:shape (cons 3 (shape labels))))
+  (check-equal? (list (shape clusters) (nnz clusters) (dtype (csr-indptr clusters)))
+                '((3 300) 300 int32))
+  (check-true (eq? (csr-indptr clusters) (first (deposit->list graph))))
+  (define p (device-vector->list (csr-indptr clusters)))
+  (define sizes (map - (cdr p) (drop-right p 1)))
+  (check-equal? sizes
+                (for/list ([c (in-range 3)])
+                  (for/sum ([l (in-list (device-vector->list labels))]) (if (= l c) 1 0))))
+  (check-raft-error 'logic
+                    "deposit->device-csr-matrix: indptr: expected 5 elements, got 4"
+                    (lambda () (deposit->device-csr-matrix graph #:shape (cons 4 (shape labels)))))
+  (define members (deposit))
+  (with-deposits ([out members])
+                 (with-array-views #:resources [h (current-device-resources)] ([x X] [y labels])
+                   (check 'cluster-members (lambda () (kc-cluster-members h x y 0 out)))))
+  (check-raft-error 'logic
+                    "deposit->device-csr-matrix: the deposit holds 2 regions; a CSR matrix needs 3"
+                    (lambda () (deposit->device-csr-matrix members #:shape '(3 3)))))

@@ -48,6 +48,8 @@ add_library(raftrkt SHARED
   src/array/array.cpp
   src/array/buffer.cpp
   src/array/copy.cu
+  src/array/csr.cpp
+  src/array/csr_check.cu
   src/array/deposit.cpp
   src/core/core.cpp
   src/core/executor.cpp
@@ -99,6 +101,7 @@ if(BUILD_TESTING)
     tests/array_ops_test.cpp
     tests/array_test.cpp
     tests/core_test.cpp
+    tests/csr_test.cpp
     tests/cuda_language_test.cu
     tests/deposit_job_test.cpp
     tests/deposit_race_test.cpp
@@ -123,6 +126,7 @@ if(BUILD_TESTING)
     src/detail/dtype.cpp
     src/detail/error.cpp
     src/detail/view.cpp
+    tests/csr_header_test.cpp
     tests/deposit_header_test.cpp
     tests/driver_test.cpp
     tests/error_test.cpp
@@ -137,7 +141,7 @@ if(BUILD_TESTING)
   gtest_discover_tests(raftrkt_error_tests DISCOVERY_MODE PRE_TEST DISCOVERY_TIMEOUT 60
     PROPERTIES TIMEOUT ${raftrkt_gtest_timeout_seconds})
 
-  add_library(raftrkt_probe SHARED tests/probe/jobs.cpp tests/probe/probe.cpp)
+  add_library(raftrkt_probe SHARED tests/probe/csr.cpp tests/probe/jobs.cpp tests/probe/probe.cpp)
   set_target_properties(raftrkt_probe PROPERTIES
     CXX_VISIBILITY_PRESET hidden
     POSITION_INDEPENDENT_CODE ON

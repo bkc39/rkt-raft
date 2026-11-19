@@ -20,36 +20,12 @@
 
 namespace {
 
-std::atomic<uint64_t>& owner_drops() noexcept {
-  static std::atomic<uint64_t> count{0};
-  return count;
-}
-
-std::atomic<uint64_t>& owner_stale() noexcept {
-  static std::atomic<uint64_t> count{0};
-  return count;
-}
-
 template <typename T>
 struct members {
   members(const raft::handle_t& h, std::size_t m, std::size_t d)
-      : handle(h),
-        indices(m, raft::resource::get_cuda_stream(h)),
+      : indices(m, raft::resource::get_cuda_stream(h)),
         rows(m * d, raft::resource::get_cuda_stream(h)) {}
-  ~members() {
-    owner_drops().fetch_add(1, std::memory_order_relaxed);
-    const cudaError_t status =
-        cudaStreamQuery(raft::resource::get_cuda_stream(handle).value());
-    if (status != cudaSuccess && status != cudaErrorNotReady) {
-      owner_stale().fetch_add(1, std::memory_order_relaxed);
-    }
-  }
-  members(const members&) = delete;
-  members& operator=(const members&) = delete;
-  members(members&&) = delete;
-  members& operator=(members&&) = delete;
 
-  const raft::handle_t& handle;
   rmm::device_uvector<int64_t> indices;
   rmm::device_uvector<T> rows;
 };
@@ -90,10 +66,11 @@ void cluster_members(const raft::handle_t& handle, const member_arrays& arrays,
       chosen({classes, static_cast<std::size_t>(n)}, cluster, stream);
   const std::size_t m = picked.size();
   const auto width = static_cast<std::size_t>(d);
-  auto owner = std::make_unique<members<T>>(handle, m, width);
+  auto owner = std::make_unique<kc::counted<members<T>>>(handle, m, width);
+  members<T>& parts = owner->parts;
   if (m > 0) {
     raftrkt::cuda_check(
-        cudaMemcpyAsync(owner->indices.data(), picked.data(),
+        cudaMemcpyAsync(parts.indices.data(), picked.data(),
                         m * sizeof(int64_t), cudaMemcpyHostToDevice, stream),
         "cudaMemcpyAsync");
   }
@@ -104,7 +81,7 @@ void cluster_members(const raft::handle_t& handle, const member_arrays& arrays,
       ++run;
     }
     raftrkt::cuda_check(
-        cudaMemcpyAsync(owner->rows.data() + k * width,
+        cudaMemcpyAsync(parts.rows.data() + k * width,
                         data + static_cast<std::size_t>(picked[k]) * width,
                         run * width * sizeof(T), cudaMemcpyDeviceToDevice,
                         stream),
@@ -114,9 +91,8 @@ void cluster_members(const raft::handle_t& handle, const member_arrays& arrays,
   raftrkt::cuda_check(cudaStreamSynchronize(stream), "cudaStreamSynchronize");
   const auto count = static_cast<int64_t>(m);
   const std::initializer_list<rr_view> regions{
-      raftrkt::region(owner->indices),
-      raftrkt::region(owner->rows.data(), count, d,
-                      raftrkt::layout::row_major)};
+      raftrkt::region(parts.indices),
+      raftrkt::region(parts.rows.data(), count, d, raftrkt::layout::row_major)};
   raftrkt::deposit(out, "out", handle, std::move(owner), regions);
 }
 
@@ -140,10 +116,10 @@ int kc_cluster_members(void* handle, const rr_view* x, const rr_view* labels,
 }
 
 uint64_t kc_owner_drop_count(void) {
-  return owner_drops().load(std::memory_order_relaxed);
+  return kc::owner_drops().load(std::memory_order_relaxed);
 }
 
 uint64_t kc_owner_stale_count(void) {
-  return owner_stale().load(std::memory_order_relaxed);
+  return kc::owner_stale().load(std::memory_order_relaxed);
 }
 }

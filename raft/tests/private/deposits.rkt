@@ -10,6 +10,7 @@
                   device-vector?
                   dtype
                   layout
+                  list->device-vector
                   shape)
          (only-in "../../private/dtype.rkt" dtype->code)
          (only-in "../../private/foreign/memory.rkt"
@@ -24,6 +25,8 @@
          (only-in "probe.rkt"
                   call/probe
                   probe-deposit
+                  probe-deposit-csr
+                  probe-deposit-csr-job
                   probe-flags
                   probe-owner-drops
                   probe-owner-stale)
@@ -35,7 +38,10 @@
          check-round-trips
          counters
          (struct-out counts)
+         csr-filled
          fill!
+         fill-csr!
+         fill-csr-job!
          filled
          region-values
          released-once
@@ -65,6 +71,42 @@
                 #:resources [r (current-device-resources)])
   (define d (deposit #:resources r))
   (fill! d dt rows cols #:count k #:flags flags #:resources r)
+  d)
+
+(define (fill-csr! r d . arguments)
+  (with-deposits ([out d])
+                 (with-array-views #:resources [h r] ()
+                   (call/probe 'probe-deposit-csr
+                               (lambda () (apply probe-deposit-csr h out arguments))))))
+
+(define (fill-csr-job! r d index-code element-code indptr indices data two-phase)
+  (probe-deposit-csr-job 'probe-deposit-csr
+                         r
+                         d
+                         index-code
+                         element-code
+                         (list->device-vector indptr #:dtype 'int64 #:resources r)
+                         (list->device-vector indices #:dtype 'int64 #:resources r)
+                         (list->device-vector data #:dtype 'float64 #:resources r)
+                         two-phase))
+
+(define (csr-filled indptr
+                    indices
+                    data
+                    #:fill [fill fill-csr!]
+                    #:index-dtype [index-type 'int32]
+                    #:dtype [element-type 'float64]
+                    #:two-phase? [two-phase? #f]
+                    #:resources [r (current-device-resources)])
+  (define d (deposit #:resources r))
+  (fill r
+        d
+        (dtype->code index-type)
+        (dtype->code element-type)
+        indptr
+        indices
+        (map exact->inexact data)
+        (if two-phase? 1 0))
   d)
 
 (define (region-values dt r rows cols)
@@ -105,25 +147,25 @@
 
 (struct counts (owners probe-drops holders buffers failures) #:transparent)
 
-(define (counters)
+(define (counters #:drops [drops probe-owner-drops])
   (check-true (releases-settled?) "a release is still queued")
   (counts (owner-release-count)
-          (probe-owner-drops)
+          (drops)
           (holder-drop-count)
           (buffer-drop-count)
           (release-failure-count)))
 
-(define (since before)
-  (define now (counters))
+(define (since before #:drops [drops probe-owner-drops])
+  (define now (counters #:drops drops))
   (counts (- (counts-owners now) (counts-owners before))
           (- (counts-probe-drops now) (counts-probe-drops before))
           (- (counts-holders now) (counts-holders before))
           (- (counts-buffers now) (counts-buffers before))
           (- (counts-failures now) (counts-failures before))))
 
-(define (settles-to before expected)
-  (collect-until (lambda () (equal? (since before) expected)))
-  (since before))
+(define (settles-to before expected #:drops [drops probe-owner-drops])
+  (collect-until (lambda () (equal? (since before #:drops drops) expected)))
+  (since before #:drops drops))
 
 (define shapes
   '((0 #f #f) (1 #f #f) (7 #f #f) (1000 #f #f) (3 4 row-major) (3 4 col-major) (0 4 row-major)))

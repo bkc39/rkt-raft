@@ -2,7 +2,11 @@
 
 (require (only-in racket/match match-define)
          (only-in raft
+                  csr-data
+                  csr-indices
+                  csr-indptr
                   current-device-resources
+                  device-csr-matrix
                   device-matrix
                   device-matrix->list*
                   device-matrix?
@@ -10,15 +14,21 @@
                   dtype
                   list*->device-matrix
                   shape)
-         (only-in raft/unsafe deposit deposit->list)
+         (only-in raft/unsafe deposit deposit->device-csr-matrix deposit->list)
          (only-in "private/native.rkt"
+                  kc-assignment-graph-job
+                  kc-cluster-graph-job
                   kc-cluster-members-job
+                  kc-csr-copy-job
                   kc-fit-job
                   kc-make-blobs-job
                   kc-predict-job))
 
-(provide blobs
+(provide assignment-graph
+         blobs
+         cluster-graph
          cluster-members
+         csr-copy
          kmeans-fit
          kmeans-predict)
 
@@ -111,3 +121,38 @@
   (define members (deposit #:resources resources))
   (kc-cluster-members-job 'cluster-members resources X labels cluster members)
   (apply values (deposit->list members)))
+
+(define dtype-codes (hasheq 'float32 0 'float64 1 'int32 2 'int64 3))
+
+(define (cluster-graph labels
+                       n-clusters
+                       #:index-dtype [index-type 'int32]
+                       #:resources [resources (current-device-resources)])
+  (match-define (list n) (shape labels))
+  (define graph (deposit #:resources resources))
+  (kc-cluster-graph-job 'cluster-graph
+                        resources
+                        labels
+                        n-clusters
+                        (hash-ref dtype-codes index-type)
+                        graph)
+  (deposit->device-csr-matrix graph #:shape (list n-clusters n)))
+
+(define (assignment-graph labels
+                          n-clusters
+                          #:index-dtype [index-type 'int32]
+                          #:resources [resources (current-device-resources)])
+  (match-define (list n) (shape labels))
+  (define (output count element-type)
+    (device-vector count #:dtype element-type #:resources resources))
+  (define indptr (output (add1 n) index-type))
+  (define indices (output n index-type))
+  (define data (output n 'float32))
+  (kc-assignment-graph-job 'assignment-graph resources labels n-clusters indptr indices data)
+  (device-csr-matrix indptr indices data #:shape (list n n-clusters)))
+
+(define (csr-copy m #:resources [resources (current-device-resources)])
+  (match-define (list _ cols) (shape m))
+  (define copied (deposit #:resources resources))
+  (kc-csr-copy-job 'csr-copy resources (csr-indptr m) (csr-indices m) (csr-data m) cols copied)
+  (deposit->device-csr-matrix copied #:shape (shape m)))

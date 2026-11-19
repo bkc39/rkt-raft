@@ -40,4 +40,6 @@ const rr_dtype_info& dtype_named(const char* name);
 #define RR_ALL_DTYPES ::rr::all_dtypes
 #define RR_FLOAT_DTYPES \
   (::rr::dtype_bit(RR_DTYPE_FLOAT32) | ::rr::dtype_bit(RR_DTYPE_FLOAT64))
+#define RR_INDEX_DTYPES \
+  (::rr::dtype_bit(RR_DTYPE_INT32) | ::rr::dtype_bit(RR_DTYPE_INT64))
 #define RR_ALL_LAYOUTS (RR_LAYOUT_ROW_MAJOR | RR_LAYOUT_COL_MAJOR)
