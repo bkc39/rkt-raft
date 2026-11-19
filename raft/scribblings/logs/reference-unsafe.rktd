@@ -522,6 +522,12 @@
  (values "#t\n")
  ""
  "")
+((define p (device-vector->list (csr-indptr clusters))) (values "") "" "")
+((map - (cdr p) (drop-right p 1)) (values "'(100 100 100)\n") "" "")
+((deposit->device-csr-matrix graph #:shape (cons 4 (shape labels)))
+ (raise "deposit->device-csr-matrix: indptr: expected 5 elements, got 4")
+ ""
+ "")
 ((deposit->device-csr-matrix members #:shape '(3 3))
  (raise
   "deposit->device-csr-matrix: the deposit holds 2 regions; a CSR matrix needs 3")

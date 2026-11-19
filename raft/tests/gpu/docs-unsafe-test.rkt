@@ -18,7 +18,7 @@
                   ptr-set!)
          (only-in ffi/unsafe/define define-ffi-definer make-not-available)
          (only-in ffi/unsafe/define/conventions convention:hyphen->underscore)
-         (only-in racket/list first remove-duplicates)
+         (only-in racket/list drop-right first remove-duplicates)
          (only-in racket/match match-define)
          (only-in racket/string non-empty-string?)
          (only-in rackunit check-equal? check-exn check-true)
@@ -365,6 +365,14 @@
   (check-equal? (list (shape clusters) (nnz clusters) (dtype (csr-indptr clusters)))
                 '((3 300) 300 int32))
   (check-true (eq? (csr-indptr clusters) (first (deposit->list graph))))
+  (define p (device-vector->list (csr-indptr clusters)))
+  (define sizes (map - (cdr p) (drop-right p 1)))
+  (check-equal? sizes
+                (for/list ([c (in-range 3)])
+                  (for/sum ([l (in-list (device-vector->list labels))]) (if (= l c) 1 0))))
+  (check-raft-error 'logic
+                    "deposit->device-csr-matrix: indptr: expected 5 elements, got 4"
+                    (lambda () (deposit->device-csr-matrix graph #:shape (cons 4 (shape labels)))))
   (define members (deposit))
   (with-deposits ([out members])
                  (with-array-views #:resources [h (current-device-resources)] ([x X] [y labels])

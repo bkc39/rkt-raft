@@ -1054,8 +1054,7 @@ gates' own tests), `no-syntax-rule`, `no-raw-malloc`,
   and reference section. A guide chapter is a tutorial on realistic client
   code, evaluated live.
 - Every exported name gets a `@defproc`/`@defform`/`@defthing` with prose and
-  one live example showing real use, not a trivial call, plus an
-  `eval:error` line where a check matters.
+  at least three live examples showing real use, not trivial calls.
 - Examples run through `scribble/example`; output is never pasted by hand.
   Each one's behaviour is pinned in `raft/tests/gpu/docs-*test.rkt`.
 - **Examples replay from `raft/scribblings/logs/`** (#45). `RAFT_DOCS` is

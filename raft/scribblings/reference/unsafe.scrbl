@@ -498,6 +498,19 @@ checks of @racket[device-csr-matrix]. Its vectors are those of
 (define clusters (deposit->device-csr-matrix graph #:shape (cons 3 (shape labels))))
 (list (shape clusters) (nnz clusters) (dtype (csr-indptr clusters)))
 (eq? (csr-indptr clusters) (first (deposit->list graph)))
+]
+
+Each cluster's size, from its row:
+
+@examples[#:eval ev #:label #f
+(define p (device-vector->list (csr-indptr clusters)))
+(map - (cdr p) (drop-right p 1))
+]
+
+Another shape, or a deposit of other regions, is refused:
+
+@examples[#:eval ev #:label #f
+(eval:error (deposit->device-csr-matrix graph #:shape (cons 4 (shape labels))))
 (eval:error (deposit->device-csr-matrix members #:shape '(3 3)))
 ]}
 
