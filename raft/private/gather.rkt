@@ -3,8 +3,8 @@
 (require (only-in racket/list append-map)
          (only-in "array.rkt" device-array-dtype settled-arguments view->array)
          (only-in "error.rkt" call/raft)
-         (only-in "foreign/array.rkt" blank-view)
          (only-in "foreign/array-api.rkt" rr-array-compare rr-array-gather rr-array-select)
+         (only-in "foreign/array.rkt" blank-view)
          (only-in "pack.rkt" pack-vector))
 
 (provide compare

@@ -1,6 +1,6 @@
 #lang racket/base
 
-(require (only-in racket/match match match-define)
+(require (only-in racket/match match match* match-define)
          (only-in "../../main.rkt"
                   device-matrix
                   device-matrix->list*
@@ -41,19 +41,13 @@
 
 (define (random-element state dtype)
   (define edge? (zero? (random 2 state)))
-  (match dtype
-    ['int32
-     (if edge?
-         (pick state int32-edges)
-         (random-int32 state))]
-    ['int64
-     (if edge?
-         (pick state int64-edges)
-         (+ (* (random-int32 state) 4294967296) (random 4294967087 state)))]
-    [_
-     (if edge?
-         (pick state float-edges)
-         (/ (random -4096 4096 state) 64.0))]))
+  (match* (dtype edge?)
+    [('int32 #t) (pick state int32-edges)]
+    [('int32 #f) (random-int32 state)]
+    [('int64 #t) (pick state int64-edges)]
+    [('int64 #f) (+ (* (random-int32 state) 4294967296) (random 4294967087 state))]
+    [(_ #t) (pick state float-edges)]
+    [(_ #f) (/ (random -4096 4096 state) 64.0)]))
 
 (define dtypes (vector 'float32 'float64 'int32 'int64))
 (define layouts (vector 'row-major 'col-major))

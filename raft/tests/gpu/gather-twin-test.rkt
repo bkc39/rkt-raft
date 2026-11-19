@@ -1,7 +1,7 @@
 #lang racket/base
 
 (require (only-in racket/list filter-map)
-         (only-in racket/match match match-define match-lambda)
+         (only-in racket/match match match* match-define match-lambda)
          ;; whole-module: define-runtime-path needs bindings only-in strips
          racket/runtime-path
          (only-in rackunit check-equal? check-pred check-true fail)
@@ -84,8 +84,8 @@
   (define source (list element-type (if (eq? layout 'col-major) 'F 'C) extents data))
   (define form
     (match (pick state (vector 'gather 'select 'compare))
-      ['gather (list 'gather source (random-indices state n))]
-      ['select (list 'select source (random-mask state n))]
+      ['gather (list 'gather source (apply cons (random-indices state n)))]
+      ['select (list 'select source (apply cons (random-mask state n)))]
       ['compare
        (list 'compare
              source
@@ -139,8 +139,12 @@
       (list (decoded (hash-ref r 'values)) (hash-ref r 'shape) (hash-ref r 'dtype))))
 
 (define (check-layout label form m r)
-  (match-define (list* kind (list _ order _ _) _) form)
-  (check-true (contiguous? m #:layout (if (eq? order 'F) 'col-major 'row-major)) label)
+  (match-define (list* kind (list _ order extents _) _) form)
+  (define col-major?
+    (match* (order extents)
+      [('F (list rows cols)) (and (> rows 1) (> cols 1))]
+      [(_ _) #f]))
+  (check-true (contiguous? m #:layout (if col-major? 'col-major 'row-major)) label)
   (check-true (hash-ref r (if (and (eq? order 'F) (eq? kind 'compare)) 'f_contiguous 'c_contiguous))
               label))
 

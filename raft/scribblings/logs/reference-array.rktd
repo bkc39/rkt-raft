@@ -234,6 +234,102 @@
   "#<device-matrix int32[2×3] col-major cuda:0\n [[1 2 3]\n  [4 5 6]]>\n")
  ""
  "")
+((define order (list->device-vector '(2 0 0) #:dtype 'int32))
+ (values "")
+ ""
+ "")
+((gather X order)
+ (values
+  "#<device-matrix float32[3×4] row-major cuda:0\n [[7.0 3.2 4.7 1.4]\n  [5.1 3.5 1.4 0.2]\n  [5.1 3.5 1.4 0.2]]>\n")
+ ""
+ "")
+((device-vector->list (gather (list->device-vector '(10 20 30)) order))
+ (values "'(30 10 10)\n")
+ ""
+ "")
+((define by-petal
+   (sort (range 4) < #:key (lambda (i) (third (list-ref samples i)))))
+ (values "")
+ ""
+ "")
+((gather X (list->device-vector by-petal #:dtype 'int32))
+ (values
+  "#<device-matrix float32[4×4] row-major cuda:0\n [[5.1 3.5 1.4 0.2]\n  [4.9 3.0 1.4 0.2]\n  [6.4 3.2 4.5 1.5]\n  [7.0 3.2 4.7 1.4]]>\n")
+ ""
+ "")
+((define centroids
+   (list*->device-matrix
+    '((5.0 3.25 1.4 0.2) (6.7 3.2 4.6 1.45))
+    #:dtype
+    'float32))
+ (values "")
+ ""
+ "")
+((gather centroids (list->device-vector '(0 0 1 1) #:dtype 'int32))
+ (values
+  "#<device-matrix float32[4×4] row-major cuda:0\n [[ 5.0 3.25  1.4  0.2]\n  [ 5.0 3.25  1.4  0.2]\n  [ 6.7  3.2  4.6 1.45]\n  [ 6.7  3.2  4.6 1.45]]>\n")
+ ""
+ "")
+((gather X (list->device-vector '(1 4) #:dtype 'int32))
+ (raise "gather: indices: entry 1 is 4, outside [0, 4)")
+ ""
+ "")
+((gather X (list->device-vector '(-1) #:dtype 'int32))
+ (raise "gather: indices: entry 0 is -1, outside [0, 4)")
+ ""
+ "")
+((select X (list->device-vector '(1 0 0 1) #:dtype 'int32))
+ (values
+  "#<device-matrix float32[2×4] row-major cuda:0\n [[5.1 3.5 1.4 0.2]\n  [6.4 3.2 4.5 1.5]]>\n")
+ ""
+ "")
+((shape (select X (list->device-vector '(0 0 0 0) #:dtype 'int32)))
+ (values "'(0 4)\n")
+ ""
+ "")
+((define labels (list->device-vector '(0 -1 1 1) #:dtype 'int32))
+ (values "")
+ ""
+ "")
+((define clustered (compare labels '>= 0)) (values "") "" "")
+((list
+  (device-vector->list (select labels clustered))
+  (shape (select X clustered)))
+ (values "'((0 1 1) (3 4))\n")
+ ""
+ "")
+((define fold (list->device-vector '(0 1 0 1) #:dtype 'int32))
+ (values "")
+ ""
+ "")
+((define training (select X (compare fold '= 0))) (values "") "" "")
+((define held-out (select X fold)) (values "") "" "")
+((list (shape training) (shape held-out)) (values "'((2 4) (2 4))\n") "" "")
+((select X (list->device-vector '(1 0 1) #:dtype 'int32))
+ (raise "select: mask: expected 4 elements, got 3")
+ ""
+ "")
+((device-vector->list (compare labels '>= 0)) (values "'(1 0 1 1)\n") "" "")
+((compare X '< 3.0)
+ (values
+  "#<device-matrix int32[4×4] row-major cuda:0\n [[0 0 1 1]\n  [0 0 1 1]\n  [0 0 0 1]\n  [0 0 0 1]]>\n")
+ ""
+ "")
+((define petals (list->device-vector (map third samples) #:dtype 'float32))
+ (values "")
+ ""
+ "")
+((select X (compare petals '> 4.0))
+ (values
+  "#<device-matrix float32[2×4] row-major cuda:0\n [[7.0 3.2 4.7 1.4]\n  [6.4 3.2 4.5 1.5]]>\n")
+ ""
+ "")
+((apply + (device-vector->list (compare labels '= 1))) (values "2\n") "" "")
+((apply + (device-vector->list (compare petals '> 4.0))) (values "2\n") "" "")
+((compare labels '< 3000000000)
+ (raise "compare: 3000000000 does not fit int32")
+ ""
+ "")
 ((list->device-vector '(3 1 4 1 5))
  (values "#<device-vector int64[5] cuda:0 [3 1 4 1 5]>\n")
  ""

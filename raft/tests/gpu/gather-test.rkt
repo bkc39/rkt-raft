@@ -161,7 +161,7 @@
   (define-values (none kept-result) (drops-after (lambda () (select M mask))))
   (check-equal? none 0)
   (check-equal? (device-matrix->list* kept-result) '((1.0 2.0) (5.0 6.0)))
-  (check-equal? (device-vector->list index) '(2 0)))
+  (check-equal? (map shape (list M index mask)) '((3 2) (2) (3))))
 
 (define rows-100x16
   (for/list ([i (in-range 100)])
