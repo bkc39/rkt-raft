@@ -5,6 +5,7 @@
          (only-in "../../array.rkt"
                   contiguous?
                   device-matrix
+                  device-matrix->list*
                   dtype
                   layout
                   list*->device-matrix
@@ -18,6 +19,7 @@
          (only-in "../../private/pack.rkt" unpack-vector))
 
 (provide check-zero-row-uploads
+         facts
          part
          storage)
 
@@ -37,7 +39,8 @@
         (dtype m)
         (layout m)
         (contiguous? m)
-        (contiguous? m #:layout 'col-major)))
+        (contiguous? m #:layout 'col-major)
+        (device-matrix->list* m)))
 
 (define (check-zero-row-uploads upload none ->rows)
   (for* ([k (in-list '(0 1 3))]
@@ -46,5 +49,5 @@
     (define label (format "~a ~a ~a" k d l))
     (define m (upload none #:cols k #:dtype d #:layout l))
     (check-equal? (facts m) (facts (device-matrix 0 k #:dtype (or d 'float64) #:layout l)) label)
-    (check-equal? (facts m) (list (list 0 k) '(0 0) (or d 'float64) 'row-major #t #t) label)
+    (check-equal? (facts m) (list (list 0 k) '(0 0) (or d 'float64) 'row-major #t #t '()) label)
     (check-equal? (->rows m) '() label)))
