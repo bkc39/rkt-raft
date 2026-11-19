@@ -117,16 +117,22 @@ void in_two_phases(const raft::handle_t& h, rr_deposit* out,
   const cudaStream_t stream = raft::resource::get_cuda_stream(h).value();
   const auto rows = static_cast<int64_t>(in.indptr.size()) - 1;
   auto owner = std::make_unique<raftrkt::csr_buffers<T, Index>>(h, rows, 0);
-  upload(owner->indptr, in.indptr, stream);
-  const int64_t nnz = raftrkt::read_nnz(h, owner->indptr.data(), rows);
-  if (nnz != static_cast<int64_t>(in.indices.size())) {
-    throw raftrkt::logic_error("two_phase: indptr ends at " +
-                               std::to_string(nnz) + ", not at nnz " +
-                               std::to_string(in.indices.size()));
+  try {
+    upload(owner->indptr, in.indptr, stream);
+    const int64_t nnz = raftrkt::read_nnz(h, owner->indptr.data(), rows);
+    if (nnz != static_cast<int64_t>(in.indices.size())) {
+      throw raftrkt::logic_error("two_phase: indptr ends at " +
+                                 std::to_string(nnz) + ", not at nnz " +
+                                 std::to_string(in.indices.size()));
+    }
+    owner->resize_entries(nnz);
+    upload(owner->indices, in.indices, stream);
+    upload(owner->data, in.data, stream);
+  } catch (...) {
+    owner.reset();
+    probe::owner_drops().fetch_add(1, std::memory_order_relaxed);
+    throw;
   }
-  owner->resize_entries(nnz);
-  upload(owner->indices, in.indices, stream);
-  upload(owner->data, in.data, stream);
   raftrkt::deposit_csr(out, "out", h, std::move(owner));
 }
 
