@@ -61,7 +61,7 @@
           'index_dtype (symbol->string index-type)
           'indptr_dtype (symbol->string (hash-ref option 'indptr-dtype index-type))))
 
-(define (spec form)
+(define (form->spec form)
   (match form
     [(list 'dense rows element-type) (dense-spec rows element-type)]
     [(list 'triplets rows cols vals extents element-type)
@@ -202,7 +202,7 @@
 (test-twin "laws 6, 18 and 19: every case builds as SciPy and CuPy build it, or is refused as they refuse it"
   (define specs
     (map (match-lambda
-           [(list* _ form _) (spec form)])
+           [(list* _ form _) (form->spec form)])
          cases))
   (define results (hash-ref (run-twin twin (hasheq 'cases specs)) 'results))
   (check-equal? (length results) (length cases))
