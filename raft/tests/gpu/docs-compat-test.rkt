@@ -80,11 +80,9 @@
                   vector*->device-matrix
                   vector->device-vector)
          (only-in "../../main.rkt" contiguous? device-matrix? dtype shape strides)
+         (only-in "../private/arrays.rkt" printed)
          (only-in "../private/gpu.rkt" test-gpu)
          (only-in "../private/raft-error.rkt" check-raft-error))
-
-(define (printed v)
-  (format "~a" v))
 
 (define (lines . parts)
   (apply string-append

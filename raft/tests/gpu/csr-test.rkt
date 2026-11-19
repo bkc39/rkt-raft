@@ -28,7 +28,7 @@
          (only-in "../../private/array.rkt" buffer->device-array device-array-buffer release-array!)
          (only-in (submod "../../private/csr.rkt" unchecked) unchecked-device-csr-matrix)
          (only-in "../../private/foreign/memory.rkt" release-failure-count)
-         (only-in "../private/arrays.rkt" part)
+         (only-in "../private/arrays.rkt" ints part)
          (only-in "../private/collect.rkt" drain-finalizers! drops-after)
          (only-in "../private/csr.rkt" parts triplets)
          (only-in "../private/gpu.rkt" gpu-skip test-gpu)
@@ -40,9 +40,6 @@
 
 (define (run form)
   (eval form (namespace-anchor->namespace here)))
-
-(define (ints xs [element-type 'int32])
-  (list->device-vector xs #:dtype element-type))
 
 (define (floats xs [element-type 'float32])
   (list->device-vector xs #:dtype element-type))

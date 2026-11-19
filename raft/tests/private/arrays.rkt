@@ -20,8 +20,16 @@
 
 (provide check-zero-row-uploads
          facts
+         ints
          part
+         printed
          storage)
+
+(define (ints xs [element-type 'int32])
+  (list->device-vector xs #:dtype element-type))
+
+(define (printed v)
+  (format "~a" v))
 
 (define (part spec)
   (match spec

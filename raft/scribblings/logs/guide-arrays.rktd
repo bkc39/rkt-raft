@@ -235,7 +235,7 @@
 ((collect-garbage) (values "") "" "")
 ((define before (current-memory-use)) (values "") "" "")
 ((define scratch (device-matrix 1024 1024)) (values "") "" "")
-((quotient (- (current-memory-use) before) (* 1024 1024)) (values "5\n") "" "")
+((>= (- (current-memory-use) before) (* 4 1024 1024)) (values "#t\n") "" "")
 ((set! scratch #f) (values "") "" "")
 ((collect-garbage) (values "") "" "")
 ((< (- (current-memory-use) before) (* 1024 1024)) (values "#t\n") "" "")

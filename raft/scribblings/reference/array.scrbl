@@ -513,8 +513,9 @@ A mask of the wrong length:
 Returns an @racket['int32] array of @racket[a]'s shape and layout, 1 where
 @racket[(op e x)] holds for @racket[a]'s element e and 0 elsewhere.
 @racket[x] is first converted to @racket[a]'s dtype as an element of
-@racket[list->device-vector] is, so an integer dtype truncates it. A NaN
-compares false.
+@racket[list->device-vector] is, except that an integer dtype refuses an
+@racket[x] that is not an integer, raising @racket[exn:fail:raft] of kind
+@racket['logic]. A NaN compares false.
 
 @examples[#:eval ev
 (device-vector->list (compare labels '>= 0))
@@ -539,6 +540,8 @@ A threshold the dtype cannot hold:
 
 @examples[#:eval ev #:label #f
 (eval:error (compare labels '< 3000000000))
+(eval:error (compare labels '>= 0.5))
+(compare labels '>= 1.0)
 ]}
 
 @section[#:tag "ref-array-convert"]{Converting Racket data}

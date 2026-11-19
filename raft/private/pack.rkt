@@ -89,31 +89,32 @@
         (refuse who x (format "does not fit ~a" dtype))
         converted)))
 
-(define (integer-converter who dtype)
+(define (integer-converter who dtype exact?)
   (define half (expt 2 (sub1 (hash-ref integer-bits dtype))))
   (lambda (x)
     (define n
       (cond
         [(exact-integer? x) x]
-        [(and (real? x) (rational? x)) (exact-truncate x)]
+        [(and (real? x) (rational? x) (or (not exact?) (integer? x))) (exact-truncate x)]
+        [(and (real? x) (rational? x)) (refuse who x (format "does not fit ~a exactly" dtype))]
         [(real? x) (refuse who x "is not a finite number")]
         [else (refuse who x "is not a real number")]))
     (if (<= (- half) n (sub1 half))
         n
         (refuse who x (format "does not fit ~a" dtype)))))
 
-(define (element-converter who dtype)
+(define (element-converter who dtype #:exact? [exact? #f])
   (case dtype
-    [(int32 int64) (integer-converter who dtype)]
+    [(int32 int64) (integer-converter who dtype exact?)]
     [else (float-converter who dtype)]))
 
 (define (host-for dtype count)
   (host-memory (* count (dtype-itemsize dtype))))
 
-(define (pack-vector who dtype n xs)
+(define (pack-vector who dtype n xs #:exact? [exact? #f])
   (define host (host-for dtype n))
   (define set (host-setter dtype))
-  (define convert (element-converter who dtype))
+  (define convert (element-converter who dtype #:exact? exact?))
   (over-elements (for ([x xs]
                        [i (in-range n)])
                    (set host i (convert x))))

@@ -21,6 +21,9 @@ constexpr int64_t step = 7;
 constexpr int64_t below = -7;
 constexpr int64_t beyond_int32 = 3000000000;
 constexpr std::size_t cube_elements = 8;
+constexpr int64_t matrix_rows = 4;
+constexpr int64_t matrix_cols = 3;
+constexpr int64_t lead = 5;
 
 struct array {
   rr_buffer* buffer = nullptr;
@@ -94,40 +97,37 @@ class GatherTest : public ::testing::Test {
     return upload(values);
   }
 
-  std::string gather(const array& src, const rr_view& src_view,
-                     const array& indices) {
-    rr_view out_view{};
-    rr_buffer* out = nullptr;
-    const int status = rr_array_gather(src.buffer, 0, &src_view, indices.buffer,
-                                       0, &indices.view, &out_view, &out);
-    if (out != nullptr) {
-      buffers_.push_back(out);
+  template <typename Entry, typename... Inputs>
+  std::string call(array* result, Entry entry, Inputs... inputs) {
+    array r;
+    const int status = entry(inputs..., &r.view, &r.buffer);
+    if (r.buffer != nullptr) {
+      buffers_.push_back(r.buffer);
+    }
+    if (result != nullptr) {
+      *result = r;
     }
     return refusal(status);
   }
 
+  std::string gather(const array& src, const rr_view& src_view,
+                     const array& indices, uint64_t src_offset = 0,
+                     array* result = nullptr) {
+    return call(result, rr_array_gather, src.buffer, src_offset, &src_view,
+                indices.buffer, uint64_t{0}, &indices.view);
+  }
+
   std::string select(const array& src, const rr_view& src_view,
-                     const array& mask) {
-    rr_view out_view{};
-    rr_buffer* out = nullptr;
-    const int status = rr_array_select(src.buffer, 0, &src_view, mask.buffer, 0,
-                                       &mask.view, &out_view, &out);
-    if (out != nullptr) {
-      buffers_.push_back(out);
-    }
-    return refusal(status);
+                     const array& mask, uint64_t src_offset = 0,
+                     array* result = nullptr) {
+    return call(result, rr_array_select, src.buffer, src_offset, &src_view,
+                mask.buffer, uint64_t{0}, &mask.view);
   }
 
   template <typename Scalar>
   std::string compare(const array& src, const rr_view& src_view, Scalar x) {
-    rr_view out_view{};
-    rr_buffer* out = nullptr;
-    const int status = rr_array_compare(src.buffer, 0, &src_view, ">=", &x,
-                                        sizeof(x), &out_view, &out);
-    if (out != nullptr) {
-      buffers_.push_back(out);
-    }
-    return refusal(status);
+    return call(nullptr, rr_array_compare, src.buffer, uint64_t{0}, &src_view,
+                ">=", static_cast<const void*>(&x), sizeof(x));
   }
 
   static cudaStream_t stream_of(rr_resources* r) {
@@ -230,5 +230,78 @@ TEST_F(GatherTest, IndicesOnOtherResourcesAreReadBeforeTheCallReturns) {
   ASSERT_EQ(select(src, src.view, keep), "");
   EXPECT_EQ(cudaStreamQuery(stream_of(resources_)), cudaSuccess);
 }
+
+struct layout_case {
+  const char* name;
+  bool col_major;
+};
+
+class GatherMatrix : public GatherTest,
+                     public ::testing::WithParamInterface<layout_case> {
+ protected:
+  static int64_t at(int64_t row, int64_t col, int64_t rows, int64_t cols) {
+    return GetParam().col_major ? row + (col * rows) : (row * cols) + col;
+  }
+
+  static rr_view matrix_view(const array& backing) {
+    rr_view v = backing.view;
+    v.rank = 2;
+    v.shape[0] = matrix_rows;
+    v.shape[1] = matrix_cols;
+    v.strides[0] = GetParam().col_major ? 1 : matrix_cols;
+    v.strides[1] = GetParam().col_major ? matrix_rows : 1;
+    return v;
+  }
+
+  array backing() {
+    std::vector<float> values(lead + (matrix_rows * matrix_cols));
+    for (std::size_t i = 0; i < values.size(); ++i) {
+      values[i] = static_cast<float>(i);
+    }
+    return upload(values);
+  }
+
+  static std::vector<float> expected(const std::vector<int64_t>& rows) {
+    const auto k = static_cast<int64_t>(rows.size());
+    std::vector<float> out(rows.size() * matrix_cols);
+    for (int64_t r = 0; r < k; ++r) {
+      for (int64_t c = 0; c < matrix_cols; ++c) {
+        out[at(r, c, k, matrix_cols)] =
+            static_cast<float>(lead + at(rows[r], c, matrix_rows, matrix_cols));
+      }
+    }
+    return out;
+  }
+
+  static std::vector<float> contents(const array& a, std::size_t count) {
+    std::vector<float> host(count);
+    EXPECT_EQ(rr_buffer_read(a.buffer, 0, host.data(), count * sizeof(float)),
+              RR_OK)
+        << rr_last_error();
+    return host;
+  }
+};
+
+TEST_P(GatherMatrix, RowsAreGatheredFromAMatrixAtAnOffset) {
+  const array src = backing();
+  const array indices = upload(std::vector<int32_t>{3, 0, 2});
+  array r;
+  ASSERT_EQ(gather(src, matrix_view(src), indices, lead * sizeof(float), &r),
+            "");
+  EXPECT_EQ(contents(r, 3 * matrix_cols), expected({3, 0, 2}));
+}
+
+TEST_P(GatherMatrix, RowsAreSelectedFromAMatrixAtAnOffset) {
+  const array src = backing();
+  const array mask = upload(std::vector<int64_t>{1, 0, 1, 1});
+  array r;
+  ASSERT_EQ(select(src, matrix_view(src), mask, lead * sizeof(float), &r), "");
+  EXPECT_EQ(contents(r, 3 * matrix_cols), expected({0, 2, 3}));
+}
+
+INSTANTIATE_TEST_SUITE_P(Layouts, GatherMatrix,
+                         ::testing::Values(layout_case{"RowMajor", false},
+                                           layout_case{"ColMajor", true}),
+                         [](const auto& info) { return info.param.name; });
 
 }  // namespace
