@@ -295,22 +295,26 @@ TEST(Pool, CumlAllocatesFromThePoolRaftInstalled) {
   EXPECT_GT(run.after.high, run.before.used);
 }
 
+void expect_graph_refusals(const resources& res, const unusable& u) {
+  const rr_deposit before = stack_record(res, u.state);
+  rr_deposit graph = before;
+  EXPECT_EQ(outcome(kc_cluster_graph(res.handle, nullptr, clusters,
+                                     RR_DTYPE_INT32, &graph)),
+            u.message);
+  EXPECT_EQ(std::memcmp(&graph, &before, sizeof before), 0) << u.message;
+  rr_deposit copy = before;
+  EXPECT_EQ(outcome(kc_csr_copy(res.handle, nullptr, nullptr, nullptr, clusters,
+                                &copy)),
+            u.message);
+  EXPECT_EQ(std::memcmp(&copy, &before, sizeof before), 0) << u.message;
+}
+
 TEST(Graph, AnUnusableDepositIsRefusedBeforeTheInputs) {
   KC_REQUIRE_GPU();
   const resources res;
   const uint64_t drops = kc_owner_drop_count();
   for (const unusable& u : unusable_records) {
-    const rr_deposit before = stack_record(res, u.state);
-    rr_deposit graph = before;
-    EXPECT_EQ(outcome(kc_cluster_graph(res.handle, nullptr, clusters,
-                                       RR_DTYPE_INT32, &graph)),
-              u.message);
-    EXPECT_EQ(std::memcmp(&graph, &before, sizeof before), 0) << u.message;
-    rr_deposit copy = before;
-    EXPECT_EQ(outcome(kc_csr_copy(res.handle, nullptr, nullptr, nullptr,
-                                  clusters, &copy)),
-              u.message);
-    EXPECT_EQ(std::memcmp(&copy, &before, sizeof before), 0) << u.message;
+    expect_graph_refusals(res, u);
   }
   EXPECT_EQ(kc_owner_drop_count(), drops);
 }

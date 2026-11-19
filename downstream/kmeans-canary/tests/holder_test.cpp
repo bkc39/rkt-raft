@@ -13,7 +13,7 @@
 namespace kc::test {
 namespace {
 
-enum class part { holder, buffer, resources };
+enum class part : std::uint8_t { holder, buffer, resources };
 
 struct held {
   rr_resources* resources = nullptr;
@@ -72,7 +72,7 @@ void expect_one_drop_after_the_last_owner(const device_array& x,
   const held h = filled_and_adopted(x, labels);
   ASSERT_TRUE(releases_settled());
   const uint64_t drops = kc_owner_drop_count();
-  for (auto step = order.begin(); step != order.end(); ++step) {
+  for (const auto* step = order.begin(); step != order.end(); ++step) {
     free_part(h, *step);
     ASSERT_TRUE(releases_settled());
     const bool owner_held = std::any_of(
