@@ -3,7 +3,7 @@
 Racket bindings to [NVIDIA RAFT](https://github.com/rapidsai/raft): CUDA device
 arrays and primitives, and the base for Racket cuML bindings.
 
-Linux on x86-64 with an NVIDIA GPU (compute capability 8.6 or a later 8.x), a
+Linux on x86-64 with an NVIDIA GPU (compute capability 7.5 or newer), a
 CUDA 13 driver (release 580 or newer) and Racket 9.3:
 
 ```bash
