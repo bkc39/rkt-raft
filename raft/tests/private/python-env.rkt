@@ -59,6 +59,7 @@
     [(and (flonum? x) (nan? x)) "nan"]
     [(eqv? x +inf.0) "inf"]
     [(eqv? x -inf.0) "-inf"]
+    [(eqv? x -0.0) "-0.0"]
     [else x]))
 
 (define (decoded x)
@@ -67,6 +68,7 @@
     ["nan" +nan.0]
     ["inf" +inf.0]
     ["-inf" -inf.0]
+    ["-0.0" -0.0]
     [_ x]))
 
 (define (remove-directory dir)

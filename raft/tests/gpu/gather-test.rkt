@@ -13,6 +13,7 @@
                   list*->device-matrix
                   list->device-vector
                   select
+                  shape
                   with-device-resources)
          (only-in "../../private/array.rkt" release-array!)
          (only-in "../../private/foreign/memory.rkt" release-failure-count)
@@ -102,13 +103,16 @@
 (test-gpu "law 13: a released input is refused before the call, and the others stay readable"
   (for ([row (in-list released-inputs)])
     (match-define (list name position) row)
-    (define inputs (list (list->device-vector '(1.0 2.0 3.0)) (ints '(0 2)) (ints '(1 0 1))))
+    (define contents '((1.0 2.0 3.0) (0 2) (1 0 1)))
+    (match-define (list xs picks keeps) contents)
+    (define inputs (list (list->device-vector xs) (ints picks) (ints keeps)))
     (release-array! (list-ref inputs position))
     (check-raft-error 'logic "device-array: used after its release" (lambda () (call-on name inputs)))
     (for ([v (in-list inputs)]
+          [expected (in-list contents)]
           [i (in-naturals)]
           #:unless (= i position))
-      (check-equal? (length (device-vector->list v)) 3 (format "~s" row)))))
+      (check-equal? (device-vector->list v) expected (format "~s" row)))))
 
 (define two-devices-skip (or gpu-skip (and (< (device-count) 2) "needs two devices")))
 
@@ -156,7 +160,8 @@
     (check-equal? drops 1))
   (define-values (none kept-result) (drops-after (lambda () (select M mask))))
   (check-equal? none 0)
-  (check-equal? (device-matrix->list* kept-result) '((1.0 2.0) (5.0 6.0))))
+  (check-equal? (device-matrix->list* kept-result) '((1.0 2.0) (5.0 6.0)))
+  (check-equal? (device-vector->list index) '(2 0)))
 
 (define rows-100x16
   (for/list ([i (in-range 100)])
@@ -190,4 +195,5 @@
   (printf "memory: 1000 cycles of gather, select, compare and a refused gather; ~a\n"
           (format "pool used ~a bytes before, ~a after" baseline used))
   (check-equal? used baseline)
-  (check-equal? (release-failure-count) failures))
+  (check-equal? (release-failure-count) failures)
+  (check-equal? (map shape (list M index half outside)) '((100 16) (50) (100) (50))))
