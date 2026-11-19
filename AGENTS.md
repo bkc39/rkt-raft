@@ -1887,7 +1887,8 @@ since cuSPARSE's error string for it is only "out of memory"). The frozen rule i
   or a break between the acquire and the form's entry, leaves the count up,
   as the deposit's same window leaves it bound: the finalizer frees the
   buffer once the array is unreachable. `view-release-test.rkt`'s V1-V7 pin
-  it.
+  the behaviour and pass with the three atomic sections removed too, so
+  they are covered by reading.
 - **`resource-test.rkt` stays on `raft/private/resource`** so it runs on
   pkg-build (no libraftrkt); `core-test.rkt`'s R1 pins that `raft/unsafe`'s
   names are those bindings.

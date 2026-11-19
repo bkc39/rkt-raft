@@ -708,7 +708,7 @@ inside
 Releases @racket[a]'s memory now instead of at collection. An array adopted
 from a deposit releases its share of the deposit's owner, which goes once
 the deposit and its other arrays are gone too; its phantom bytes drop to 0
-at once, though the owner's memory lives until then. Releasing a part of a
+when its memory is released, though the owner's memory lives until then. Releasing a part of a
 @racket[deposit->device-csr-matrix] result, which is one of the deposit's
 cached arrays, releases that part of the matrix. A @tech{job} that holds
 @racket[a] keeps its memory until it returns, and a @racket[with-array-views]
