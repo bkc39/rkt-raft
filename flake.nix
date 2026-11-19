@@ -541,11 +541,11 @@
 
       # PLTUSERHOME lives outside $PWD and is keyed on the checkout's path:
       # raco refuses a --link target inside a collects dir, and worktrees
-      # must not share installed packages. It is keyed on the datasets pin
-      # too: the docs dependencies install with --skip-installed.
+      # must not share installed packages.
       racketHome = ''
         _cache_root="''${XDG_CACHE_HOME:-$HOME/.cache}/rkt-raft-devshell"
-        _project_id=$(printf '%s\n%s' "$PWD" "${datasets-src}" | sha256sum | cut -c1-12)
+        _project_id=$(printf '%s\n' "$PWD" ${rkt-polars} ${al2-test-runner-src} ${data-frame-src} ${datasets-src} \
+          | sha256sum | cut -c1-12)
         export PLTUSERHOME="$_cache_root/$_project_id"
         mkdir -p "$PLTUSERHOME"
       '';

@@ -52,12 +52,8 @@ Parity, §10 Build and §12 Starting cuML work before changing the design.
   #72 added `device-csr-matrix` in `raft/array`, `raftrkt/csr.hpp`,
   `deposit->device-csr-matrix` in `raft/unsafe`, and the canary's
   `cluster-graph`, `csr-copy` and `assignment-graph`. The rest of the
-  downstream arc (#74, raft 0.3): native messages cut to their first line
-  (#69); `gather`, `select` and `compare` (#70); `#:who` on every procedure
-  that takes `#:resources` (#65) and `#:cols` (#68); `with-release`,
-  `call-with-release`, `deposit-release!`, `device-array-release!`,
-  `dtype->code` and `code->dtype` in `raft/unsafe` (#66, #84); the installed
-  `raftrkt/holder.h` (#67) and `raftrkt::require_open` (#64).
+  downstream arc (#74, raft 0.3) is listed under "The frozen downstream
+  interface".
 
 ## Layout
 
@@ -746,9 +742,9 @@ own pin (`raft/private/cuda-wheels.rktd`), and runs
 files, at the version `raft/info.rkt` names as `native-version` (`deps`
 requires it, the loader checks it; `package` refuses a mismatch). raft's
 own `version` moves alone. Tag `v<native version>` to draft a native
-release, `v<raft version>` for a raft-only one (when the two are equal, as
-at 0.3, the tag drafts the native release); `draft-tag.sh` refuses any
-other tag. `catalog-test`, in
+release, `v<raft version>` for a raft-only one. When the two are equal, the
+tag drafts the native release. `draft-tag.sh` refuses any other tag.
+`catalog-test`, in
 `manylinux_2_28` with Racket 9.3 and no nix, serves it and raft from a
 directory catalog ahead of the official ones; what it asserts is in
 Tooling. `CATALOG_TEST_OMIT_NATIVE=1` leaves the package out, keeps only
@@ -775,10 +771,13 @@ for want of `raft-x86_64-linux`.
 - **Sets `RAFT_DOCS=live`**, so the docs gate and the GPU workflow evaluate
   every example.
 - **Gives each checkout its own `PLTUSERHOME`** under
-  `~/.cache/rkt-raft-devshell/<hash of the path>`, installs
-  `raft-x86_64-linux` (no libraries: the staged shim wins), `raft` and
-  `kmeans-canary` there in link mode once (re-run when either `info.rkt`
-  changes) and installs the pinned
+  `~/.cache/rkt-raft-devshell/<hash>`, a hash of the checkout's path and of
+  the inputs the docs dependencies install from (`rkt-polars`,
+  `al2-test-runner-src`, `data-frame-src`, `datasets-src`): they install
+  with `--skip-installed`, so a bump of any of them gets a fresh home.
+  It installs `raft-x86_64-linux` (no libraries: the staged shim wins),
+  `raft` and `kmeans-canary` there in link mode once (re-run when either
+  `info.rkt` changes) and installs the pinned
   Resyntax, raco fmt, raco review and `raft-lint` (from `lint/`, linked).
 - Provides `python3` with the twins, `CUDA_PATH` set for CuPy, `nvcc`,
   CMake, the CUDA headers and `compute-sanitizer` for the shim's inner loop,
@@ -1389,20 +1388,31 @@ canary changes with it in the same pull request:
 - **Additions at version 1 (#64):** `raftrkt::require_open` in
   `raftrkt/deposit.hpp`; a downstream detects it with
   `("raft" #:version "0.3")`.
-- **At version 1, no addition (#69):** the message of an `exn:fail:raft`
-  that `status-checker` or a job raises from a downstream's error text is
-  that text's first non-blank line; a text of more than one goes whole to
-  the `raft` logger at `debug`. No layout or signature changes; a
-  downstream shim gets it without a rebuild, and detects it with
-  `("raft" #:version "0.3")`.
+- **No change at version 1 (#69):** `status-checker` and jobs raise with
+  the caller's name and the first non-blank line of the downstream's error
+  text; a text of more than one non-blank line goes whole to the `raft`
+  logger at `debug`. No layout or signature changes, so a downstream shim
+  needs no rebuild; detected with `("raft" #:version "0.3")`.
 
 Not part of the ABI:
 
-- **The public Racket modules' additions in 0.3:** `gather`, `select` and
-  `compare` in `raft/array` (#70, internal shim entry points only), `#:who`
-  on every `raft/array` and `raft/compat` procedure that takes `#:resources`
-  (#65) and `#:cols` (#68); versioned with the package, detected with
+- **CSR matrices (#72):** `device-csr-matrix`, `device-csr-matrix?`,
+  `list*->device-csr-matrix`, `triplets->device-csr-matrix`,
+  `device-csr-matrix->list*`, `device-csr-matrix->triplets`, `csr-data`,
+  `csr-indices`, `csr-indptr` and `nnz` in `raft/array`, whose `shape` and
+  `dtype` accept a CSR matrix; versioned with the package version, detected
+  with `("raft" #:version "0.3")`.
+- **Gather, select and compare (#70):** `gather`, `select` and `compare` in
+  `raft/array`; their native entry points are internal
+  (`src/detail/array_api.h`), in no installed header; versioned with the
+  package version, detected with `("raft" #:version "0.3")`.
+- **The caller's name (#65):** `#:who` on the 17 procedures of `raft/array`
+  and `raft/compat` that take `#:resources` (`deposit`'s, the 18th, is
+  above); versioned with the package version, detected with
   `("raft" #:version "0.3")`.
+- **The column count (#68):** `#:cols` on `list*->device-matrix`,
+  `vector*->device-matrix` and `list*->device-csr-matrix`; versioned with
+  the package version, detected with `("raft" #:version "0.3")`.
 - **Racket CUDA wheels (#44):** the provides of `raft/private/cuda-wheels.rkt`,
   the interface rkt-cuml requires to read pins and find the CUDA libraries raft
   fetched; versioned with the package version. `cuda-wheels-test.rkt` pins the
@@ -1422,12 +1432,13 @@ select the handle's device (`device_scope`) and refuse arrays on another one
 (`require_on_device`); read arrays only through `view.hpp`; allocate outputs
 with raft's constructors on the resources the call runs on, or deposit
 outputs sized by the call (`raftrkt::deposit` into a record from
-`with-deposits`, on the call's handle), calling `raftrkt::require_open`
-before any work in an entry that deposits; and synchronise
+`with-deposits`, on the call's handle); and synchronise
 the handle's stream on every exit, a throw included (`sync_guard`), until
 the stream API (#13) gives it events; and run each call that can run long
 as a job: an `extern "C"` entry over `raftrkt::run_job`, bound with
-`define-job`; `status-checker` for short calls only. Internal entry points
+`define-job`; `status-checker` for short calls only. An entry that deposits
+should call `raftrkt::require_open` first; it is advice, not a frozen rule.
+Internal entry points
 (`src/detail/*_api.h`) are not part of it and may change freely.
 
 ## Decisions recorded in L1d
