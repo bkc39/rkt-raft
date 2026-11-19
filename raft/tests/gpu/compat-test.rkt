@@ -49,7 +49,7 @@
                   dtype
                   shape
                   with-device-resources)
-         (only-in "../private/arrays.rkt" storage)
+         (only-in "../private/arrays.rkt" check-zero-row-uploads storage)
          (only-in "../private/gpu.rkt" test-gpu)
          (only-in "../private/raft-error.rkt" check-raft-error))
 
@@ -225,6 +225,14 @@
                     "bytes->device-vector: the device resources on device 0 were released"
                     (lambda ()
                       (bytes->device-vector (make-bytes 8) #:dtype 'float64 #:resources released))))
+
+(test-gpu "Z1: no rows with #:cols k is the model (device-matrix 0 k), dtype float64 when inferred"
+  (check-zero-row-uploads vector*->device-matrix #() device-array->list*))
+
+(test-gpu "Z3: a row of vector*->device-matrix that disagrees with #:cols is refused"
+  (check-raft-error 'logic
+                    "vector*->device-matrix: row 0 has 2 elements, but #:cols is 1: '#(1 2)"
+                    (lambda () (vector*->device-matrix #(#(1 2)) #:cols 1))))
 
 (test-gpu "an empty device vector converts to every empty form"
   (define v (device-vector 0 #:dtype 'int32))

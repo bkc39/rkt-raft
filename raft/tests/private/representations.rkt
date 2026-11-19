@@ -46,6 +46,7 @@
          bytes->numbers
          converted
          numbers->bytes
+         rows->vector*
          sinks
          sources)
 

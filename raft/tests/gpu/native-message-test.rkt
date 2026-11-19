@@ -2,6 +2,7 @@
 
 (require (only-in racket/match match-define)
          (only-in rackunit check-equal? check-regexp-match)
+         (only-in "../../main.rkt" device-vector)
          (only-in "../../private/error.rkt" call/raft)
          (only-in "../../private/foreign/array-api.rkt" rr-array-create)
          (only-in "../../private/foreign/array.rkt" blank-view)
@@ -45,3 +46,11 @@
     (check-regexp-match
      #px"^raft: demo: unsupported dtype float32\n#1 in /nix/store/0000-raft/lib/libraft.so; expected "
      text)))
+
+(test-gpu "W4: #:who begins the cut message and the debug line of the whole native text"
+  (match-define (list message log)
+    (raised-and-logged
+     (lambda () (device-vector 2 #:dtype (string->symbol "float32\n#1 in /x") #:who 'caller))))
+  (check-equal? message "caller: unsupported dtype float32")
+  (match-define (list (list 'debug 'raft text)) log)
+  (check-regexp-match #px"^raft: caller: unsupported dtype float32\n#1 in /x" text))

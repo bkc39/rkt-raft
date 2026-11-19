@@ -75,6 +75,10 @@ floating-point elements become flonums, integers exact integers.
 @bold{Rank.} Device arrays have one or two axes; any other inferred rank
 raises @racket[exn:fail:raft].
 
+@bold{Names.} Each procedure here that takes @racket[#:resources] also
+takes @racket[#:who], the name that begins every @racket[exn:fail:raft]
+message the call raises; it defaults to the procedure's own.
+
 @bold{Speed.} An @racket[flvector], flonum array or @racket[f64vector] sent as
 @racket['float64], an @racket[f32vector] sent as @racket['float32], and a byte
 string are copied as they are; everything else is packed element by element.
@@ -84,7 +88,8 @@ string are copied as they are; everything else is packed element by element.
 @defproc[(vector->device-vector [xs (vectorof real?)]
                                 [#:dtype dtype (or/c #f 'float32 'float64 'int32 'int64) #f]
                                 [#:resources resources device-resources?
-                                             (current-device-resources)])
+                                             (current-device-resources)]
+                                [#:who who symbol? 'vector->device-vector])
          device-vector?]{
 
 Returns a vector of the elements of @racket[xs], of @racket[dtype] or the
@@ -151,11 +156,14 @@ The best score and its index:
 @defproc[(vector*->device-matrix [rows (vectorof (vectorof real?))]
                                  [#:dtype dtype (or/c #f 'float32 'float64 'int32 'int64) #f]
                                  [#:layout layout (or/c 'row-major 'col-major) 'row-major]
+                                 [#:cols cols (or/c #f exact-nonnegative-integer?) #f]
                                  [#:resources resources device-resources?
-                                              (current-device-resources)])
+                                              (current-device-resources)]
+                                 [#:who who symbol? 'vector*->device-matrix])
          device-matrix?]{
 
-Like @racket[list*->device-matrix], for a vector of vector rows.
+Like @racket[list*->device-matrix], for a vector of vector rows. With @racket[cols], the matrix has that many columns, even with no rows; a
+row of another length raises.
 
 @examples[#:eval ev
 (vector*->device-matrix #(#(1 2 3) #(4 5 6)))
@@ -204,7 +212,8 @@ A column-major matrix still comes back as rows:
                               [#:dtype dtype (or/c #f 'float32 'float64 'int32 'int64) #f]
                               [#:layout layout (or/c 'row-major 'col-major) 'row-major]
                               [#:resources resources device-resources?
-                                           (current-device-resources)])
+                                           (current-device-resources)]
+                              [#:who who symbol? 'list*->device-array])
          device-array?]{
 
 Returns a vector for a list of numbers and a matrix for a list of rows (lists
@@ -241,7 +250,8 @@ Other nestings are refused:
                                 [#:dtype dtype (or/c #f 'float32 'float64 'int32 'int64) #f]
                                 [#:layout layout (or/c 'row-major 'col-major) 'row-major]
                                 [#:resources resources device-resources?
-                                             (current-device-resources)])
+                                             (current-device-resources)]
+                                [#:who who symbol? 'vector*->device-array])
          device-array?]{
 
 Like @racket[list*->device-array], for a vector of numbers or of rows (vectors
@@ -324,7 +334,8 @@ Sorting the host copy leaves the device array unchanged:
 @defproc[(f32vector->device-vector [xs f32vector?]
                                    [#:dtype dtype (or/c 'float32 'float64 'int32 'int64) 'float32]
                                    [#:resources resources device-resources?
-                                                (current-device-resources)])
+                                                (current-device-resources)]
+                                   [#:who who symbol? 'f32vector->device-vector])
          device-vector?]{
 
 Returns a vector of the elements of @racket[xs], of @racket[dtype].
@@ -352,7 +363,8 @@ Widened, or truncated to integers:
 @defproc[(f64vector->device-vector [xs f64vector?]
                                    [#:dtype dtype (or/c 'float32 'float64 'int32 'int64) 'float64]
                                    [#:resources resources device-resources?
-                                                (current-device-resources)])
+                                                (current-device-resources)]
+                                   [#:who who symbol? 'f64vector->device-vector])
          device-vector?]{
 
 Returns a vector of the elements of @racket[xs], of @racket[dtype]. A value
@@ -422,7 +434,8 @@ Summed on the host:
 @defproc[(bytes->device-vector [bs bytes?]
                                [#:dtype dtype (or/c 'float32 'float64 'int32 'int64)]
                                [#:resources resources device-resources?
-                                            (current-device-resources)])
+                                            (current-device-resources)]
+                               [#:who who symbol? 'bytes->device-vector])
          device-vector?]{
 
 Returns a vector whose storage is @racket[bs], read as @racket[dtype] in the
@@ -497,7 +510,8 @@ mutable arrays of exact integers for integer ones.
                                 [#:dtype dtype (or/c #f 'float32 'float64 'int32 'int64) #f]
                                 [#:layout layout (or/c 'row-major 'col-major) 'row-major]
                                 [#:resources resources device-resources?
-                                             (current-device-resources)])
+                                             (current-device-resources)]
+                                [#:who who symbol? 'matrix->device-matrix])
          device-matrix?]{
 
 Returns a device matrix holding @racket[m], of @racket[dtype] or the inferred
@@ -550,7 +564,8 @@ Integer matrices stay exact:
 @defproc[(matrix->device-vector [m matrix?]
                                 [#:dtype dtype (or/c #f 'float32 'float64 'int32 'int64) #f]
                                 [#:resources resources device-resources?
-                                             (current-device-resources)])
+                                             (current-device-resources)]
+                                [#:who who symbol? 'matrix->device-vector])
          device-vector?]{
 
 Returns a device vector of the elements of @racket[m], a row or column
@@ -619,7 +634,8 @@ A dot product as row times column:
                               [#:dtype dtype (or/c #f 'float32 'float64 'int32 'int64) #f]
                               [#:layout layout (or/c 'row-major 'col-major) 'row-major]
                               [#:resources resources device-resources?
-                                           (current-device-resources)])
+                                           (current-device-resources)]
+                              [#:who who symbol? 'array->device-array])
          device-array?]{
 
 Returns a device vector for a one-axis array and a device matrix for a

@@ -40,6 +40,10 @@ Printing never raises; unreadable values print as
 @racket[exn:fail:raft] of kind @racket['logic]. An argument of the wrong
 kind may raise a different error.
 
+@bold{Names.} Each procedure here that takes @racket[#:resources] also
+takes @racket[#:who], the name that begins every @racket[exn:fail:raft]
+message the call raises; it defaults to the procedure's own.
+
 @section[#:tag "ref-array-make"]{Making arrays}
 
 @defproc[(device-matrix [rows exact-nonnegative-integer?]
@@ -47,7 +51,8 @@ kind may raise a different error.
                         [#:dtype dtype (or/c 'float32 'float64 'int32 'int64) 'float32]
                         [#:layout layout (or/c 'row-major 'col-major) 'row-major]
                         [#:resources resources device-resources?
-                                     (current-device-resources)])
+                                     (current-device-resources)]
+                        [#:who who symbol? 'device-matrix])
          device-matrix?]{
 
 Allocates a @racket[rows]-by-@racket[cols] matrix of @racket[dtype] in
@@ -86,7 +91,8 @@ An unsupported element type raises:
 @defproc[(device-vector [n exact-nonnegative-integer?]
                         [#:dtype dtype (or/c 'float32 'float64 'int32 'int64) 'float32]
                         [#:resources resources device-resources?
-                                     (current-device-resources)])
+                                     (current-device-resources)]
+                        [#:who who symbol? 'device-vector])
          device-vector?]{
 
 Allocates an uninitialised vector of @racket[n] elements of @racket[dtype].
@@ -540,7 +546,8 @@ stream; float elements become flonums, integer elements exact integers.
 @defproc[(list->device-vector [xs (listof real?)]
                               [#:dtype dtype (or/c #f 'float32 'float64 'int32 'int64) #f]
                               [#:resources resources device-resources?
-                                           (current-device-resources)])
+                                           (current-device-resources)]
+                              [#:who who symbol? 'list->device-vector])
          device-vector?]{
 
 Returns a vector holding @racket[xs], of @racket[dtype] or the inferred
@@ -593,13 +600,16 @@ Cluster sizes from labels:
 @defproc[(list*->device-matrix [rows (listof (listof real?))]
                                [#:dtype dtype (or/c #f 'float32 'float64 'int32 'int64) #f]
                                [#:layout layout (or/c 'row-major 'col-major) 'row-major]
+                               [#:cols cols (or/c #f exact-nonnegative-integer?) #f]
                                [#:resources resources device-resources?
-                                            (current-device-resources)])
+                                            (current-device-resources)]
+                               [#:who who symbol? 'list*->device-matrix])
          device-matrix?]{
 
 Returns a matrix whose rows are @racket[rows], of @racket[dtype] or the
 inferred type, packed in @racket[layout] on the host. A ragged row raises
-@racket[exn:fail:raft].
+@racket[exn:fail:raft]. With @racket[cols], the matrix has that many columns, even with no rows; a
+row of another length raises.
 
 @examples[#:eval ev
 (list*->device-matrix '((1 2) (3 4)))
@@ -648,7 +658,8 @@ A table of centroids:
 @defproc[(flvector->device-vector [xs flvector?]
                                   [#:dtype dtype (or/c 'float32 'float64 'int32 'int64) 'float64]
                                   [#:resources resources device-resources?
-                                               (current-device-resources)])
+                                               (current-device-resources)]
+                                  [#:who who symbol? 'flvector->device-vector])
          device-vector?]{
 
 Returns a vector holding the elements of @racket[xs], of @racket[dtype]. An
@@ -854,13 +865,16 @@ Repeats count, and so does a zero that repeats summed to:
                                                (vectorof (or/c list? vector?)))]
                                    [#:dtype dtype (or/c 'float32 'float64) 'float64]
                                    [#:index-dtype index-dtype (or/c 'int32 'int64) 'int32]
+                                   [#:cols cols (or/c #f exact-nonnegative-integer?) #f]
                                    [#:resources resources device-resources?
-                                                (current-device-resources)])
+                                                (current-device-resources)]
+                                   [#:who who symbol? 'list*->device-csr-matrix])
          device-csr-matrix?]{
 
 Makes a @tech{CSR matrix} of the entries of @racket[rows] that are not zero,
 columns ascending in each row. @racket[rows] is rows as for
-@racket[list*->device-matrix]; a value that converts to zero is not stored.
+@racket[list*->device-matrix]; a value that converts to zero is not stored. With @racket[cols], the matrix has that many columns, even with no rows; a
+row of another length raises.
 
 @examples[#:eval ev
 (device-csr-matrix->list* G)
@@ -913,7 +927,8 @@ Rows without entries:
                                       [#:dtype dtype (or/c 'float32 'float64) 'float64]
                                       [#:index-dtype index-dtype (or/c 'int32 'int64) 'int32]
                                       [#:resources resources device-resources?
-                                                   (current-device-resources)])
+                                                   (current-device-resources)]
+                                      [#:who who symbol? 'triplets->device-csr-matrix])
          device-csr-matrix?]{
 
 Makes a @tech{CSR matrix} with value @racket[(list-ref vals i)] at row

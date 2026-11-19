@@ -1,6 +1,7 @@
 #lang racket/base
 
-(require (only-in racket/match match match-define)
+(require (only-in racket/list remove-duplicates)
+         (only-in racket/match match match-define)
          (only-in rackunit check-equal? check-exn check-false check-pred check-true test-case)
          (only-in "../../main.rkt"
                   raft-abi
@@ -218,3 +219,48 @@
                (parameterize ([current-namespace namespace])
                  (expand '(match (raft-abi)
                             [(raft-abi #:release r) r]))))))
+
+(define (procedure-exports mod)
+  (module-declared? mod #t)
+  (define-values (variables _syntax) (module->exports mod))
+  (for*/list ([exports (in-list variables)]
+              #:when (eqv? (car exports) 0)
+              [entry (in-list (cdr exports))]
+              [value (in-value (dynamic-require mod (car entry)))]
+              #:when (procedure? value))
+    (cons (car entry) value)))
+
+(define (accepts? p keyword)
+  (define-values (_required accepted) (procedure-keywords p))
+  (and (memq keyword accepted) #t))
+
+(test-case "W1: an exported procedure takes #:who exactly when it takes #:resources, never required"
+  (for* ([mod (in-list '(raft/array raft/compat raft/unsafe))]
+         [export (in-list (procedure-exports mod))])
+    (match-define (cons name p) export)
+    (define-values (required _accepted) (procedure-keywords p))
+    (check-equal? (accepts? p '#:who) (accepts? p '#:resources) (format "~a ~a" mod name))
+    (check-false (memq '#:who required) (format "~a ~a" mod name)))
+  (check-equal? (sort (remove-duplicates (for*/list ([mod (in-list '(raft/array raft/compat
+                                                                                raft/unsafe))]
+                                                     [export (in-list (procedure-exports mod))]
+                                                     #:when (accepts? (cdr export) '#:who))
+                                           (car export)))
+                      symbol<?)
+                '(array->device-array bytes->device-vector
+                                      deposit
+                                      device-matrix
+                                      device-vector
+                                      f32vector->device-vector
+                                      f64vector->device-vector
+                                      flvector->device-vector
+                                      list*->device-array
+                                      list*->device-csr-matrix
+                                      list*->device-matrix
+                                      list->device-vector
+                                      matrix->device-matrix
+                                      matrix->device-vector
+                                      triplets->device-csr-matrix
+                                      vector*->device-array
+                                      vector*->device-matrix
+                                      vector->device-vector)))

@@ -43,6 +43,7 @@
          (only-in "../../private/resource.rkt" with-release)
          (only-in "../../private/resources.rkt" resources-handle)
          (only-in "../../unsafe.rkt"
+                  deposit
                   raft-abi-pointer
                   resources->handle-pointer
                   status-checker
@@ -72,6 +73,15 @@
   (check-raft-error 'logic
                     "resources->handle-pointer: the device resources on device 0 were released"
                     (lambda () (resources->handle-pointer r))))
+
+(test-gpu "W2: deposit on released resources is refused under #:who, or its own name"
+  (define r (with-device-resources ([r (device-resources)]) r))
+  (check-raft-error 'logic
+                    "kmeans-fit: the device resources on device 0 were released"
+                    (lambda () (deposit #:resources r #:who 'kmeans-fit)))
+  (check-raft-error 'logic
+                    "deposit: the device resources on device 0 were released"
+                    (lambda () (deposit #:resources r))))
 
 (test-gpu "with-array-views binds each array's view in the body"
   (define X (list*->device-matrix '((1 2 3) (4 5 6)) #:dtype 'float32 #:layout 'col-major))
