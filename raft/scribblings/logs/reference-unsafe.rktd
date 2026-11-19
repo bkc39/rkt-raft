@@ -113,6 +113,31 @@
  (values "")
  ""
  "")
+((define-cstruct
+  _rr-view
+  ((data _pointer)
+   (dtype _int32)
+   (memory _int32)
+   (device _int32)
+   (rank _int32)
+   (shape (_array _int64 8))
+   (strides (_array _int64 8))))
+ (values "")
+ ""
+ "")
+((define-cstruct
+  _rr-deposit
+  ((handle _pointer)
+   (device _int32)
+   (state _int32)
+   (owner _pointer)
+   (release _pointer)
+   (count _int32)
+   (reserved _int32)
+   (regions (_array _rr-view 8))))
+ (values "")
+ ""
+ "")
 ((define check (status-checker kc-last-error kc-last-error-kind))
  (values "")
  ""
@@ -457,14 +482,16 @@
  (raise "kmeans-predict: X: not a view bound to device memory")
  ""
  "")
-((map dtype->code '(float32 float64 int32 int64))
- (values "'(0 1 2 3)\n")
+((define copied (contiguous F #:layout 'row-major)) (values "") "" "")
+((with-array-views
+  ((c fitted) (x copied) (y labels))
+  (device-array-release! copied)
+  (check 'kmeans-predict (lambda () (kc-predict handle c x #f 1 y))))
+ (values "154.17282104492188\n")
  ""
  "")
-((with-array-views
-  ((f F))
-  (= (ptr-ref f _int32 'abs 8) (dtype->code (dtype F))))
- (values "#t\n")
+(copied
+ (values "#<device-matrix float32[300×2] row-major cuda:0 <released>>\n")
  ""
  "")
 ((define wide (deposit)) (values "") "" "")
@@ -481,20 +508,32 @@
  ""
  "")
 ((dtype (first (deposit->list wide))) (values "'int64\n") "" "")
+((map dtype->code '(float32 float64 int32 int64))
+ (values "'(0 1 2 3)\n")
+ ""
+ "")
 ((dtype->code 'float16)
  (raise "hash-ref: no value found for key\n  key: 'float16")
  ""
  "")
-((map code->dtype '(0 1 2 3))
- (values "'(float32 float64 int32 int64)\n")
+((define narrow (deposit)) (values "") "" "")
+((with-deposits
+  ((out narrow))
+  (with-array-views
+   #:resources
+   (handle (current-device-resources))
+   ((y labels))
+   (check
+    'cluster-graph
+    (lambda () (kc-cluster-graph handle y 3 (dtype->code 'int32) out))))
+  (code->dtype
+   (rr-view-dtype
+    (array-ref (rr-deposit-regions (ptr-ref out _rr-deposit)) 0))))
+ (values "'int32\n")
  ""
  "")
-((with-array-views
-  ((f F) (y labels))
-  (list
-   (code->dtype (ptr-ref f _int32 'abs 8))
-   (code->dtype (ptr-ref y _int32 'abs 8))))
- (values "'(float32 int32)\n")
+((map code->dtype '(0 1 2 3))
+ (values "'(float32 float64 int32 int64)\n")
  ""
  "")
 ((code->dtype 4) (raise "hash-ref: no value found for key\n  key: 4") "" "")
@@ -617,7 +656,18 @@
   "'(canary\n  \"with-members: cannot re-enter its body after its resources were released\")\n")
  ""
  "")
-((call-with-release (deposit) deposit-release! deposit?) (values "#t\n") "" "")
+((call-with-release
+  (device-vector 300 #:dtype 'int32)
+  device-array-release!
+  (lambda (scratch)
+    (with-array-views
+     #:resources
+     (handle (current-device-resources))
+     ((c fitted) (x X) (y scratch))
+     (check 'kmeans-predict (lambda () (kc-predict handle c x #f 1 y))))))
+ (values "154.17282104492188\n")
+ ""
+ "")
 ((define cluster-2
    (call-with-release
     (deposit)
@@ -705,12 +755,44 @@
  (raise "device-array: used after its release")
  ""
  "")
-((device-array-release! kept-indices) (values "") "" "")
-((device-array-release! kept-rows) (values "") "" "")
-(kept-rows
+((define done (deposit)) (values "") "" "")
+((kc-cluster-members-job
+  'cluster-members
+  (current-device-resources)
+  X
+  labels
+  2
+  done)
+ (values)
+ ""
+ "")
+((match-define (list done-indices done-rows) (deposit->list done))
+ (values "")
+ ""
+ "")
+((deposit-release! done) (values "") "" "")
+((device-array-release! done-indices) (values "") "" "")
+((device-array-release! done-rows) (values "") "" "")
+(done-rows
  (values "#<device-matrix float32[100×2] row-major cuda:0 <released>>\n")
  ""
  "")
+((define held-labels (device-vector 300 #:dtype 'int32)) (values "") "" "")
+((with-array-views
+  #:resources
+  (handle (current-device-resources))
+  ((c fitted) (x X) (y held-labels))
+  (device-array-release! held-labels)
+  (list
+   (exn-message
+    (with-handlers
+     ((exn:fail:raft? values))
+     (device-vector->list held-labels)))
+   (check 'kmeans-predict (lambda () (kc-predict handle c x #f 1 y)))))
+ (values "'(\"device-array: used after its release\" 154.17282104492188)\n")
+ ""
+ "")
+(held-labels (values "#<device-vector int32[300] cuda:0 <released>>\n") "" "")
 ((with-array-views ((v early)) v)
  (raise "device-array: used after its release")
  ""

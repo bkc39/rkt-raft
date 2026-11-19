@@ -23,7 +23,8 @@
                   probe-release!
                   test-host-probe
                   test-probe)
-         (only-in "../private/raft-error.rkt" check-raft-error))
+         (only-in "../private/raft-error.rkt" check-raft-error)
+         (only-in "../private/synced.rkt" synced?))
 
 (test-host-probe "a view parameter refuses a non-array, naming the job"
   (with-release ([g (closed-gate) release-gate])
@@ -103,11 +104,11 @@
                            (lambda () (device-matrix->list* x)))
          (check-equal? (settled-count buffer-drop-count) drops "freed while the job holds it"))
        (open-gate! g)
-       (check-true (and (sync/timeout 30 caller) #t) "the job did not return")
+       (check-true (synced? caller 30) "the job did not return")
        (thread-wait caller))))
   (begin0 (list elements (- (settled-count buffer-drop-count) drops))
     (keep-reachable x)))
 
-(test-probe "E9: an array released while a job holds it is refused at once and freed when the job returns"
+(test-probe "E9b: an array released while a job holds it is refused at once and freed when the job returns"
   (check-equal? (held-by-job #f) '(12 0))
   (check-equal? (held-by-job #t) '(12 1)))

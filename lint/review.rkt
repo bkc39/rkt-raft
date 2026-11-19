@@ -32,6 +32,9 @@
     [(head:id (_:id . _) _ ...)
      #:when (named? #'head 'define-syntax-parse-rule)
      #t]
+    [(head:id _:id _ ...)
+     #:when (named? #'head 'define-splicing-syntax-class)
+     #t]
     [(head:id _ _ _ ...)
      #:when (named? #'head 'test-unless-skipped)
      #t]
@@ -82,6 +85,9 @@
     [(head:id (name:id . _) _ ...)
      #:when (named? #'head 'define-syntax-parse-rule)
      (track-binding #'name)]
+    [(head:id name:id _ ...)
+     #:when (named? #'head 'define-splicing-syntax-class)
+     (track-binding #'name #:check-usages? #f)]
     [(head:id reason name body ...)
      #:when (named? #'head 'test-unless-skipped)
      (review-scoped-body (list #'reason #'name) (syntax->list #'(body ...)))]

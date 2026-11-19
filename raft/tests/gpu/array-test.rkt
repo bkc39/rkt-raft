@@ -343,7 +343,7 @@
                     "list->device-vector: the device resources on device 0 were released"
                     (lambda () (list->device-vector '(1) #:resources released))))
 
-(test-gpu "E13: device-array-release! frees once, drops its phantom bytes, and is refused after"
+(test-gpu "E13a: device-array-release! frees once, drops its phantom bytes, and is refused after"
   (define bytes (* 1024 1024 8))
   (define v (device-vector (* 1024 1024) #:dtype 'int64))
   (drain-finalizers!)

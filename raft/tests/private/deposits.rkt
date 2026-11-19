@@ -65,15 +65,15 @@
                #:count [k 2]
                #:flags [flags 0]
                #:resources [r (current-device-resources)]
-               #:first [first void]
-               #:then [then void])
+               #:before [before void]
+               #:after [after void])
   (with-deposits ([out d])
-                 (first)
+                 (before)
                  (with-array-views #:resources [h r] ()
                    (call/probe 'probe-deposit
                                (lambda ()
                                  (probe-deposit h out (dtype->code dt) k rows (or cols -1) flags))))
-                 (then)))
+                 (after)))
 
 (define (filled dt
                 rows
@@ -183,19 +183,16 @@
   (define d (filled dt 3 4 #:resources r))
   (make-hasheq (list (cons 'deposit d) (cons 'arrays (deposit->list d)) (cons 'dtype dt))))
 
-(define array-steps (hasheq 'release-array-0 0 'release-array-1 1))
-
 (define (drop! h what)
-  (define index (hash-ref array-steps what #f))
-  (cond
-    [index
+  (match what
+    [(list 'release-array index)
      (device-array-release! (list-ref (hash-ref h 'arrays) index))
      (hash-update! h 'released (lambda (released) (cons index released)) '())]
-    [(eq? what 'release-deposit) (deposit-release! (hash-ref h 'deposit))]
-    [(eq? what 'released-arrays)
+    ['release-deposit (deposit-release! (hash-ref h 'deposit))]
+    ['released-arrays
      (for-each device-array-release! (hash-ref h 'arrays))
      (hash-remove! h 'arrays)]
-    [else (hash-remove! h what)]))
+    [_ (hash-remove! h what)]))
 
 (define (read-back h label)
   (define released (hash-ref h 'released '()))
@@ -210,7 +207,7 @@
     (define h (make))
     (for ([step (in-list steps)])
       (match-define (list what expected) step)
-      (define label (symbol->string what))
+      (define label (format "~a" what))
       (drop! h what)
       (check-equal? (settles-to before expected) expected label)
       (read-back h label))))

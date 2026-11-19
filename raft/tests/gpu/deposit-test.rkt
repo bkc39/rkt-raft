@@ -82,41 +82,42 @@
   (check-pattern (deposit->list d) 'float32 3 4))
 
 (test-probe "law 3: the owner is released exactly once, whatever is dropped first"
-  (for ([case (in-list
-               `(("arrays first" ,(lambda () (held 'float32))
-                                 ((released-arrays ,(counts 0 0 0 2 0)))
+  (for ([row (in-list
+              `(("arrays first" ,(lambda () (held 'float32))
+                                ((released-arrays ,(counts 0 0 0 2 0)))
+                                ,(counts 1 1 1 2 0))
+                ("deposit first" ,(lambda () (held 'float32))
+                                 ((deposit ,(counts 0 0 1 0 0)))
                                  ,(counts 1 1 1 2 0))
-                 ("deposit first" ,(lambda () (held 'float32))
-                                  ((deposit ,(counts 0 0 1 0 0)))
-                                  ,(counts 1 1 1 2 0))
-                 ("resources first" ,held-past-resources
-                                    ((deposit ,(counts 0 0 1 0 0)))
-                                    ,(counts 1 1 1 2 0))
-                 ("E1: deposit released" ,(lambda () (held 'float32))
-                                         ((release-deposit ,(counts 0 0 1 0 0)))
-                                         ,(counts 1 1 1 2 0))
-                 ("E3: deposit and one array released, the other held, then dropped"
-                  ,(lambda () (held 'int32))
-                  ((release-deposit ,(counts 0 0 1 0 0)) (release-array-0 ,(counts 0 0 1 1 0))
-                                                         (arrays ,(counts 1 1 1 2 0)))
-                  ,(counts 1 1 1 2 0))
-                 ("E3: both arrays released, then the deposit dropped"
-                  ,(lambda () (held 'int64))
-                  ((release-array-0 ,(counts 0 0 0 1 0)) (release-array-1 ,(counts 0 0 0 2 0))
-                                                         (deposit ,(counts 1 1 1 2 0)))
-                  ,(counts 1 1 1 2 0))
-                 ("E6: resources first, then every release"
-                  ,held-past-resources
-                  ((release-deposit ,(counts 0 0 1 0 0)) (release-array-0 ,(counts 0 0 1 1 0))
-                                                         (release-array-1 ,(counts 1 1 1 2 0)))
-                  ,(counts 1 1 1 2 0))
-                 ("never converted" ,(lambda () (filled 'float64 7 #f)) () ,(counts 1 1 1 0 0))
-                 ("never filled" ,(lambda ()
-                                    (with-deposits ([out (deposit)]) (check-pred cpointer? out)))
-                                 ()
-                                 ,(counts 0 0 1 0 0))
-                 ("filled, then the call failed" ,failed-after-filling () ,(counts 1 1 1 2 0))))])
-    (match-define (list label make steps expected) case)
+                ("resources first" ,held-past-resources
+                                   ((deposit ,(counts 0 0 1 0 0)))
+                                   ,(counts 1 1 1 2 0))
+                ("E1b: the deposit released, then a collection frees both arrays"
+                 ,(lambda () (held 'float32))
+                 ((release-deposit ,(counts 0 0 1 0 0)))
+                 ,(counts 1 1 1 2 0))
+                ("E3a: the deposit and array 0 released, then a collection frees array 1"
+                 ,(lambda () (held 'int32))
+                 ((release-deposit ,(counts 0 0 1 0 0)) ((release-array 0) ,(counts 0 0 1 1 0))
+                                                        (arrays ,(counts 1 1 1 2 0)))
+                 ,(counts 1 1 1 2 0))
+                ("E3b: both arrays released, then a collection frees the deposit"
+                 ,(lambda () (held 'int64))
+                 (((release-array 0) ,(counts 0 0 0 1 0)) ((release-array 1) ,(counts 0 0 0 2 0))
+                                                          (deposit ,(counts 1 1 1 2 0)))
+                 ,(counts 1 1 1 2 0))
+                ("E6: the resources released first, then every release"
+                 ,held-past-resources
+                 ((release-deposit ,(counts 0 0 1 0 0)) ((release-array 0) ,(counts 0 0 1 1 0))
+                                                        ((release-array 1) ,(counts 1 1 1 2 0)))
+                 ,(counts 1 1 1 2 0))
+                ("never converted" ,(lambda () (filled 'float64 7 #f)) () ,(counts 1 1 1 0 0))
+                ("never filled" ,(lambda ()
+                                   (with-deposits ([out (deposit)]) (check-pred cpointer? out)))
+                                ()
+                                ,(counts 0 0 1 0 0))
+                ("filled, then the call failed" ,failed-after-filling () ,(counts 1 1 1 2 0))))])
+    (match-define (list label make steps expected) row)
     (released-once label (in-order make steps) expected)))
 
 (test-probe "law 4: adopted arrays outlive their resources object"
@@ -211,7 +212,8 @@
   (define (filled-then-blocked)
     (semaphore-post filled-signal)
     (sync never-evt))
-  (define caller (thread (lambda () (fill! d 'float64 3 4 #:resources r #:then filled-then-blocked))))
+  (define caller
+    (thread (lambda () (fill! d 'float64 3 4 #:resources r #:after filled-then-blocked))))
   (check-equal? (sync filled-signal caller) filled-signal "the caller died before filling")
   (kill-thread caller)
   (check-pattern (deposit->list d) 'float64 3 4))
@@ -222,7 +224,7 @@
 (define (converted-inside-the-form)
   (define d (deposit))
   (define inside #f)
-  (fill! d 'float64 3 4 #:then (lambda () (set! inside (deposit->list d))))
+  (fill! d 'float64 3 4 #:after (lambda () (set! inside (deposit->list d))))
   (check-true (eq? inside (deposit->list d)))
   (check-pattern inside 'float64 3 4))
 

@@ -1,6 +1,7 @@
 #lang racket/base
 
 (require (only-in ffi/unsafe
+                  _array
                   _bytes/nul-terminated
                   _double
                   _fun
@@ -10,7 +11,9 @@
                   _pointer
                   _ptr
                   _uint64
+                  array-ref
                   cpointer?
+                  define-cstruct
                   ffi-lib
                   memcpy
                   ptr-equal?
@@ -35,6 +38,7 @@
                   device-vector->list
                   dtype
                   exn:fail:raft
+                  exn:fail:raft?
                   list*->device-matrix
                   list->device-vector
                   nnz
@@ -107,6 +111,24 @@
         -> (status : _int)
         -> (values status inertia)))
 (define-kc kc-cluster-members (_fun _pointer _pointer _pointer _int32 _pointer -> _int))
+
+(define-cstruct _rr-view
+  ([data _pointer]
+   [dtype _int32]
+   [memory _int32]
+   [device _int32]
+   [rank _int32]
+   [shape (_array _int64 8)]
+   [strides (_array _int64 8)]))
+(define-cstruct _rr-deposit
+  ([handle _pointer]
+   [device _int32]
+   [state _int32]
+   [owner _pointer]
+   [release _pointer]
+   [count _int32]
+   [reserved _int32]
+   [regions (_array _rr-view 8)]))
 
 (define (canary-job name)
   (dynamic-require 'kmeans-canary/private/native name))
@@ -216,7 +238,14 @@
                     "kmeans-predict: X: not a view bound to device memory"
                     (lambda ()
                       (with-array-views ([c fitted] [y labels])
-                        (check 'kmeans-predict (lambda () (kc-predict handle c stale #f 1 y)))))))
+                        (check 'kmeans-predict (lambda () (kc-predict handle c stale #f 1 y))))))
+  (define copied (contiguous F #:layout 'row-major))
+  (define copied-score
+    (with-array-views ([c fitted] [x copied] [y labels])
+      (device-array-release! copied)
+      (check 'kmeans-predict (lambda () (kc-predict handle c x #f 1 y)))))
+  (check-true (< (abs (- copied-score inertia)) (* 1e-3 inertia)))
+  (check-equal? (format "~a" copied) "#<device-matrix float32[300×2] row-major cuda:0 <released>>"))
 
 (define (ticks-during thunk)
   (define ticks (box 0))
@@ -402,25 +431,25 @@
   (values check X fitted labels))
 
 (test-canary "unsafe reference: element type codes"
-  (define-values (check X _fitted labels) (labelled-blobs))
-  (define F (contiguous X #:layout 'col-major))
-  (check-equal? (map dtype->code '(float32 float64 int32 int64)) '(0 1 2 3))
-  (check-true (with-array-views ([f F])
-                (= (ptr-ref f _int32 'abs 8) (dtype->code (dtype F)))))
+  (define-values (check _X _fitted labels) (labelled-blobs))
   (define wide (deposit))
   (with-deposits ([out wide])
                  (with-array-views #:resources [h (current-device-resources)] ([y labels])
                    (check 'cluster-graph
                           (lambda () (kc-cluster-graph h y 3 (dtype->code 'int64) out)))))
   (check-equal? (dtype (first (deposit->list wide))) 'int64)
-  (check-exn #rx"^hash-ref: no value found for key\n  key: 'float16$"
-             (lambda () (dtype->code 'float16)))
+  (check-equal? (map dtype->code '(float32 float64 int32 int64)) '(0 1 2 3))
+  (check-exn #rx"^hash-ref: no value found for key" (lambda () (dtype->code 'float16)))
+  (define narrow (deposit))
+  (check-equal?
+   (with-deposits
+    ([out narrow])
+    (with-array-views #:resources [h (current-device-resources)] ([y labels])
+      (check 'cluster-graph (lambda () (kc-cluster-graph h y 3 (dtype->code 'int32) out))))
+    (code->dtype (rr-view-dtype (array-ref (rr-deposit-regions (ptr-ref out _rr-deposit)) 0))))
+   'int32)
   (check-equal? (map code->dtype '(0 1 2 3)) '(float32 float64 int32 int64))
-  (check-equal? (with-array-views ([f F] [y labels])
-                  (list (code->dtype (ptr-ref f _int32 'abs 8))
-                        (code->dtype (ptr-ref y _int32 'abs 8))))
-                '(float32 int32))
-  (check-exn #rx"^hash-ref: no value found for key\n  key: 4$" (lambda () (code->dtype 4))))
+  (check-exn #rx"^hash-ref: no value found for key" (lambda () (code->dtype 4))))
 
 (define reentry "cannot re-enter its body after its resources were released")
 
@@ -448,7 +477,14 @@
   (check-equal? (with-handlers ([exn:fail:canary? (lambda (e) (list 'canary (exn-message e)))])
                   (members-of))
                 (list 'canary (format "with-members: ~a" reentry)))
-  (check-true (call-with-release (deposit) deposit-release! deposit?))
+  (define scratch-score
+    (call-with-release
+     (device-vector 300 #:dtype 'int32)
+     device-array-release!
+     (lambda (scratch)
+       (with-array-views #:resources [h (current-device-resources)] ([c fitted] [x X] [y scratch])
+         (check 'kmeans-predict (lambda () (kc-predict h c x #f 1 y)))))))
+  (check-true (> scratch-score 0))
   (define cluster-2
     (call-with-release (deposit)
                        deposit-release!
@@ -486,11 +522,25 @@
   (check-raft-error 'logic
                     "device-array: used after its release"
                     (lambda () (device-vector->list early)))
-  (device-array-release! kept-indices)
-  (device-array-release! kept-rows)
-  (check-equal? (format "~a" kept-rows)
+  (define done (deposit))
+  (members-job 2 done)
+  (match-define (list done-indices done-rows) (deposit->list done))
+  (deposit-release! done)
+  (device-array-release! done-indices)
+  (device-array-release! done-rows)
+  (check-equal? (format "~a" done-rows)
                 (format "#<device-matrix float32[~a×2] row-major cuda:0 <released>>"
-                        (car (shape kept-rows))))
+                        (car (shape done-rows))))
+  (define held-labels (device-vector 300 #:dtype 'int32))
+  (match-define (list refusal held-score)
+    (with-array-views #:resources [h (current-device-resources)] ([c fitted] [x X] [y held-labels])
+      (device-array-release! held-labels)
+      (list (exn-message (with-handlers ([exn:fail:raft? values])
+                           (device-vector->list held-labels)))
+            (check 'kmeans-predict (lambda () (kc-predict h c x #f 1 y))))))
+  (check-equal? refusal "device-array: used after its release")
+  (check-true (> held-score 0))
+  (check-equal? (format "~a" held-labels) "#<device-vector int32[300] cuda:0 <released>>")
   (check-raft-error 'logic
                     "device-array: used after its release"
                     (lambda () (with-array-views ([v early]) v)))

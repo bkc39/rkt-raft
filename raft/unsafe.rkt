@@ -4,7 +4,7 @@
          (only-in ffi/unsafe/atomic call-as-atomic)
          ;; whole-module: it also provides syntax/parse at phase 1
          syntax/parse/define
-         (only-in "private/array.rkt" release-array! settled-view)
+         (only-in "private/array.rkt" acquire-view release-array! release-view!)
          (only-in "private/deposit.rkt"
                   deposit->device-csr-matrix
                   deposit->list
@@ -16,7 +16,7 @@
          (only-in "private/dtype.rkt" code->dtype dtype->code)
          (only-in "private/error.rkt" call/raft)
          (only-in "private/exn.rkt" exn:fail:raft raise-native)
-         (only-in "private/foreign/array.rkt" clear-view! keep-reachable)
+         (only-in "private/foreign/array.rkt" keep-reachable)
          (only-in "private/foreign/core.rkt" rr-abi rr-resources-handle)
          (only-in "private/job.rkt" define-job)
          (only-in "private/resource.rkt" call-with-release with-release)
@@ -66,7 +66,7 @@
       (raise-native exn who kind (message->string message))))
 
 (define (view-release a) ;; noqa
-  (lambda (view) (clear-view! view a)))
+  (lambda (view) (release-view! a view)))
 
 (begin-for-syntax
   (define-syntax-class view-binding
@@ -86,7 +86,7 @@
         [a b.array] ...)
     (with-release #:who 'with-array-views
                   ((~? [handle (handle-for 'with-array-views r) (handle-release r)])
-                   [b.name (and a (settled-view 'with-array-views a)) (view-release a)] ...)
+                   [b.name (and a (acquire-view 'with-array-views a)) (view-release a)] ...)
                   body ...)))
 
 (begin-for-syntax

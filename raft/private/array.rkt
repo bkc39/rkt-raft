@@ -1,8 +1,10 @@
 #lang racket/base
 
-(require (only-in racket/string string-contains? string-join)
+(require (only-in ffi/unsafe/atomic call-as-atomic)
+         (only-in racket/string string-contains? string-join)
          (only-in "dtype.rkt" code->dtype dtype->code dtype-itemsize)
          (only-in "error.rkt" call/raft exn:fail:raft?)
+         (only-in "exn.rkt" raise-raft)
          (only-in "foreign/array-api.rkt"
                   rr-array-contiguous
                   rr-array-create
@@ -11,6 +13,7 @@
                   rr-buffer-write)
          (only-in "foreign/array.rkt"
                   blank-view
+                  clear-view!
                   describe-view!
                   rr-buffer-view
                   view-device
@@ -18,11 +21,12 @@
                   view-shape
                   view-strides)
          (only-in "foreign/host.rkt" host-getter host-memory)
-         (only-in "foreign/memory.rkt" released? rr-buffer-free)
+         (only-in "foreign/memory.rkt" rr-buffer-free)
          (only-in "print.rkt" array-text indented shape-text summarised?)
          (only-in "resources.rkt" in-backoff resources-handle))
 
-(provide allocate-array
+(provide acquire-view
+         allocate-array
          array-buffer-handle
          array-device
          array-rank
@@ -41,6 +45,8 @@
          read-all
          read-array
          release-array!
+         release-view!
+         released-array?
          settled-arguments
          settled-descriptor
          settled-view
@@ -48,7 +54,7 @@
          view->array
          write-array!)
 
-(struct buffer (handle device phantom))
+(struct buffer (handle device phantom [views #:mutable] [released? #:mutable]))
 
 (struct device-array (buffer offset shape strides dtype memory)
   #:constructor-name buffer->device-array
@@ -65,7 +71,13 @@
   (buffer-device (device-array-buffer a)))
 
 (define (array-buffer-handle a)
-  (buffer-handle (device-array-buffer a)))
+  (define b (device-array-buffer a))
+  (when (buffer-released? b)
+    (raise-raft 'device-array 'logic "used after its release"))
+  (buffer-handle b))
+
+(define (released-array? a)
+  (buffer-released? (device-array-buffer a)))
 
 (define (canonical-strides layout shape)
   (define ordered
@@ -108,7 +120,7 @@
   (define shape (view-shape view))
   (define dtype (code->dtype (view-dtype-code view)))
   (define bytes (* (apply * shape) (dtype-itemsize dtype)))
-  (buffer->device-array (buffer handle (view-device view) (make-phantom-bytes bytes))
+  (buffer->device-array (buffer handle (view-device view) (make-phantom-bytes bytes) 0 #f)
                         0
                         shape
                         (view-strides view)
@@ -161,10 +173,17 @@
 (define (read-all who a)
   (read-array who a (host-memory (* (numel a) (dtype-itemsize (device-array-dtype a))))))
 
+(define (free-unviewed! b)
+  (when (zero? (buffer-views b))
+    (rr-buffer-free (buffer-handle b))
+    (set-phantom-bytes! (buffer-phantom b) 0)))
+
 (define (release-array! a)
   (define b (device-array-buffer a))
-  (rr-buffer-free (buffer-handle b))
-  (set-phantom-bytes! (buffer-phantom b) 0))
+  (call-as-atomic (lambda ()
+                    (unless (buffer-released? b)
+                      (set-buffer-released?! b #t)
+                      (free-unviewed! b)))))
 
 (define (element-reader who a)
   (define dtype (device-array-dtype a))
@@ -182,7 +201,7 @@
 (define (values-text a)
   (define strides (device-array-strides a))
   (cond
-    [(released? (array-buffer-handle a)) "<released>"]
+    [(released-array? a) "<released>"]
     [else
      (with-handlers ([exn:fail:raft? (lambda (e)
                                        (format "<values unavailable: ~a>" (exn-message e)))])
@@ -206,6 +225,22 @@
 (define (settled-view who a)
   (await who a)
   (bound-view who a))
+
+(define (acquire-view who a)
+  (await who a)
+  (call-as-atomic (lambda ()
+                    (define view (bound-view who a))
+                    (define b (device-array-buffer a))
+                    (set-buffer-views! b (add1 (buffer-views b)))
+                    view)))
+
+(define (release-view! a view)
+  (define b (device-array-buffer a))
+  (call-as-atomic (lambda ()
+                    (clear-view! view a)
+                    (set-buffer-views! b (sub1 (buffer-views b)))
+                    (when (buffer-released? b)
+                      (free-unviewed! b)))))
 
 (define (array->string a)
   (define shape (device-array-shape a))

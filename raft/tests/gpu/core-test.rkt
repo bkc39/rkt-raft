@@ -1,7 +1,8 @@
 #lang racket/base
 
-(require (only-in racket/list remove-duplicates)
-         (only-in racket/match match match-define)
+(require (only-in racket/bool implies)
+         (only-in racket/list filter-map remove-duplicates)
+         (only-in racket/match match match-define match-lambda)
          (only-in rackunit
                   check-eq?
                   check-equal?
@@ -120,44 +121,44 @@
           name)
         symbol<?))
 
-(define unsafe-names
-  '(call-with-release code->dtype
-                      define-job
-                      deposit
-                      deposit->device-csr-matrix
-                      deposit->list
-                      deposit-release!
-                      deposit?
-                      device-array-release!
-                      dtype->code
-                      raft-abi-pointer
-                      resources->handle-pointer
-                      status-checker
-                      with-array-views
-                      with-deposits
-                      with-release))
+(define unsafe-exports
+  '((call-with-release resource call-with-release) (code->dtype dtype code->dtype)
+                                                   (define-job)
+                                                   (deposit)
+                                                   (deposit->device-csr-matrix)
+                                                   (deposit->list)
+                                                   (deposit-release! deposit deposit-release!)
+                                                   (deposit?)
+                                                   (device-array-release! array release-array!)
+                                                   (dtype->code dtype dtype->code)
+                                                   (raft-abi-pointer)
+                                                   (resources->handle-pointer)
+                                                   (status-checker)
+                                                   (with-array-views)
+                                                   (with-deposits)
+                                                   (with-release resource with-release)))
 
-(define (binding-module mod name)
+(define unsafe-names (sort (map car unsafe-exports) symbol<?))
+
+(define (binding-of mod name)
   (define ns (make-base-empty-namespace))
   (parameterize ([current-namespace ns])
     (namespace-require mod)
-    (match-define (list* source _) (identifier-binding (namespace-symbol->identifier name)))
-    (resolved-module-path-name (module-path-index-resolve source))))
+    (match-define (list* source source-name _)
+      (identifier-binding (namespace-symbol->identifier name)))
+    (list (resolved-module-path-name (module-path-index-resolve source)) source-name)))
 
 (define (private-module name)
   (collection-file-path (format "~a.rkt" name) "raft" "private"))
 
 (test-case "R1: raft/unsafe's releases and dtype codes are raft's own bindings"
-  (for ([case (in-list '((call-with-release resource call-with-release)
-                         (deposit-release! deposit deposit-release!)
-                         (device-array-release! array release-array!)
-                         (dtype->code dtype dtype->code)
-                         (code->dtype dtype code->dtype)))])
-    (match-define (list public module private) case)
-    (check-eq? (dynamic-require 'raft/unsafe public)
-               (dynamic-require (private-module module) private)
-               (symbol->string public)))
-  (check-equal? (binding-module 'raft/unsafe 'with-release) (private-module 'resource)))
+  (for ([row (in-list unsafe-exports)])
+    (match row
+      [(list public home private)
+       (check-equal? (binding-of 'raft/unsafe public)
+                     (list (private-module home) private)
+                     (symbol->string public))]
+      [(list _) (void)])))
 
 (test-case "raft/core, raft/array, raft/compat, raft/unsafe and raft export exactly the documented names"
   (check-equal? (phase-0-exports 'raft/core) public-names)
@@ -266,21 +267,27 @@
   (define-values (_required accepted) (procedure-keywords p))
   (and (memq keyword accepted) #t))
 
-(test-case "W1: an exported procedure takes #:who exactly when it takes #:resources, never required"
-  (for* ([mod (in-list '(raft/array raft/compat raft/unsafe))]
-         [export (in-list (procedure-exports mod))])
-    (match-define (cons name p) export)
+(define who-without-resources '(call-with-release))
+
+(test-case "W1: an exported procedure that takes #:resources takes #:who, never required"
+  (define exports
+    (for*/list ([mod (in-list '(raft/array raft/compat raft/unsafe))]
+                [export (in-list (procedure-exports mod))])
+      (match-define (cons name p) export)
+      (list (format "~a ~a" mod name) name p)))
+  (for ([export (in-list exports)])
+    (match-define (list label _ p) export)
     (define-values (required _accepted) (procedure-keywords p))
-    (check-equal? (accepts? p '#:who)
-                  (or (accepts? p '#:resources) (eq? name 'call-with-release))
-                  (format "~a ~a" mod name))
-    (check-false (memq '#:who required) (format "~a ~a" mod name)))
-  (check-equal? (sort (remove-duplicates (for*/list ([mod (in-list '(raft/array raft/compat
-                                                                                raft/unsafe))]
-                                                     [export (in-list (procedure-exports mod))]
-                                                     #:when (accepts? (cdr export) '#:who))
-                                           (car export)))
-                      symbol<?)
+    (check-true (implies (accepts? p '#:resources) (accepts? p '#:who)) label)
+    (check-false (memq '#:who required) label))
+  (define (names-where keep?)
+    (sort (remove-duplicates (filter-map (match-lambda
+                                           [(list _ name p) (and (keep? p) name)])
+                                         exports))
+          symbol<?))
+  (check-equal? (names-where (lambda (p) (and (accepts? p '#:who) (not (accepts? p '#:resources)))))
+                who-without-resources)
+  (check-equal? (names-where (lambda (p) (accepts? p '#:who)))
                 '(array->device-array bytes->device-vector
                                       call-with-release
                                       deposit

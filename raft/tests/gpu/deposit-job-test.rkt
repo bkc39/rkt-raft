@@ -6,6 +6,7 @@
          (only-in "../../main.rkt" current-device-resources)
          (only-in "../../private/deposit.rkt" call-with-deposits-bound)
          (only-in "../../private/dtype.rkt" dtype->code)
+         (only-in "../../private/foreign/array.rkt" keep-reachable)
          (only-in "../../private/job.rkt" define-job jobs-in-flight jobs-live)
          (only-in "../../private/resource.rkt" with-release)
          (only-in "../../private/resources.rkt" host-resources)
@@ -33,7 +34,8 @@
                   test-host-probe
                   test-probe
                   with-hold-timeout)
-         (only-in "../private/raft-error.rkt" check-raft-error))
+         (only-in "../private/raft-error.rkt" check-raft-error)
+         (only-in "../private/synced.rkt" synced?))
 
 (define (deposit-job d dt rows cols #:count [k 2] #:flags [flags 0])
   (probe-deposit-job 'demo (current-device-resources) d (dtype->code dt) k rows (or cols -1) flags))
@@ -212,7 +214,7 @@
 (define (check-used-after-release d)
   (check-raft-error 'logic "deposit: used after its release" (lambda () (deposit->list d))))
 
-(test-probe "E9: a deposit released while a job holds it is freed when the job returns"
+(test-probe "E9a: a deposit released while a job holds it is freed when the job returns"
   (define d (deposit))
   (released-once "pinned by a gated job"
                  (lambda ()
@@ -222,11 +224,13 @@
                                           (deposit-release! d)
                                           (check-equal? (counts-holders (since before)) 0)
                                           (open-gate! g)
-                                          (check-true (and (sync/timeout 30 caller) #t))))
+                                          (check-true (synced? caller 30))))
+                   (check-equal? (counts-holders (since before)) 1 "not freed when the job returned")
                    (check-used-after-release d))
-                 (counts 1 1 1 0 0)))
+                 (counts 1 1 1 0 0))
+  (keep-reachable d))
 
-(test-probe "E10: a deposit released inside its own with-deposits is freed when the form exits"
+(test-probe "E10a: a deposit released inside its own with-deposits is freed when the form exits"
   (define d (deposit))
   (released-once "released inside its binding"
                  (lambda ()
@@ -235,12 +239,14 @@
                           'float32
                           3
                           4
-                          #:first (lambda () (deposit-release! d))
-                          #:then (lambda () (check-equal? (counts-holders (since before)) 0)))
+                          #:before (lambda () (deposit-release! d))
+                          #:after (lambda () (check-equal? (counts-holders (since before)) 0)))
+                   (check-equal? (counts-holders (since before)) 1 "not freed at the exit")
                    (check-used-after-release d))
-                 (counts 1 1 1 0 0)))
+                 (counts 1 1 1 0 0))
+  (keep-reachable d))
 
-(test-probe "E10: a deposit released between a job's binding and its refused submit is freed at the close"
+(test-probe "E10b: a deposit released between a job's binding and its refused submit is freed at the close"
   (define d (deposit))
   (released-once
    "released before a refused submit"
@@ -254,8 +260,10 @@
                                               (deposit-release! d)
                                               (check-equal? (counts-holders (since before)) 0)
                                               (error "submit refused")))))
+     (check-equal? (counts-holders (since before)) 1 "not freed at the close")
      (check-used-after-release d))
-   (counts 0 0 1 0 0)))
+   (counts 0 0 1 0 0))
+  (keep-reachable d))
 
 (define rlimit-nofile 7)
 (define descriptor-limit 256)

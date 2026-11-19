@@ -36,6 +36,7 @@
          probe-deposit
          probe-deposit-csr
          probe-deposit-csr-job
+         probe-deposit-csr-views
          probe-deposit-after-gate-job
          probe-deposit-before-gate-job
          probe-deposit-job
@@ -123,6 +124,10 @@
                     _int32
                     -> _int)
               #:c-id rr_probe_deposit_csr)
+
+(define-probe probe-deposit-csr-views
+              (_fun _pointer _pointer _int32 _int32 _pointer _pointer _pointer _int32 -> _int)
+              #:c-id rr_probe_deposit_csr_views)
 
 (define-probe probe-owner-drops (_fun -> _uint64) #:c-id rr_probe_owner_drops)
 (define-probe probe-owner-stale (_fun -> _uint64) #:c-id rr_probe_owner_stale)

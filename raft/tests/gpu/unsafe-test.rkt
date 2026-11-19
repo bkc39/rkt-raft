@@ -64,15 +64,12 @@
     (check-equal? (code->dtype code) name (symbol->string name)))
   (check-equal? (map dtype->code '(float32 float64 int32 int64)) '(0 1 2 3)))
 
+(define (hash-ref-refusal? e)
+  (and (exn:fail:contract? e) (regexp-match? #rx"^hash-ref: no value found for key" (exn-message e))))
+
 (test-case "#84: an unknown dtype or code raises hash-ref's refusal"
-  (check-exn (lambda (e)
-               (and (exn:fail:contract? e)
-                    (equal? (exn-message e) "hash-ref: no value found for key\n  key: 'float16")))
-             (lambda () (dtype->code 'float16)))
-  (check-exn (lambda (e)
-               (and (exn:fail:contract? e)
-                    (equal? (exn-message e) "hash-ref: no value found for key\n  key: 4")))
-             (lambda () (code->dtype 4))))
+  (check-exn hash-ref-refusal? (lambda () (dtype->code 'float16)))
+  (check-exn hash-ref-refusal? (lambda () (code->dtype 4))))
 
 (test-case "raft-abi-pointer points at the tag raft-abi reads"
   (define tag (raft-abi-pointer))

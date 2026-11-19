@@ -28,7 +28,7 @@
          (only-in racket/match match match-define)
          ;; whole-module: it also provides syntax/parse at phase 1
          syntax/parse/define
-         (only-in "array.rkt" array-buffer-handle device-array? settled-view)
+         (only-in "array.rkt" array-buffer-handle device-array? released-array? settled-view)
          (only-in "deposit.rkt" call-with-deposits-bound deposit?)
          (only-in "error.rkt" call/raft)
          (only-in "exit.rkt" current-exit-wait)
@@ -46,7 +46,6 @@
                   rr-job-submit
                   rr-jobs-in-flight
                   rr-jobs-live)
-         (only-in "foreign/memory.rkt" released?)
          (only-in "resource.rkt" with-release)
          (only-in "resources.rkt" resources-handle))
 
@@ -101,7 +100,7 @@
   (cond
     [(device-array? a)
      (ptr-set! block _rr-view 'abs offset (settled-view who a))
-     (array-buffer-handle a)]
+     a]
     [(not a)
      (ptr-set! block _rr-view 'abs offset (blank-view))
      #f]
@@ -139,17 +138,19 @@
                               (proc holders))))
 
 (define (submit who resources entry block pins deposits seconds)
-  (call-as-atomic
-   (lambda ()
-     (bind-deposits!
-      who
-      block
-      deposits
-      (lambda (holders)
-        (call/raft
-         who
-         (lambda ()
-           (rr-job-submit (live-handle who resources pins) entry block pins holders seconds))))))))
+  (call-as-atomic (lambda ()
+                    (bind-deposits! who
+                                    block
+                                    deposits
+                                    (lambda (holders)
+                                      (call/raft who
+                                                 (lambda ()
+                                                   (rr-job-submit (live-handle who resources pins)
+                                                                  entry
+                                                                  block
+                                                                  (map array-buffer-handle pins)
+                                                                  holders
+                                                                  seconds))))))))
 
 (define (waited-status job)
   (sync (job-evt job))
@@ -174,7 +175,8 @@
 (define (live-handle who resources pins)
   (define handle (resources-handle who resources))
   (cond
-    [(ormap released? pins) (raise-raft who 'logic "a device array passed to the job was released")]
+    [(ormap released-array? pins)
+     (raise-raft who 'logic "a device array passed to the job was released")]
     [else handle]))
 
 (define (run-job who resources entry slots offsets size outputs exn args)

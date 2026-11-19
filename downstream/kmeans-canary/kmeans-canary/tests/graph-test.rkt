@@ -1,10 +1,11 @@
 #lang racket/base
 
 (require (only-in racket/file find-files)
-         (only-in racket/list append* make-list range)
+         (only-in racket/list append* append-map make-list range)
          (only-in racket/match match match-define)
          ;; whole-module: define-runtime-path needs bindings only-in strips
          racket/runtime-path
+         (only-in racket/set subset?)
          (only-in rackunit check-equal? check-true test-case)
          (only-in raft
                   csr-data
@@ -127,35 +128,38 @@
                   (symbol->string index-type))))
 
 (define counters
-  '((raft/private/foreign/memory buffer-drop-count owner-release-count release-failure-count)
-    (raft/private/job executor-threads jobs-in-flight jobs-live)))
+  (hasheq 'raft/private/foreign/memory '(buffer-drop-count owner-release-count release-failure-count)
+          'raft/private/job '(executor-threads jobs-in-flight jobs-live)))
 
 (define (private? spec)
   (regexp-match? #rx"^raft/private/" (format "~a" spec)))
 
-(define (private-requires form)
-  (match form
-    [(list* 'only-in (? private? spec) names) (list (cons spec names))]
-    [(? private? spec) (list (list spec))]
-    [(cons _ specs) (append* (map private-requires specs))]
+(define (private-requires spec)
+  (match spec
+    [(list* 'only-in (? private? module) names) (list (cons module names))]
+    [(? private? module) (list (list module))]
+    [(list* _ specs) (append-map private-requires specs)]
     [_ '()]))
 
-(define (module-requires path)
+(define (module-forms path)
   (match (with-input-from-file path
                                (lambda ()
                                  (parameterize ([read-accept-reader #t])
                                    (read))))
-    [(list 'module _ _ (cons '#%module-begin forms))
-     (for*/list ([form (in-list forms)]
-                 #:when (and (pair? form) (eq? (car form) 'require))
-                 [spec (in-list (private-requires form))])
-       spec)]
+    [(list 'module _ _ (list* '#%module-begin forms)) forms]
     [_ '()]))
+
+(define (requires form)
+  (match form
+    [(list* 'require specs) (append-map private-requires specs)]
+    [_ '()]))
+
+(define (allowed? spec)
+  (match spec
+    [(list* module (? pair? names)) (subset? names (hash-ref counters module '()))]
+    [_ #f]))
 
 (test-case "C2: no canary module requires raft/private beyond the test-only counters"
   (for* ([path (in-list (find-files (lambda (p) (regexp-match? #rx"[.]rkt$" p)) package))]
-         [spec (in-list (module-requires path))])
-    (match-define (cons module names) spec)
-    (define allowed (assq module counters))
-    (check-true (and allowed (pair? names) (andmap (lambda (n) (memq n (cdr allowed))) names) #t)
-                (format "~a requires ~a" path spec))))
+         [spec (in-list (append-map requires (module-forms path)))])
+    (check-true (allowed? spec) (format "~a requires ~a" path spec))))

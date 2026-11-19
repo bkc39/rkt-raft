@@ -11,7 +11,16 @@
 (begin-for-syntax
   (define-syntax-class release-binding
     #:description "a [name acquire release] binding"
-    (pattern [name:id acquire:expr release:expr])))
+    (pattern [name:id acquire:expr release:expr]))
+
+  (define-splicing-syntax-class
+   release-options
+   #:description "the #:who and #:exn options"
+   (pattern (~seq
+             (~alt (~optional (~seq #:who who:expr) #:name "the #:who option" #:defaults ([who #'#f]))
+                   (~optional (~seq #:exn exn:expr)
+                              #:name "the #:exn option"
+                              #:defaults ([exn #'exn:fail:raft]))) ...))))
 
 (define reentry-message "cannot re-enter its body after its resources were released")
 
@@ -24,42 +33,33 @@
 
 ;; The acquired value arrives already evaluated, outside the extent, so control
 ;; that jumps back into the body (a generator resume) cannot acquire again. The
-;; release runs on every exit, claimed first and with breaks disabled, so a break
-;; can neither skip it nor run it twice; a thread killed inside the extent never
-;; runs it, so the resource's finalizer stays the backstop.
+;; release runs on every exit; a thread killed inside the extent never runs it,
+;; so the resource's finalizer stays the backstop.
 (define (call-with-release acquired release proc #:who [who #f] #:exn [exn exn:fail:raft])
   (define held acquired)
   (define entered? #f)
-  (define breaks? (break-enabled))
-  (begin0 (parameterize-break #f
-                              (dynamic-wind (lambda ()
-                                              (when entered?
-                                                (refuse-reentry who exn))
-                                              (set! entered? #t))
-                                            (lambda () (parameterize-break breaks? (proc acquired)))
-                                            (lambda ()
-                                              (define claimed held)
-                                              (set! held #f)
-                                              (when claimed
-                                                (release claimed)))))
-    (parameterize-break breaks? (void))))
+  (dynamic-wind (lambda ()
+                  (when entered?
+                    (refuse-reentry who exn))
+                  (set! entered? #t))
+                (lambda () (proc acquired))
+                (lambda ()
+                  (define claimed held)
+                  (set! held #f)
+                  (when claimed
+                    (release claimed)))))
 
 (define-syntax-parser with-release
-  [(_ (~alt (~optional (~seq #:who who:expr) #:defaults ([who #'#f]))
-            (~optional (~seq #:exn exn:expr) #:defaults ([exn #'exn:fail:raft]))) ...
-      ()
-      body:expr ...+)
+  [(_ o:release-options () body:expr ...+)
    #'(let ()
        body ...)]
-  [(_ (~alt (~optional (~seq #:who who:expr) #:defaults ([who #'#f]))
-            (~optional (~seq #:exn exn:expr) #:defaults ([exn #'exn:fail:raft]))) ...
-      (b:release-binding more:release-binding ...)
-      body:expr ...+)
-   #:with options #'(#:who who #:exn exn)
+  [(_ o:release-options (b:release-binding more:release-binding ...) body:expr ...+)
    #'(call-with-release b.acquire
                         b.release
-                        (~@ . options)
+                        #:who o.who
+                        #:exn o.exn
                         (lambda (b.name)
-                          (with-release (~@ . options)
+                          (with-release #:who o.who #:exn
+                            o.exn
                             (more ...)
                             body ...)))])

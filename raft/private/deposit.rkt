@@ -42,7 +42,9 @@
            'open))
 
 (define (released-deposit? d)
-  (and (memq (deposit-state d) '(releasing released)) #t))
+  (case (deposit-state d)
+    [(releasing released) #t]
+    [else #f]))
 
 (define (refuse-released d)
   (when (released-deposit? d)
@@ -52,12 +54,10 @@
   (set-deposit-state! d 'released)
   (rr-holder-free (deposit-handle d)))
 
-;; A record handed to native code is freed only once its binding lets go of it:
-;; the state moves from bound to releasing, and the unbind frees the holder.
 (define (unbind! d)
-  (match (deposit-state d)
-    ['releasing (free-holder! d)]
-    [_ (set-deposit-state! d 'open)]))
+  (case (deposit-state d)
+    [(releasing) (free-holder! d)]
+    [else (set-deposit-state! d 'open)]))
 
 (define (deposit-record who d)
   (call-as-atomic (lambda ()
@@ -67,20 +67,18 @@
 
 (define ((deposit-close d) _record)
   (call-as-atomic (lambda ()
-                    (dynamic-wind void
-                                  (lambda ()
-                                    (call/raft 'with-deposits
-                                               (lambda () (rr-holder-close (deposit-handle d)))))
-                                  (lambda () (unbind! d)))))
+                    (with-release ([bound d unbind!])
+                      (call/raft 'with-deposits
+                                 (lambda () (rr-holder-close (deposit-handle bound)))))))
   (keep-reachable d))
 
 (define (deposit-release! d)
   (call-as-atomic (lambda ()
                     (set-deposit-arrays! d #f)
-                    (match (deposit-state d)
-                      ['open (free-holder! d)]
-                      ['bound (set-deposit-state! d 'releasing)]
-                      [_ (void)]))))
+                    (case (deposit-state d)
+                      [(open) (free-holder! d)]
+                      [(bound) (set-deposit-state! d 'releasing)]
+                      [else (void)]))))
 
 (define (call-with-deposits-bound who deposits proc)
   (define handed-over? #f)

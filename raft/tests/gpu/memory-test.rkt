@@ -86,7 +86,7 @@
       (rr-buffer-free buffer))
     (check-equal? (settled-count buffer-drop-count) (add1 before))))
 
-(test-gpu "E13: with-release over device-array-release! after an explicit release frees once"
+(test-gpu "E13b: with-release over device-array-release! after an explicit release frees once"
   (define before (settled-count buffer-drop-count))
   (define v (device-vector 8))
   (with-release ([a v device-array-release!])

@@ -16,6 +16,7 @@
                   shape)
          (only-in "../../private/deposit.rkt" deposit-handle)
          (only-in "../../private/dtype.rkt" dtype->code)
+         (only-in "../../private/foreign/array.rkt" keep-reachable)
          (only-in "../../unsafe.rkt"
                   deposit
                   deposit->device-csr-matrix
@@ -33,7 +34,8 @@
                   fill-csr-job!
                   filled
                   released-once
-                  settles-to)
+                  settles-to
+                  since)
          (only-in "../private/probe.rkt" probe-flags probe-refuse-adoption! test-probe)
          (only-in "../private/raft-error.rkt" check-raft-error))
 
@@ -192,19 +194,19 @@
   (values d (deposit->device-csr-matrix d #:shape '(3 4))))
 
 (test-probe "E12: a CSR outlives its released deposit, and its three parts free the owner"
+  (define-values (d G) (csr-from-deposit))
   (released-once "a deposit's CSR"
                  (lambda ()
                    (define before (counters))
-                   (define-values (d G) (csr-from-deposit))
                    (define triplets (triplets-of G))
                    (deposit-release! d)
                    (check-equal? (triplets-of G) triplets)
                    (for-each device-array-release! (list (csr-indptr G) (csr-indices G) (csr-data G)))
-                   (define expected (counts 1 1 1 3 0))
-                   (check-equal? (settles-to before expected) expected))
+                   (check-equal? (since before) (counts 1 1 1 3 0)))
                  (counts 1 1 1 3 0))
-  (define-values (_d G) (csr-from-deposit))
-  (device-array-release! (csr-indices G))
+  (keep-reachable (list d G))
+  (define-values (_other H) (csr-from-deposit))
+  (device-array-release! (csr-indices H))
   (check-raft-error 'logic
                     "device-array: used after its release"
-                    (lambda () (device-csr-matrix->triplets G))))
+                    (lambda () (device-csr-matrix->triplets H))))
