@@ -274,16 +274,16 @@ grep -qxF "(define native-version \"$native_version\")" "$versions/raft/info.rkt
   problem "$versions/raft/info.rkt: native-version is not $native_version, $RELEASE_NATIVE_PACKAGE's version"
 [ -f "$versions/$native_version/$RELEASE_NATIVE_PACKAGE/info.rkt" ] ||
   problem "$versions: no $native_version/$RELEASE_NATIVE_PACKAGE, $RELEASE_NATIVE_PACKAGE's version"
-version_check versions-same "$versions/0.2/$RELEASE_NATIVE_PACKAGE" "$versions/raft" ""
-want_version versions-same 0.2
-version_check versions-tag "$versions/0.2/$RELEASE_NATIVE_PACKAGE" "$versions/raft" v0.2
-want_version versions-tag 0.2
+version_check versions-same "$versions/$native_version/$RELEASE_NATIVE_PACKAGE" "$versions/raft" ""
+want_version versions-same "$native_version"
+version_check versions-tag "$versions/$native_version/$RELEASE_NATIVE_PACKAGE" "$versions/raft" "v$native_version"
+want_version versions-tag "$native_version"
 version_check versions-older "$versions/0.1/$RELEASE_NATIVE_PACKAGE" "$versions/raft" ""
-want_refused versions-older "$RELEASE_NATIVE_PACKAGE is version 0.1, raft needs version 0.2"
-version_check versions-dependency "$versions/0.2/$RELEASE_NATIVE_PACKAGE" "$versions/raft-dep-0.1" ""
-want_refused versions-dependency "raft depends on $RELEASE_NATIVE_PACKAGE #:version 0.1, not 0.2"
-version_check versions-wrong-tag "$versions/0.2/$RELEASE_NATIVE_PACKAGE" "$versions/raft" v0.3
-want_refused versions-wrong-tag "tag v0.3 does not name version 0.2 (want v0.2)"
+want_refused versions-older "$RELEASE_NATIVE_PACKAGE is version 0.1, raft needs version $native_version"
+version_check versions-dependency "$versions/$native_version/$RELEASE_NATIVE_PACKAGE" "$versions/raft-dep-0.1" ""
+want_refused versions-dependency "raft depends on $RELEASE_NATIVE_PACKAGE #:version 0.1, not $native_version"
+version_check versions-wrong-tag "$versions/$native_version/$RELEASE_NATIVE_PACKAGE" "$versions/raft" "v$native_version.0"
+want_refused versions-wrong-tag "tag v$native_version.0 does not name version $native_version (want v$native_version)"
 
 for copyright in "Copyright (c) 2016 Gabi Melman." \
   "Copyright (c) 2012 - present, Victor Zverovich and {fmt} contributors"; do
@@ -311,13 +311,22 @@ license_case license-n-ary "'(Apache-2.0 AND MIT AND LicenseRef-NVIDIA-CUDA-EULA
 
 draft_case() {
   local tag=$1 want=$2 got
-  got=$(bash "$here/draft-tag.sh" "$tag" 2>/dev/null) || got="exit $?"
+  got=$(bash "${tree:-$here/../..}/scripts/release/draft-tag.sh" "$tag" 2>/dev/null) || got="exit $?"
   [ "$got" = "tag=$want" ] || problem "draft-tag: ${tag:-no tag} said $got, want tag=$want"
 }
 raft_version=$(sed -n 's/^(define version "\(.*\)")$/\1/p' "$here/../../raft/info.rkt")
 draft_case "v$native_version" "v$native_version"
-draft_case "v$raft_version" ""
+drafted_tag=$([ "$raft_version" != "$native_version" ] || echo "v$raft_version")
+draft_case "v$raft_version" "$drafted_tag"
 draft_case "" ""
+tree=$work/raft-ahead
+mkdir -p "$tree/scripts/release" "$tree/raft" "$tree/$RELEASE_NATIVE_PACKAGE"
+cp "$here/draft-tag.sh" "$here/pins.sh" "$tree/scripts/release/"
+cp "$here/../../$RELEASE_NATIVE_PACKAGE/info.rkt" "$tree/$RELEASE_NATIVE_PACKAGE/"
+printf '#lang info\n(define version "%s.1")\n' "$native_version" >"$tree/raft/info.rkt"
+draft_case "v$native_version.1" ""
+draft_case "v$native_version" "v$native_version"
+unset tree
 draft_refused() {
   local tag=$1 got status=0
   got=$(bash "$here/draft-tag.sh" "$tag" 2>&1) || status=$?

@@ -3,17 +3,13 @@
 Racket bindings to [NVIDIA RAFT](https://github.com/rapidsai/raft): CUDA device
 arrays and primitives, and the base for Racket cuML bindings.
 
-Linux on x86-64 with an NVIDIA GPU (compute capability 8.6 or a later 8.x), a
+Linux on x86-64 with an NVIDIA GPU (compute capability 7.5 or newer), a
 CUDA 13 driver (release 580 or newer) and Racket 9.3:
 
 ```bash
 raco pkg install raft
 racket -l racket/base -l raft -e '(raft-version)'
 ```
-
-A catalog install does not yet fetch the native libraries
-([#24](https://github.com/bkc39/rkt-raft/issues/24)); until it does, use the
-development shell below.
 
 - The manual is `raft/scribblings/raft.scrbl`: a guide (Getting started,
   Concepts) and a reference.

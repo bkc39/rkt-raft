@@ -37,17 +37,17 @@
     "datasets-src": {
       "flake": false,
       "locked": {
-        "lastModified": 1791056085,
-        "narHash": "sha256-EQi2aAxFKGl/G1ZaK7dDvLFlzvM3S21i7mKjd59p/0Y=",
+        "lastModified": 1793311232,
+        "narHash": "sha256-Uq6ldyyOjbzi8seQt2LYYIVxLULm9bvQOxOygx4UBOk=",
         "owner": "bkc39",
         "repo": "datasets",
-        "rev": "007c85a57b4e5c638227c5e7b90c50ce18cc63fd",
+        "rev": "7c95ced319b8d76a0f437e070c3e8ffad6d30e56",
         "type": "github"
       },
       "original": {
         "owner": "bkc39",
         "repo": "datasets",
-        "rev": "007c85a57b4e5c638227c5e7b90c50ce18cc63fd",
+        "rev": "7c95ced319b8d76a0f437e070c3e8ffad6d30e56",
         "type": "github"
       }
     },

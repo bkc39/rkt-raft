@@ -2,4 +2,4 @@
 
 #|review: ignore|#
 
-(define version "0.2")
+(define version "0.3")

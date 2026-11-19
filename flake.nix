@@ -11,7 +11,7 @@
     # since its racket-deps hash is taken with its own Racket.
     rkt-polars.url = "github:bkc39/rkt-polars/9d1555e1515837b5bfd7ae7e829dfc996e81eb23";
     datasets-src = {
-      url = "github:bkc39/datasets/007c85a57b4e5c638227c5e7b90c50ce18cc63fd";
+      url = "github:bkc39/datasets/7c95ced319b8d76a0f437e070c3e8ffad6d30e56";
       flake = false;
     };
     data-frame-src = {
@@ -197,6 +197,10 @@
           --name data-frame ${data-frame-src}
         raco pkg install --batch --deps fail --no-setup --copy --scope user ${skip} \
           --name datasets-core ${datasets-src}/datasets-core
+        for _datasets_pkg in datasets-r datasets-uci datasets-islr datasets-fetch; do
+          raco pkg install --batch --deps fail --no-setup --copy --scope user ${skip} \
+            --name "$_datasets_pkg" "${datasets-src}/$_datasets_pkg"
+        done
         raco pkg install --batch --deps fail --no-setup --copy --scope user ${skip} \
           --name datasets ${datasets-src}/datasets
       '';
@@ -540,7 +544,8 @@
       # must not share installed packages.
       racketHome = ''
         _cache_root="''${XDG_CACHE_HOME:-$HOME/.cache}/rkt-raft-devshell"
-        _project_id=$(printf '%s' "$PWD" | sha256sum | cut -c1-12)
+        _project_id=$(printf '%s\n' "$PWD" ${rkt-polars} ${al2-test-runner-src} ${data-frame-src} ${datasets-src} \
+          | sha256sum | cut -c1-12)
         export PLTUSERHOME="$_cache_root/$_project_id"
         mkdir -p "$PLTUSERHOME"
       '';
