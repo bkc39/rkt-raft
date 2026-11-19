@@ -1788,9 +1788,8 @@ since cuSPARSE's error string for it is only "out of memory"). The frozen rule i
 
 - **The rule:** every public procedure that takes `#:resources` also takes
   `#:who`, a symbol defaulting to its own name that prefixes every
-  `exn:fail:raft` message the call raises (18: 7 in `raft/array`, 10 in
-  `raft/compat`, `deposit`). `core-test.rkt`'s W1 checks it over the
-  exports. Each is defined with `define/resources`
+  `exn:fail:raft` message the call raises. `core-test.rkt`'s W1 checks it
+  over the exports and holds the list of these procedures. Each is defined with `define/resources`
   (`raft/private/resources.rkt`), which supplies both defaults; `.fmt.rkt`
   formats it as a `define`. A procedure without `#:resources` keeps its own
   name, and so do `with-array-views` and `resources->handle-pointer`.
