@@ -104,6 +104,7 @@ int kc_cluster_members(void* handle, const rr_view* x, const rr_view* labels,
                        int32_t cluster, rr_deposit* out) {
   return raftrkt::translate_exceptions(kc::last_error_slot(), [&] {
     const raft::handle_t& h = raftrkt::handle_of(handle);
+    raftrkt::require_open(out, "out", h);
     const int device = raftrkt::device_of(h);
     const raftrkt::device_scope scope{device};
     raftrkt::require_on_device(device, {{"X", x}, {"labels", labels}});

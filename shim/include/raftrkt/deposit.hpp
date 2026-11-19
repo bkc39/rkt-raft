@@ -149,6 +149,11 @@ inline std::atomic_ref<int32_t> state_of(rr_deposit& record) noexcept {
   return std::atomic_ref<int32_t>(record.state);
 }
 
+inline int32_t state_seen(const rr_deposit& record) noexcept {
+  return std::atomic_ref<int32_t>(const_cast<int32_t&>(record.state))
+      .load(std::memory_order_acquire);
+}
+
 inline const char* unclaimable(int32_t state) noexcept {
   switch (state) {
     case RR_DEPOSIT_FILLING:
@@ -175,14 +180,20 @@ inline void unclaim(rr_deposit& record) noexcept {
       std::memory_order_relaxed));
 }
 
+inline void require_on_handle(const char* who, const rr_deposit& record,
+                              const raft::handle_t& handle) {
+  if (record.handle != static_cast<const void*>(&handle)) {
+    throw logic_error(std::string(who) +
+                      ": on resources other than the call's");
+  }
+}
+
 template <typename Owner>
 std::array<std::size_t, RR_MAX_REGIONS> checked_bytes(
     const std::string& who, const rr_deposit& record,
     const raft::handle_t& handle, const std::unique_ptr<Owner>& owner,
     std::initializer_list<rr_view> regions) {
-  if (record.handle != static_cast<const void*>(&handle)) {
-    throw logic_error(who + ": on resources other than the call's");
-  }
+  require_on_handle(who.c_str(), record, handle);
   if (!owner) {
     throw logic_error(who + ": no owner");
   }
@@ -273,9 +284,12 @@ void deposit(rr_deposit* into, const char* name, const raft::handle_t& handle,
 
 inline void require_open(const rr_deposit* into, const char* name,
                          const raft::handle_t& handle) {
-  static_cast<void>(into);
-  static_cast<void>(name);
-  static_cast<void>(handle);
+  const rr_deposit& record = *require(into, name);
+  const int32_t state = detail::state_seen(record);
+  if (state != RR_DEPOSIT_OPEN) {
+    throw logic_error(std::string(name) + detail::unclaimable(state));
+  }
+  detail::require_on_handle(name, record, handle);
 }
 
 }  // namespace raftrkt
