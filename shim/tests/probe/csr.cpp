@@ -166,9 +166,11 @@ void on_value(int32_t code, Fn&& fn) {
   }
 }
 
+// NOLINTBEGIN(bugprone-easily-swappable-parameters) -- mirrors the probe C ABI
 void probe_deposit_csr(void* handle, rr_deposit* out, int32_t index_dtype,
                        int32_t data_dtype, const host_csr& in,
                        int32_t two_phase) {
+  // NOLINTEND(bugprone-easily-swappable-parameters)
   const raft::handle_t& h = raftrkt::handle_of(handle);
   const raftrkt::device_scope scope{raftrkt::device_of(h)};
   on_index(index_dtype, [&](auto index) {
@@ -204,11 +206,13 @@ std::vector<T> downloaded(const raft::handle_t& h, const rr_view* v,
 
 extern "C" {
 
+// NOLINTBEGIN(bugprone-easily-swappable-parameters) -- the probe C ABI
 RR_API int rr_probe_deposit_csr(void* handle, rr_deposit* out,
                                 int32_t index_dtype, int32_t data_dtype,
                                 const int64_t* indptr, int64_t rows,
                                 const int64_t* indices, const double* data,
                                 int64_t nnz, int32_t two_phase) {
+  // NOLINTEND(bugprone-easily-swappable-parameters)
   return raftrkt::translate_exceptions(probe::slot(), [&] {
     const auto n_indptr = static_cast<std::size_t>(rows + 1);
     const auto n = static_cast<std::size_t>(nnz);
@@ -217,11 +221,13 @@ RR_API int rr_probe_deposit_csr(void* handle, rr_deposit* out,
   });
 }
 
+// NOLINTBEGIN(bugprone-easily-swappable-parameters) -- the probe C ABI
 RR_API int rr_probe_deposit_csr_views(void* handle, rr_deposit* out,
                                       int32_t index_dtype, int32_t data_dtype,
                                       const rr_view* indptr,
                                       const rr_view* indices,
                                       const rr_view* data, int32_t two_phase) {
+  // NOLINTEND(bugprone-easily-swappable-parameters)
   return raftrkt::translate_exceptions(probe::slot(), [&] {
     const raft::handle_t& h = raftrkt::handle_of(handle);
     const raftrkt::device_scope scope{raftrkt::device_of(h)};
