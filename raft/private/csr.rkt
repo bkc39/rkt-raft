@@ -1,15 +1,14 @@
 #lang racket/base
 
 (require (only-in racket/flonum flsingle)
-         (only-in racket/list append* append-map filter-not make-list)
+         (only-in racket/list append* filter-not make-list)
          (only-in racket/match match* match-define match-lambda struct*)
          (only-in "array.rkt"
                   array-buffer-handle
                   array-device
                   device-array-dtype
-                  device-array-offset
                   device-array-shape
-                  settled-descriptor)
+                  settled-arguments*)
          (only-in "error.rkt" call/raft exn:fail:raft?)
          (only-in "exn.rkt" raise-raft)
          (only-in "foreign/csr-api.rkt" rr-csr-check rr-csr-check-shape)
@@ -57,14 +56,9 @@
   (call/raft who (lambda () (apply rr-csr-check-shape index-type element-type checked)))
   checked)
 
-(define (part-arguments who part)
-  (list (array-buffer-handle part) (device-array-offset part) (settled-descriptor who part)))
-
 (define (checked-csr who indptr indices data extents)
   (define checked (int64-extents extents))
-  (define arguments
-    (append (append-map (lambda (part) (part-arguments who part)) (list indptr indices data))
-            checked))
+  (define arguments (append (settled-arguments* who (list indptr indices data)) checked))
   (call/raft who (lambda () (apply rr-csr-check arguments)))
   (unchecked-device-csr-matrix indptr indices data checked))
 

@@ -17,6 +17,18 @@ RR_API int rr_array_create(rr_resources* resources, const char* dtype,
 RR_API int rr_array_contiguous(const rr_buffer* src, uint64_t offset,
                                const rr_view* src_view, const char* layout,
                                rr_view* view, rr_buffer** out);
+RR_API int rr_array_gather(const rr_buffer* src, uint64_t src_offset,
+                           const rr_view* src_view, const rr_buffer* indices,
+                           uint64_t indices_offset, const rr_view* indices_view,
+                           rr_view* view, rr_buffer** out);
+RR_API int rr_array_select(const rr_buffer* src, uint64_t src_offset,
+                           const rr_view* src_view, const rr_buffer* mask,
+                           uint64_t mask_offset, const rr_view* mask_view,
+                           rr_view* view, rr_buffer** out);
+RR_API int rr_array_compare(const rr_buffer* src, uint64_t src_offset,
+                            const rr_view* src_view, const char* op,
+                            const void* scalar, size_t scalar_bytes,
+                            rr_view* view, rr_buffer** out);
 
 RR_API int rr_buffer_ready(const rr_buffer* buffer, int32_t* out);
 RR_API int rr_buffer_read(const rr_buffer* src, uint64_t offset, void* dst,

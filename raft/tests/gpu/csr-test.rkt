@@ -1,7 +1,7 @@
 #lang racket/base
 
 (require (only-in racket/list range)
-         (only-in racket/match match match-define)
+         (only-in racket/match match-define)
          (only-in racket/string string-join)
          (only-in rackunit check-eq? check-equal? check-exn check-false check-true)
          (only-in "../../main.rkt"
@@ -27,8 +27,9 @@
                   triplets->device-csr-matrix)
          (only-in "../../private/array.rkt" buffer->device-array device-array-buffer release-array!)
          (only-in (submod "../../private/csr.rkt" unchecked) unchecked-device-csr-matrix)
-         (only-in "../../private/foreign/memory.rkt" buffer-drop-count release-failure-count)
-         (only-in "../private/collect.rkt" drain-finalizers! settled-count)
+         (only-in "../../private/foreign/memory.rkt" release-failure-count)
+         (only-in "../private/arrays.rkt" ints part)
+         (only-in "../private/collect.rkt" drain-finalizers! drops-after)
          (only-in "../private/csr.rkt" parts triplets)
          (only-in "../private/gpu.rkt" gpu-skip test-gpu)
          (only-in "../private/probe.rkt" probe-pool-used test-pools)
@@ -39,9 +40,6 @@
 
 (define (run form)
   (eval form (namespace-anchor->namespace here)))
-
-(define (ints xs [element-type 'int32])
-  (list->device-vector xs #:dtype element-type))
 
 (define (floats xs [element-type 'float32])
   (list->device-vector xs #:dtype element-type))
@@ -143,11 +141,6 @@
   (define repeated
     (device-csr-matrix (ints '(0 3)) (ints '(0 0 0)) (floats (list 1.0 tiny tiny)) #:shape '(1 1)))
   (check-equal? (device-csr-matrix->list* repeated) '((1.0))))
-
-(define (part spec)
-  (match spec
-    [(list* 'matrix element-type rows) (list*->device-matrix rows #:dtype element-type)]
-    [(cons element-type xs) (list->device-vector xs #:dtype element-type)]))
 
 (define indptr-3 '(int32 0 2 2 3))
 (define indices-3 '(int32 3 0 1))
@@ -337,13 +330,6 @@
    (string-append
     "#<device-csr-matrix float32 [3×4] nnz=3 index=int32 cuda:0 <values unavailable: "
     "device-csr-matrix: 12 bytes at byte offset 1000 do not fit a buffer of 12 bytes>>")))
-
-(define (drops-after make)
-  (drain-finalizers!)
-  (define before (settled-count buffer-drop-count))
-  (define kept (make))
-  (drain-finalizers!)
-  (values (- (settled-count buffer-drop-count) before) kept))
 
 (test-gpu "law 12: an unreachable CSR matrix frees its three parts, and a kept part outlives it"
   (check-equal? (call-with-values (lambda ()

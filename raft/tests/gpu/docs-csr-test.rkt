@@ -22,6 +22,7 @@
                   nnz
                   shape
                   triplets->device-csr-matrix)
+         (only-in "../private/arrays.rkt" ints)
          (only-in "../private/csr.rkt" parts triplets)
          (only-in "../private/gpu.rkt" test-gpu)
          (only-in "../private/raft-error.rkt" check-raft-error))
@@ -30,9 +31,6 @@
   (list*->device-csr-matrix '((0 1.5 0 0) (0 0 0 0) (2 0 0 -3)) #:dtype 'float32))
 
 (define G-rows '((0.0 1.5 0.0 0.0) (0.0 0.0 0.0 0.0) (2.0 0.0 0.0 -3.0)))
-
-(define (ints xs [element-type 'int32])
-  (list->device-vector xs #:dtype element-type))
 
 (test-gpu "reference: a CSR matrix prints its entries"
   (check-equal?

@@ -28,6 +28,7 @@
                   list*->device-csr-matrix
                   nnz
                   triplets->device-csr-matrix)
+         (only-in "private/gather.rkt" compare gather select)
          (only-in "private/pack.rkt"
                   infer-dtype
                   infer-rows-dtype
@@ -38,7 +39,8 @@
          (only-in "private/resources.rkt" current-device-resources)
          (only-in "private/vector.rkt" read-vector upload-vector))
 
-(provide contiguous
+(provide compare ;; noqa
+         contiguous
          contiguous?
          csr-data ;; noqa
          csr-indices ;; noqa
@@ -57,12 +59,14 @@
          device-vector?
          dtype
          flvector->device-vector
+         gather ;; noqa
          layout
          list*->device-csr-matrix ;; noqa
          list*->device-matrix
          list->device-vector
          nnz ;; noqa
          numel ;; noqa
+         select ;; noqa
          shape
          strides
          triplets->device-csr-matrix) ;; noqa

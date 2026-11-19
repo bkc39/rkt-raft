@@ -6,8 +6,11 @@
          (only-in "library.rkt" _rr-buffer _rr-buffer/null _rr-resources define-raft)
          (only-in "memory.rkt" buffer-allocator))
 
-(provide rr-array-contiguous
+(provide rr-array-compare
+         rr-array-contiguous
          rr-array-create
+         rr-array-gather
+         rr-array-select
          rr-buffer-read
          rr-buffer-ready
          rr-buffer-write)
@@ -26,6 +29,45 @@
 
 (define-raft rr-array-contiguous
   (_fun _rr-buffer _uint64 _rr-view-pointer _symbol _rr-view-pointer (out : (_ptr o _rr-buffer/null))
+        -> (status : _int)
+        -> (and (zero? status) out))
+  #:wrap buffer-allocator)
+
+(define-raft rr-array-gather
+  (_fun _rr-buffer
+        _uint64
+        _rr-view-pointer
+        _rr-buffer
+        _uint64
+        _rr-view-pointer
+        _rr-view-pointer
+        (out : (_ptr o _rr-buffer/null))
+        -> (status : _int)
+        -> (and (zero? status) out))
+  #:wrap buffer-allocator)
+
+(define-raft rr-array-select
+  (_fun _rr-buffer
+        _uint64
+        _rr-view-pointer
+        _rr-buffer
+        _uint64
+        _rr-view-pointer
+        _rr-view-pointer
+        (out : (_ptr o _rr-buffer/null))
+        -> (status : _int)
+        -> (and (zero? status) out))
+  #:wrap buffer-allocator)
+
+(define-raft rr-array-compare
+  (_fun _rr-buffer
+        _uint64
+        _rr-view-pointer
+        _symbol
+        (scalar : _host)
+        (_size = (host-bytes scalar))
+        _rr-view-pointer
+        (out : (_ptr o _rr-buffer/null))
         -> (status : _int)
         -> (and (zero? status) out))
   #:wrap buffer-allocator)

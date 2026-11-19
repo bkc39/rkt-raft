@@ -7,6 +7,7 @@
 #include <limits>
 #include <string>
 #include <type_traits>
+#include <utility>
 #include <vector>
 
 #include "detail/dispatch.hpp"
@@ -87,10 +88,19 @@ TEST(OpTable, ListsEachOpWithItsDtypesAndLayouts) {
   constexpr uint32_t all_four = 0xFU;
   constexpr uint32_t int32_and_int64 = 0xCU;
   constexpr uint32_t float32_and_float64 = 0x3U;
-  ASSERT_EQ(count, 3);
-  expect_op(table[0], "contiguous", all_four);
-  expect_op(table[1], "csr_indices", int32_and_int64);
-  expect_op(table[2], "csr_data", float32_and_float64);
+  const std::vector<std::pair<std::string, uint32_t>> expected{
+      {"contiguous", all_four},
+      {"csr_indices", int32_and_int64},
+      {"csr_data", float32_and_float64},
+      {"gather", all_four},
+      {"gather_indices", int32_and_int64},
+      {"select", all_four},
+      {"select_mask", int32_and_int64},
+      {"compare", all_four}};
+  ASSERT_EQ(count, static_cast<int32_t>(expected.size()));
+  for (std::size_t i = 0; i < expected.size(); ++i) {
+    expect_op(table[i], expected[i].first, expected[i].second);
+  }
 }
 
 TEST(DtypeTable, UnknownNamesAndCodesAreRefused) {

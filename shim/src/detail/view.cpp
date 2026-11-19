@@ -161,4 +161,21 @@ rr_view bind(const rr_buffer& buffer, uint64_t offset, const rr_view& desc) {
   return view;
 }
 
+void require_dtype_among(const char* part, int32_t dtype, int32_t first,
+                         int32_t second) {
+  if (dtype != first && dtype != second) {
+    throw logic_error(std::string(part) + ": expected " +
+                      raftrkt::dtype_name(first) + " or " +
+                      raftrkt::dtype_name(second) + ", got " +
+                      raftrkt::dtype_name(dtype));
+  }
+}
+
+std::string outside_message(const char* part, int64_t at, int64_t value,
+                            int64_t extent) {
+  return std::string(part) + ": entry " + std::to_string(at) + " is " +
+         std::to_string(value) + ", outside [0, " + std::to_string(extent) +
+         ")";
+}
+
 }  // namespace rr

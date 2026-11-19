@@ -16,21 +16,9 @@
                   list->device-vector
                   triplets->device-csr-matrix)
          (only-in "../private/csr.rkt" parts triplets)
-         (only-in "../private/python-env.rkt" run-twin test-twin))
+         (only-in "../private/python-env.rkt" decoded encoded run-twin test-twin))
 
 (define-runtime-path twin "../python/csr.py")
-
-(define (encoded x)
-  (cond
-    [(list? x) (map encoded x)]
-    [(and (flonum? x) (not (= x x))) "nan"]
-    [else x]))
-
-(define (decoded x)
-  (cond
-    [(list? x) (map decoded x)]
-    [(equal? x "nan") +nan.0]
-    [else x]))
 
 (define (dense-spec rows element-type)
   (hasheq 'kind "dense"

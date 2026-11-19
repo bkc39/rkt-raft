@@ -1,6 +1,7 @@
 #lang racket/base
 
-(require (only-in racket/string string-contains? string-join)
+(require (only-in racket/list append-map)
+         (only-in racket/string string-contains? string-join)
          (only-in "dtype.rkt" code->dtype dtype->code dtype-itemsize)
          (only-in "error.rkt" call/raft exn:fail:raft?)
          (only-in "foreign/array-api.rkt"
@@ -41,6 +42,7 @@
          read-all
          read-array
          release-array!
+         settled-arguments*
          settled-descriptor
          settled-view
          strides->layout
@@ -198,6 +200,12 @@
 (define (settled-descriptor who a)
   (await who a)
   (descriptor a))
+
+(define (settled-arguments who a)
+  (list (array-buffer-handle a) (device-array-offset a) (settled-descriptor who a)))
+
+(define (settled-arguments* who arrays)
+  (append-map (lambda (a) (settled-arguments who a)) arrays))
 
 (define (settled-view who a)
   (await who a)

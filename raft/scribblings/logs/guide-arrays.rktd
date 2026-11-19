@@ -122,6 +122,18 @@
   "#<device-vector float32[150] cuda:0 [2.0 1.0 1.0 ... 1.0 1.0 1.0]>\n")
  ""
  "")
+((define setosa (select X (compare labels '= 0))) (values "") "" "")
+((shape setosa) (values "'(50 4)\n") "" "")
+((define firsts (map (lambda (name) (index-of species name)) names))
+ (values "")
+ ""
+ "")
+(firsts (values "'(0 50 100)\n") "" "")
+((gather X (list->device-vector firsts #:dtype 'int32))
+ (values
+  "#<device-matrix float32[3×4] row-major cuda:0\n [[5.1 3.5 1.4 0.2]\n  [7.0 3.2 4.7 1.4]\n  [6.3 3.3 6.0 2.5]]>\n")
+ ""
+ "")
 ((define widths (for/flvector ((row (in-list rows))) (last row)))
  (values "")
  ""
@@ -223,7 +235,7 @@
 ((collect-garbage) (values "") "" "")
 ((define before (current-memory-use)) (values "") "" "")
 ((define scratch (device-matrix 1024 1024)) (values "") "" "")
-((quotient (- (current-memory-use) before) (* 1024 1024)) (values "4\n") "" "")
+((>= (- (current-memory-use) before) (* 4 1024 1024)) (values "#t\n") "" "")
 ((set! scratch #f) (values "") "" "")
 ((collect-garbage) (values "") "" "")
 ((< (- (current-memory-use) before) (* 1024 1024)) (values "#t\n") "" "")

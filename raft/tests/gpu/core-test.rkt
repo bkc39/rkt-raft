@@ -38,33 +38,36 @@
                              with-device-resources))
 
 (define array-names
-  '(contiguous contiguous?
-               csr-data
-               csr-indices
-               csr-indptr
-               device-array?
-               device-csr-matrix
-               device-csr-matrix->list*
-               device-csr-matrix->triplets
-               device-csr-matrix?
-               device-matrix
-               device-matrix->list*
-               device-matrix?
-               device-vector
-               device-vector->flvector
-               device-vector->list
-               device-vector?
-               dtype
-               flvector->device-vector
-               layout
-               list*->device-csr-matrix
-               list*->device-matrix
-               list->device-vector
-               nnz
-               numel
-               shape
-               strides
-               triplets->device-csr-matrix))
+  '(compare contiguous
+            contiguous?
+            csr-data
+            csr-indices
+            csr-indptr
+            device-array?
+            device-csr-matrix
+            device-csr-matrix->list*
+            device-csr-matrix->triplets
+            device-csr-matrix?
+            device-matrix
+            device-matrix->list*
+            device-matrix?
+            device-vector
+            device-vector->flvector
+            device-vector->list
+            device-vector?
+            dtype
+            flvector->device-vector
+            gather
+            layout
+            list*->device-csr-matrix
+            list*->device-matrix
+            list->device-vector
+            nnz
+            numel
+            select
+            shape
+            strides
+            triplets->device-csr-matrix))
 
 (define compat-names
   '(array->device-array bytes->device-vector

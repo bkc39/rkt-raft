@@ -25,7 +25,12 @@
   (check-equal? op-table
                 (hasheq 'contiguous (entry '(float32 float64 int32 int64))
                         'csr_indices (entry '(int32 int64))
-                        'csr_data (entry '(float32 float64)))))
+                        'csr_data (entry '(float32 float64))
+                        'gather (entry '(float32 float64 int32 int64))
+                        'gather_indices (entry '(int32 int64))
+                        'select (entry '(float32 float64 int32 int64))
+                        'select_mask (entry '(int32 int64))
+                        'compare (entry '(float32 float64 int32 int64)))))
 
 (test-case "the rr_view mirror has the C struct's size"
   (check-equal? rr-view-size 152))
