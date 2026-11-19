@@ -4,9 +4,7 @@
 
 #include <algorithm>
 #include <array>
-#include <chrono>
 #include <cstdint>
-#include <thread>
 
 #include "canary_fixture.hpp"
 #include "kmeans_canary.h"
@@ -15,21 +13,7 @@
 namespace kc::test {
 namespace {
 
-constexpr auto settle_budget = std::chrono::milliseconds(500);
-constexpr int holder_slot = 0;
-constexpr int buffer_slot = 1;
-constexpr int resources_slot = 2;
-
-bool settled() {
-  const auto start = std::chrono::steady_clock::now();
-  while (rr_releases_pending() != 0) {
-    if (std::chrono::steady_clock::now() - start > settle_budget) {
-      return false;
-    }
-    std::this_thread::yield();
-  }
-  return true;
-}
+enum class part { holder, buffer, resources };
 
 struct held {
   rr_resources* resources = nullptr;
@@ -68,32 +52,33 @@ held filled_and_adopted(const device_array& x, const device_array& labels) {
   return h;
 }
 
-void free_slot(const held& h, int slot) {
-  if (slot == holder_slot) {
-    rr_holder_free(h.holder);
-  } else if (slot == buffer_slot) {
-    rr_buffer_free(h.buffer);
-  } else {
-    rr_resources_free(h.resources);
+void free_part(const held& h, part p) {
+  switch (p) {
+    case part::holder:
+      rr_holder_free(h.holder);
+      return;
+    case part::buffer:
+      rr_buffer_free(h.buffer);
+      return;
+    case part::resources:
+      rr_resources_free(h.resources);
+      return;
   }
 }
 
 void expect_one_drop_after_the_last_owner(const device_array& x,
                                           const device_array& labels,
-                                          const std::array<int, 3>& order) {
+                                          const std::array<part, 3>& order) {
   const held h = filled_and_adopted(x, labels);
-  ASSERT_TRUE(settled());
+  ASSERT_TRUE(releases_settled());
   const uint64_t drops = kc_owner_drop_count();
-  bool holder_freed = false;
-  bool buffer_freed = false;
-  for (const int slot : order) {
-    free_slot(h, slot);
-    holder_freed = holder_freed || slot == holder_slot;
-    buffer_freed = buffer_freed || slot == buffer_slot;
-    ASSERT_TRUE(settled());
-    EXPECT_EQ(kc_owner_drop_count(),
-              drops + (holder_freed && buffer_freed ? 1 : 0))
-        << "order " << order[0] << order[1] << order[2] << " after " << slot;
+  for (auto step = order.begin(); step != order.end(); ++step) {
+    free_part(h, *step);
+    ASSERT_TRUE(releases_settled());
+    const bool owner_held = std::any_of(
+        step + 1, order.end(), [](part p) { return p != part::resources; });
+    EXPECT_EQ(kc_owner_drop_count(), drops + (owner_held ? 0 : 1))
+        << "step " << (step - order.begin());
   }
 }
 
@@ -103,9 +88,10 @@ TEST(Holder, AHolderFilledByTheCanaryReleasesItsOwnerOnceInEveryOrder) {
   device_array x(res.r, RR_DTYPE_FLOAT32, {samples, features});
   device_array labels(res.r, RR_DTYPE_INT32, {samples});
   ASSERT_EQ(blobs(res, x, labels), "accepted");
-  std::array<int, 3> order{holder_slot, buffer_slot, resources_slot};
+  std::array<part, 3> order{part::holder, part::buffer, part::resources};
   int orders = 0;
   do {
+    SCOPED_TRACE(orders);
     expect_one_drop_after_the_last_owner(x, labels, order);
     ++orders;
   } while (std::next_permutation(order.begin(), order.end()));

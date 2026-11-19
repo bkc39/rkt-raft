@@ -17,6 +17,7 @@
 #include "raftrkt/c_api.h"
 #include "raftrkt/deposit.hpp"
 #include "raftrkt/holder.h"
+#include "records.hpp"
 
 namespace rr::test::deposit {
 namespace {
@@ -239,20 +240,6 @@ constexpr std::size_t prechecking_fillers = 8;
 constexpr std::size_t prechecking_rounds = 200;
 constexpr auto prechecking_budget = std::chrono::seconds(2);
 
-struct dropped {
-  explicit dropped(int& drops) : drops_(&drops) {}
-  ~dropped() {
-    ++*drops_;
-  }
-  dropped(const dropped&) = delete;
-  dropped& operator=(const dropped&) = delete;
-  dropped(dropped&&) = delete;
-  dropped& operator=(dropped&&) = delete;
-
- private:
-  int* drops_;
-};
-
 struct precheck_race {
   std::array<int, prechecking_fillers> drops{};
   std::array<bool, prechecking_fillers> won{};
@@ -261,7 +248,7 @@ struct precheck_race {
 
 void prechecked_fill(const session& s, const std::atomic<bool>& go,
                      precheck_race& r, std::size_t f) {
-  auto o = std::make_unique<dropped>(r.drops.at(f));
+  auto o = std::make_unique<counted>(r.drops.at(f));
   while (!go.load(std::memory_order_acquire)) {
     std::this_thread::yield();
   }

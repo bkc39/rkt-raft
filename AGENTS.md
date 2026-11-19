@@ -897,7 +897,8 @@ always runs in full and records nothing.
 
 `nix flake check` runs sixteen checks: `shim` (build plus both gtest
 binaries), `shim-sanitizers` (both gtest binaries under ASAN and UBSAN),
-`c-headers` (the umbrella header compiled as C11 with `-Werror`),
+`c-headers` (the umbrella header and `holder.h`, each compiled alone as
+C11 with `-Werror`),
 `clang-tidy`, `kmeans-canary` (the canary's build against `packages.raft-dev`
 and `packages.rapids`, plus its gtests), `clang-tidy-canary`, `line-count`
 (500 lines per C/C++/CUDA file under `shim/` and `downstream/`), `formatting`
@@ -927,7 +928,7 @@ gates' own tests), `no-syntax-rule`, `no-raw-malloc`,
 | grep gates | `define-syntax-rule`/`syntax-rules`; raw `malloc`/`free` outside `resource.rkt` (`raft/`, `downstream/`, `lint/`, `scripts/`) | flake checks; CI "Format and lint"; pre-push | rules 6 and 7 |
 | compiler warnings | g++: `-Wall -Wextra -Wpedantic -Werror`; nvcc: `-Werror=all-warnings -Xcompiler=-Wall,-Wextra,-Werror` | every shim build | by hand |
 | clang-tidy (`shim/.clang-tidy`, `downstream/kmeans-canary/.clang-tidy`) | every `.cpp` under `shim/src`, `shim/tests` and the canary's `src` and `tests`, warnings as errors: `bugprone-*`, `performance-*`, `readability-*` except `identifier-length` (below), `modernize-use-nullptr`, `modernize-use-override` | flake checks `clang-tidy`, `clang-tidy-canary` | by hand |
-| `c-headers`, `line-count` | the umbrella header as C11; 500 lines per C/C++/CUDA file | flake checks | by hand |
+| `c-headers`, `line-count` | the umbrella header and `holder.h`, each alone, as C11; 500 lines per C/C++/CUDA file | flake checks | by hand |
 | ASAN and UBSAN (`-DRAFTRKT_SANITIZE=ON`) | host memory errors, leaks and undefined behaviour in both gtest binaries (not signed overflow: the nix stdenv's `strictoverflow` hardening builds with `-fno-strict-overflow`), and in every death-test child; the leak check runs only in a child that reaches normal exit, not one whose drain skipped (its exit ends in `_exit`) or that calls `_exit`/`std::_Exit`; the exit and deposit-job death tests' children send ASan and LSan reports to stdout, UBSan's to stderr, and fail by exit status | flake check `shim-sanitizers` (GPU cases SKIP); the GPU suite (GPU cases run); gate `sanitizers` | by hand |
 | release gates (`scripts/release/gates.sh`) | the artifact: exactly the shipped files, each library an x86-64 ELF64 shared object with no `PT_INTERP`, `RUNPATH` `$ORIGIN` only, no `/nix/store`, `GLIBC_` ≤ 2.28, `GLIBCXX_` ≤ 3.4.25, the shim's `NEEDED`, the companions' `NEEDED`, every architecture in each fatbin module and as many modules as `.nvFatBinSegment` bytes / 24, the ABI version against `library.rkt`, `SHA256SUMS` | `release.yml`; flake check `release-gates` (`scripts/release/gates-test.sh`) | by hand |
 | catalog test (`scripts/release/catalog-test.sh`, `catalog-check.rkt`) | `raco pkg install raft` from a directory catalog, no GPU or nix: libraries mapped from `raft-x86_64-linux` and equal to the manifest, cuBLAS mapped once from the directory the pre-install hook fetched (the cached, verified wheel served by `file://`, no `LD_LIBRARY_PATH`), `racket -l- raft/fetch-cuda` finding it, one `librmm.so`; with the package removed, the load message, `raco setup --pkgs raft` exiting 0 and printing it; installation scope offline (a warning, exit 0, the missing-cuBLAS message), then fetched into the share dir by `raco setup` | `release.yml` job `native-package`; `scripts/release.sh catalog-test` | by hand |
@@ -1930,7 +1931,8 @@ since cuSPARSE's error string for it is only "out of memory"). The frozen rule i
   acquire load of `state` and one pointer compare, no claim, no CUDA call;
   `deposit`'s claim and publish still refuse a fill or close that comes
   between. No Racket path hands an entry a non-open record, so it guards a
-  shim's own second deposit and C callers.
+  shim's own second deposit and C callers, and a deposit on other resources,
+  which Racket can pass: that refusal then comes before any input's.
 - **It refuses a record on other resources too** (Q-B2-4), so it agrees
   with `deposit` on every refusal before the owner check;
   `deposit_precheck_test.cpp` pins the agreement over every state and

@@ -180,11 +180,10 @@ inline void unclaim(rr_deposit& record) noexcept {
       std::memory_order_relaxed));
 }
 
-inline void require_on_handle(const char* who, const rr_deposit& record,
+inline void require_on_handle(const std::string& who, const rr_deposit& record,
                               const raft::handle_t& handle) {
   if (record.handle != static_cast<const void*>(&handle)) {
-    throw logic_error(std::string(who) +
-                      ": on resources other than the call's");
+    throw logic_error(who + ": on resources other than the call's");
   }
 }
 
@@ -193,7 +192,7 @@ std::array<std::size_t, RR_MAX_REGIONS> checked_bytes(
     const std::string& who, const rr_deposit& record,
     const raft::handle_t& handle, const std::unique_ptr<Owner>& owner,
     std::initializer_list<rr_view> regions) {
-  require_on_handle(who.c_str(), record, handle);
+  require_on_handle(who, record, handle);
   if (!owner) {
     throw logic_error(who + ": no owner");
   }

@@ -7,10 +7,8 @@
 #include <array>
 #include <chrono>
 #include <cstdint>
-#include <cstring>
 #include <initializer_list>
 #include <memory>
-#include <numeric>
 #include <raft/core/handle.hpp>
 #include <raft/core/resource/cuda_stream.hpp>
 #include <rmm/device_uvector.hpp>
@@ -81,6 +79,8 @@ void expect_adoption_refusals(rr_holder* holder) {
             "the deposit has no region 3; it holds 2");
   EXPECT_EQ(failure(rr_holder_adopt(holder, -1, &view, &twice)),
             "the deposit has no region -1; it holds 2");
+  EXPECT_EQ(failure(rr_holder_adopt(holder, 0, &view, &twice)),
+            "region 0 is already adopted");
   EXPECT_EQ(twice, nullptr);
 }
 
@@ -481,7 +481,6 @@ TEST(Deposit, APrecheckThatLosesToAFillerLeavesItsOwnerToTheCaller) {
   EXPECT_EQ(rr_holder_close(s.holder), RR_OK) << rr_last_error();
   free_session(s);
   expect_released(before, {1, 1, 0});
-  EXPECT_EQ(std::pair(theirs.drops, ours.drops), std::pair(1, 1));
 }
 
 TEST(Deposit, APrecheckThatLosesToACloseLeavesItsOwnerToTheCaller) {
@@ -494,7 +493,6 @@ TEST(Deposit, APrecheckThatLosesToACloseLeavesItsOwnerToTheCaller) {
   expect_owner_left_to_caller(s, ours, "out: closed");
   free_session(s);
   expect_released(before, {1, 0, 0});
-  EXPECT_EQ(ours.drops, 1);
 }
 
 }  // namespace

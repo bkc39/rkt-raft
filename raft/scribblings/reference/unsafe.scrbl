@@ -909,7 +909,8 @@ and its contents are complete when the call returns.
        raft::handle_t& handle, std::unique_ptr<Owner>&& owner,
        std::initializer_list<rr_view> regions)}: refuses, in order, a
        @tt{NULL} record, a record that is not open (@tt{"out: being filled"}
-       while another filler holds it, @tt{"out: already filled"},
+       while another filler holds it and may yet reopen it,
+       @tt{"out: already filled"},
        @tt{"out: closed"}), a record on other resources than
        @tt{handle}'s, no owner, more than 8 regions, a region of another
        rank or element type, with a negative extent, a byte size that
@@ -928,25 +929,20 @@ and its contents are complete when the call returns.
        name, const raft::handle_t& handle)}: throws what @tt{deposit} would
        throw on the same record before its owner check, in the same order: a
        @tt{NULL} record, a record that is not open, a record on other
-       resources than @tt{handle}'s. It reads @tt{state} once, writes
-       nothing and makes no CUDA call. It is advisory: it claims nothing, and
-       @tt{deposit} still claims atomically, so a fill or a close between the
-       two is refused there. An entry point that deposits calls it first, so
-       an unusable record is refused before any work. Racket hands every
-       call an open record; the check is for a shim that deposits twice into
-       one record and for C callers.}]
+       resources than @tt{handle}'s. It is advisory: it claims nothing, and
+       @tt{deposit} still claims atomically. Called first, it refuses a
+       deposit on other resources, the one of these a Racket caller can
+       pass, before any input.}]
 
 @listing["C++"]|{
+const raft::handle_t& handle = raftrkt::handle_of(raw_handle);
+raftrkt::require_open(out, "out", handle);
+...
 auto owner = std::make_unique<members<T>>(handle, m, d);
 // The regions read owner before deposit takes it: std::move is only a cast.
 raftrkt::deposit(out, "out", handle, std::move(owner),
                  {raftrkt::region(owner->indices),
                   raftrkt::region(owner->rows.data(), m, d, raftrkt::layout::row_major)});
-}|
-
-@listing["C++"]|{
-raftrkt::require_open(out, "out", handle);
-auto owner = std::make_unique<members<T>>(handle, m, d);
 }|
 
 @bold{@tt{raftrkt/csr.hpp}.} Header-only host C++, for a @tech{CSR matrix}
@@ -1012,8 +1008,9 @@ anything else does not compile (@tt{raftrkt::job_parameter}).
 @bold{@tt{raftrkt/holder.h}.} The holder entry points, for a downstream
 library's tests, which link @tt{libraftrkt}; a binding uses
 @racket[with-deposits] instead. Not frozen, and not in @tt{c_api.h}. Each
-sets @tt{*out} to its empty value first and answers @tt{RR_OK} or
-@tt{RR_ERROR}:
+answers @tt{RR_OK} or @tt{RR_ERROR}. Each but @tt{rr_holder_close} first
+sets @tt{*out} to its empty value (@tt{NULL}, or 0 for a count), and
+@tt{rr_holder_adopt} then zeroes @tt{*view}:
 
 @itemlist[
  @item{@tt{int rr_holder_create(rr_resources* resources, rr_holder** out)}:
@@ -1032,10 +1029,15 @@ sets @tt{*out} to its empty value first and answers @tt{RR_OK} or
        open"}.}
  @item{@tt{int rr_holder_adopt(rr_holder* holder, int32_t index, rr_view*
        view, rr_buffer** out)}: region @tt{index} as a new @tt{rr_buffer}
-       sharing the owner, each region once; a refusal forgets every adoption
-       of the holder.}]
+       sharing the owner, each region once. A refused count (an open
+       holder, no owner, an unusable region) or a buffer that cannot be made
+       forgets every adoption of the holder, so a retry starts again; a
+       @tt{NULL} argument, an index out of range (@tt{"the deposit has no
+       region 3; it holds 2"}) and a region already adopted (@tt{"region 0
+       is already adopted"}) leave them as they were.}]
 
-@tt{rr_holder_free} (@tt{memory.h}) drops the caller's reference. The
+A holder is freed with @tt{rr_holder_free} (@tt{memory.h}, which
+@tt{holder.h} includes), which drops the caller's reference. The
 holder, its adopted buffers and the resources may be freed in any order: the
 owner's @tt{release} runs once, with its handle alive, after the last of the
 holder and its buffers, and never for a holder left unfilled.

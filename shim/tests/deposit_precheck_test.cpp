@@ -12,35 +12,18 @@
 #include "raftrkt/deposit.h"
 #include "raftrkt/deposit.hpp"
 #include "raftrkt/error.hpp"
+#include "records.hpp"
 
 namespace {
+
+using rr::test::counted;
 
 constexpr int32_t unknown_state = 7;
 constexpr int32_t stale_count = 5;
 constexpr int32_t stale_reserved = 11;
 
-struct counted {
-  explicit counted(int& drops) : drops_(&drops) {}
-  ~counted() {
-    ++*drops_;
-  }
-  counted(const counted&) = delete;
-  counted& operator=(const counted&) = delete;
-  counted(counted&&) = delete;
-  counted& operator=(counted&&) = delete;
-
- private:
-  int* drops_;
-};
-
 rr_deposit record_in(int32_t state, const raft::handle_t& on) {
-  rr_deposit record{};
-  record.handle = &on;
-  record.device = 0;
-  record.state = state;
-  record.count = stale_count;
-  record.reserved = stale_reserved;
-  return record;
+  return rr::test::stack_record(on, state, {stale_count, stale_reserved});
 }
 
 std::string prechecked(const rr_deposit* into, const raft::handle_t& handle) {
