@@ -157,9 +157,9 @@
                       (probe-hold! (resources-handle 'hold other))
                       (lambda (_) (probe-release!))])
         (check-true held "the probe queued its hold")
-        (define worker (thread (lambda () (set-box! result (call)))))
-        (check-false (sync/timeout 1 worker) "the call waits while the input's stream is held")
-        worker))
+        (define caller (thread (lambda () (set-box! result (call)))))
+        (check-false (sync/timeout 1 caller) "the call waits while the input's stream is held")
+        caller))
     (check-not-false (sync/timeout 10 worker))
     (check-equal? (device-vector->list (unbox result)) expected)))
 
