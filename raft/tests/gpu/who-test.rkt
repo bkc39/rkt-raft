@@ -2,9 +2,9 @@
 
 (require (only-in racket/match match-define)
          (only-in "../../array.rkt" device-vector)
-         (only-in "../../core.rkt" device-resources with-device-resources)
          (only-in "../private/gpu.rkt" test-gpu)
-         (only-in "../private/raft-error.rkt" check-raft-error))
+         (only-in "../private/raft-error.rkt" check-raft-error)
+         (only-in "../private/resources.rkt" released-resources))
 
 (define-namespace-anchor here)
 
@@ -16,9 +16,6 @@
 
 (define (run form)
   (eval form namespace))
-
-(define (released)
-  (with-device-resources ([r (device-resources)]) r))
 
 (define minimal-calls
   '((device-matrix 2 2) (device-vector 2)
@@ -44,7 +41,7 @@
       form))
 
 (test-gpu "W2: every upload on released resources is refused under #:who, or its own name"
-  (define r (released))
+  (define r (released-resources))
   (for* ([form (in-list minimal-calls)]
          [who (in-list '(caller #f))])
     (check-raft-error 'logic

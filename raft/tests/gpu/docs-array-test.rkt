@@ -33,7 +33,8 @@
                   with-device-resources)
          (only-in "../private/collect.rkt" drain-finalizers!)
          (only-in "../private/gpu.rkt" test-gpu)
-         (only-in "../private/raft-error.rkt" check-raft-error))
+         (only-in "../private/raft-error.rkt" check-raft-error)
+         (only-in "../private/resources.rkt" released-resources))
 
 (define (printed v)
   (format "~a" v))
@@ -159,7 +160,7 @@
    (lambda () (device-matrix 2 2 #:dtype 'float16)))
   (define (centroid-matrix k data #:resources [r (current-device-resources)])
     (device-matrix k (second (shape data)) #:resources r #:who 'centroid-matrix))
-  (define finished (with-device-resources ([r (device-resources)]) r))
+  (define finished (released-resources))
   (check-raft-error 'logic
                     "centroid-matrix: the device resources on device 0 were released"
                     (lambda () (centroid-matrix 3 X #:resources finished))))
