@@ -901,7 +901,7 @@ recorded prints `resyntax: unchanged since a green run` and exits 0;
 `RESYNTAX_NO_CACHE=1` forces the analysis. An explicit base, as CI passes,
 always runs in full and records nothing.
 
-`nix flake check` runs sixteen checks: `shim` (build plus both gtest
+`nix flake check` runs seventeen checks: `shim` (build plus both gtest
 binaries), `shim-sanitizers` (both gtest binaries under ASAN and UBSAN),
 `c-headers` (the umbrella header and `holder.h`, each compiled alone as
 C11 with `-Werror`),
@@ -910,7 +910,8 @@ and `packages.rapids`, plus its gtests), `clang-tidy-canary`, `line-count`
 (500 lines per C/C++/CUDA file under `shim/` and `downstream/`), `formatting`
 (treefmt), `racket` (the package build, `raco setup --check-pkg-deps
 --unused-pkg-deps`, `raco test raft`, the manual compiled but not rendered,
-the binding census), `racket-review`, `racket-version` (at least 9.3),
+the binding census), `racket-review`, `docs-replay` (the manual rendered
+from `raft/scribblings/logs` with no GPU), `racket-version` (at least 9.3),
 `release-gates` (the release pins against the flake, and the release
 gates' own tests), `no-syntax-rule`, `no-raw-malloc`,
 `bounded-death-tests` and `gpu-suite-signals`.

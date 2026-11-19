@@ -11,10 +11,6 @@ raco pkg install raft
 racket -l racket/base -l raft -e '(raft-version)'
 ```
 
-A catalog install does not yet fetch the native libraries
-([#24](https://github.com/bkc39/rkt-raft/issues/24)); until it does, use the
-development shell below.
-
 - The manual is `raft/scribblings/raft.scrbl`: a guide (Getting started,
   Concepts) and a reference.
 - The approved plan is [`plans/scoping-plan.md`](plans/scoping-plan.md).
