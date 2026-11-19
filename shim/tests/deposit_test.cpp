@@ -444,12 +444,29 @@ std::string refused_after_precheck(const session& s,
   return "no refusal";
 }
 
+std::string precheck_refusal(const session& s) {
+  try {
+    raftrkt::require_open(s.record, "out", *s.handle);
+  } catch (const raftrkt::logic_error& e) {
+    return e.what();
+  }
+  return "no refusal";
+}
+
 void expect_owner_left_to_caller(const session& s, tally& ours,
                                  const std::string& message) {
-  auto o = prepared(s, ours);
-  EXPECT_EQ(refused_after_precheck(s, o), message);
-  EXPECT_NE(o, nullptr);
-  EXPECT_EQ(ours.drops, 0);
+  {
+    auto o = prepared(s, ours);
+    EXPECT_EQ(refused_after_precheck(s, o), message);
+    EXPECT_NE(o, nullptr);
+    EXPECT_EQ(ours.drops, 0);
+  }
+  EXPECT_EQ(ours.drops, 1);
+}
+
+void free_session(const session& s) {
+  rr_holder_free(s.holder);
+  rr_resources_free(s.resources);
 }
 
 TEST(Deposit, APrecheckThatLosesToAFillerLeavesItsOwnerToTheCaller) {
@@ -458,16 +475,13 @@ TEST(Deposit, APrecheckThatLosesToAFillerLeavesItsOwnerToTheCaller) {
   tally theirs;
   tally ours;
   session s = open_session();
-  EXPECT_NO_THROW(raftrkt::require_open(s.record, "out", *s.handle));
+  EXPECT_EQ(precheck_refusal(s), "no refusal");
   fill(s, theirs);
   expect_owner_left_to_caller(s, ours, "out: already filled");
-  EXPECT_EQ(ours.drops, 1);
   EXPECT_EQ(rr_holder_close(s.holder), RR_OK) << rr_last_error();
-  rr_holder_free(s.holder);
-  rr_resources_free(s.resources);
+  free_session(s);
   expect_released(before, {1, 1, 0});
-  EXPECT_EQ(theirs.drops, 1);
-  EXPECT_EQ(ours.drops, 1);
+  EXPECT_EQ(std::pair(theirs.drops, ours.drops), std::pair(1, 1));
 }
 
 TEST(Deposit, APrecheckThatLosesToACloseLeavesItsOwnerToTheCaller) {
@@ -475,12 +489,10 @@ TEST(Deposit, APrecheckThatLosesToACloseLeavesItsOwnerToTheCaller) {
   const counters before;
   tally ours;
   session s = open_session();
-  EXPECT_NO_THROW(raftrkt::require_open(s.record, "out", *s.handle));
+  EXPECT_EQ(precheck_refusal(s), "no refusal");
   EXPECT_EQ(rr_holder_close(s.holder), RR_OK) << rr_last_error();
   expect_owner_left_to_caller(s, ours, "out: closed");
-  EXPECT_EQ(ours.drops, 1);
-  rr_holder_free(s.holder);
-  rr_resources_free(s.resources);
+  free_session(s);
   expect_released(before, {1, 0, 0});
   EXPECT_EQ(ours.drops, 1);
 }

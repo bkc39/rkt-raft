@@ -33,22 +33,23 @@ bool settled() {
 
 struct held {
   rr_resources* resources = nullptr;
+  void* handle = nullptr;
   rr_holder* holder = nullptr;
+  rr_deposit* record = nullptr;
   rr_buffer* buffer = nullptr;
 };
 
-held filled_and_adopted(const device_array& x, const device_array& labels) {
+held opened() {
   held h;
   EXPECT_EQ(rr_resources_create(0, &h.resources), RR_OK) << rr_last_error();
-  void* handle = nullptr;
-  EXPECT_EQ(rr_resources_handle(h.resources, &handle), RR_OK)
+  EXPECT_EQ(rr_resources_handle(h.resources, &h.handle), RR_OK)
       << rr_last_error();
   EXPECT_EQ(rr_holder_create(h.resources, &h.holder), RR_OK) << rr_last_error();
-  rr_deposit* record = nullptr;
-  EXPECT_EQ(rr_holder_record(h.holder, &record), RR_OK) << rr_last_error();
-  EXPECT_EQ(
-      outcome(kc_cluster_members(handle, &x.view, &labels.view, 0, record)),
-      "accepted");
+  EXPECT_EQ(rr_holder_record(h.holder, &h.record), RR_OK) << rr_last_error();
+  return h;
+}
+
+void closed_and_adopted(held& h) {
   EXPECT_EQ(rr_holder_close(h.holder), RR_OK) << rr_last_error();
   int32_t count = -1;
   EXPECT_EQ(rr_holder_count(h.holder, &count), RR_OK) << rr_last_error();
@@ -56,6 +57,14 @@ held filled_and_adopted(const device_array& x, const device_array& labels) {
   rr_view view{};
   EXPECT_EQ(rr_holder_adopt(h.holder, 0, &view, &h.buffer), RR_OK)
       << rr_last_error();
+}
+
+held filled_and_adopted(const device_array& x, const device_array& labels) {
+  held h = opened();
+  EXPECT_EQ(
+      outcome(kc_cluster_members(h.handle, &x.view, &labels.view, 0, h.record)),
+      "accepted");
+  closed_and_adopted(h);
   return h;
 }
 

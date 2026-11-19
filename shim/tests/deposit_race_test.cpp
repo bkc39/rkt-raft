@@ -275,18 +275,23 @@ void prechecked_fill(const session& s, const std::atomic<bool>& go,
   }
 }
 
+bool expect_filler(const precheck_race& r, std::size_t f) {
+  if (r.won.at(f)) {
+    EXPECT_EQ(r.drops.at(f), 0);
+    return true;
+  }
+  EXPECT_EQ(r.drops.at(f), 1);
+  const std::string& refusal = r.refusals.at(f);
+  EXPECT_TRUE(refusal == "out: being filled" ||
+              refusal == "out: already filled")
+      << refusal;
+  return false;
+}
+
 void expect_one_prechecked_winner(const precheck_race& r) {
   int wins = 0;
   for (std::size_t f = 0; f < prechecking_fillers; ++f) {
-    if (r.won.at(f)) {
-      ++wins;
-      EXPECT_EQ(r.drops.at(f), 0);
-    } else {
-      EXPECT_EQ(r.drops.at(f), 1);
-      EXPECT_TRUE(r.refusals.at(f) == "out: being filled" ||
-                  r.refusals.at(f) == "out: already filled")
-          << r.refusals.at(f);
-    }
+    wins += expect_filler(r, f) ? 1 : 0;
   }
   EXPECT_EQ(wins, 1);
 }

@@ -118,6 +118,15 @@ TEST(DepositPrecheck, ARefusalNamesTheCallersArgument) {
   EXPECT_EQ(message, "centroids: closed");
 }
 
+void expect_agreement(rr_deposit checked, const raft::handle_t& handle) {
+  rr_deposit filled = checked;
+  const std::string pre = prechecked(&checked, handle);
+  const filling oracle = deposited(&filled, handle);
+  const bool own = checked.handle == &handle;
+  EXPECT_EQ(pre, oracle.message) << checked.state << " own " << own;
+  EXPECT_EQ(oracle.drops, 1) << checked.state << " own " << own;
+}
+
 TEST(DepositPrecheck, RefusesExactlyWhatDepositRefusesBeforeItsOwnerCheck) {
   const raft::handle_t handle;
   const raft::handle_t other;
@@ -127,12 +136,7 @@ TEST(DepositPrecheck, RefusesExactlyWhatDepositRefusesBeforeItsOwnerCheck) {
   std::size_t cases = 0;
   for (const int32_t state : states) {
     for (const bool own_handle : {true, false}) {
-      rr_deposit checked = record_in(state, own_handle ? handle : other);
-      rr_deposit filled = checked;
-      const std::string pre = prechecked(&checked, handle);
-      const filling oracle = deposited(&filled, handle);
-      EXPECT_EQ(pre, oracle.message) << state << " own " << own_handle;
-      EXPECT_EQ(oracle.drops, 1) << state << " own " << own_handle;
+      expect_agreement(record_in(state, own_handle ? handle : other), handle);
       ++cases;
     }
   }
