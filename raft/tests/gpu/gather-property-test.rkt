@@ -4,6 +4,8 @@
          (only-in racket/match match match-define)
          (only-in racket/math nan?)
          (only-in rackunit check-equal? check-false check-true)
+         ;; whole-module: it also provides syntax/parse at phase 1
+         syntax/parse/define
          (only-in "../../main.rkt"
                   compare
                   contiguous?
@@ -29,11 +31,7 @@
                   spec-length
                   taken
                   upload)
-         (only-in "../private/gpu.rkt" test-gpu)
-         ;; whole-module: it also provides syntax/parse at phase 1
-         syntax/parse/define)
-
-(define cases 200)
+         (only-in "../private/gpu.rkt" test-gpu))
 
 (define (index-vector spec)
   (match-define (list element-type is) spec)
@@ -56,17 +54,13 @@
     [(list _) (contents a)]
     [_ (append* (contents a))]))
 
-(define (for-cases check)
-  (define state (gather-state))
-  (for ([_ (in-range cases)])
-    (check state)))
-
-(define-syntax-parse-rule (define-law name:str (state:id) body:expr ...+)
+(define-syntax-parse-rule (test-law name:str (state:id) body:expr ...+)
   (test-gpu name
-    (for-cases (lambda (state)
-                 body ...))))
+    (define state (gather-state))
+    (for ([_ (in-range 200)])
+      body ...)))
 
-(define-law "law 1: gathering a vector takes its elements at the indices, in order" (state)
+(test-law "law 1: gathering a vector takes its elements at the indices, in order" (state)
   (define spec (random-spec state 1))
   (match-define (list element-type _ _ xs) spec)
   (match-define (and index-spec (list _ is)) (random-indices state (length xs)))
@@ -76,7 +70,7 @@
   (check-equal? (dtype r) element-type label)
   (check-equal? (shape r) (list (length is)) label))
 
-(define-law "law 2: gathering a matrix takes its rows at the indices, in the matrix's layout" (state)
+(test-law "law 2: gathering a matrix takes its rows at the indices, in the matrix's layout" (state)
   (define spec (random-spec state 2))
   (match-define (list element-type _ (list n cols) rows) spec)
   (match-define (and index-spec (list _ is)) (random-indices state n))
@@ -89,7 +83,7 @@
   (check-true (contiguous? r #:layout (layout M)) label)
   (check-equal? (strides r) (canonical-strides (layout M) (shape r)) label))
 
-(define-law "law 3: gathering every index in order copies the array, in both index dtypes" (state)
+(test-law "law 3: gathering every index in order copies the array, in both index dtypes" (state)
   (define spec (random-spec state))
   (define a (upload spec))
   (for ([index-type (in-list '(int32 int64))])
@@ -97,7 +91,7 @@
     (check-equal? (summary r) (summary a) (format "~s by ~a" spec index-type))
     (check-false (eq? (device-array-buffer r) (device-array-buffer a)))))
 
-(define-law "law 4: a gather of a gather is a gather by the gathered indices" (state)
+(test-law "law 4: a gather of a gather is a gather by the gathered indices" (state)
   (define spec (random-spec state))
   (define a (upload spec))
   (match-define (and I-spec (list _ is)) (random-indices state (spec-length spec)))
@@ -108,7 +102,7 @@
                 (contents (gather a (gather I J)))
                 (format "~s by ~s then ~s" spec I-spec J-spec)))
 
-(define-law "law 5: select keeps the elements or rows where the mask is not zero, in order" (state)
+(test-law "law 5: select keeps the elements or rows where the mask is not zero, in order" (state)
   (define spec (random-spec state))
   (match-define (list _ _ (cons n _) items) spec)
   (match-define (and mask-spec (list _ m)) (random-mask state n))
@@ -117,7 +111,7 @@
   (check-equal? (contents r) (kept items m) label)
   (check-equal? (extent r) (length (nonzero-positions m)) label))
 
-(define-law "law 6: an all-ones mask copies the array and an all-zero mask keeps nothing" (state)
+(test-law "law 6: an all-ones mask copies the array and an all-zero mask keeps nothing" (state)
   (define spec (random-spec state))
   (define n (spec-length spec))
   (define a (upload spec))
@@ -130,7 +124,7 @@
   (check-equal? (shape zeros) (cons 0 (cdr (shape a))) (format "~s" spec))
   (check-equal? (dtype zeros) (dtype a)))
 
-(define-law "law 7: select is a gather of the mask's nonzero positions" (state)
+(test-law "law 7: select is a gather of the mask's nonzero positions" (state)
   (define spec (random-spec state))
   (define a (upload spec))
   (match-define (and mask-spec (list _ m)) (random-mask state (spec-length spec)))
@@ -142,7 +136,7 @@
 (define (column rows j)
   (map (lambda (row) (list-ref row j)) rows))
 
-(define-law "law 8: a matrix's rows are taken as its columns' elements are, column by column" (state)
+(test-law "law 8: a matrix's rows are taken as its columns' elements are, column by column" (state)
   (define spec (random-spec state 2))
   (match-define (list element-type _ (list n cols) rows) spec)
   (define M (upload spec))
@@ -155,7 +149,7 @@
     (check-equal? (column by-index j) (contents (gather v I)) (format "~s at ~a" spec j))
     (check-equal? (column by-mask j) (contents (select v mask)) (format "~s at ~a" spec j))))
 
-(define-law "law 9: select is idempotent, and a mask and its zeros partition the rows" (state)
+(test-law "law 9: select is idempotent, and a mask and its zeros partition the rows" (state)
   (define spec (random-spec state))
   (define a (upload spec))
   (define mask (index-vector (random-mask state (spec-length spec))))
@@ -168,7 +162,7 @@
 
 (define comparisons (hasheq '= = '< < '<= <= '> > '>= >=))
 
-(define-law "law 10: compare gives 1 where the element compares true to the converted scalar" (state)
+(test-law "law 10: compare gives 1 where the element compares true to the converted scalar" (state)
   (define spec (random-spec state))
   (match-define (list element-type _ _ _) spec)
   (define op (pick state (vector '= '< '<= '> '>=)))
@@ -181,7 +175,7 @@
   (check-equal? (contents r) (elementwise (lambda (e) (if (holds? e x*) 1 0)) spec) label)
   (check-equal? (list (dtype r) (shape r) (strides r)) (list 'int32 (shape a) (strides a)) label))
 
-(define-law "law 11: < and >=, and > and <=, are complements except at NaN" (state)
+(test-law "law 11: < and >=, and > and <=, are complements except at NaN" (state)
   (define spec (random-spec state))
   (match-define (list element-type _ _ _) spec)
   (define x (random-threshold state element-type))

@@ -31,3 +31,19 @@
                                                (define forms
                                                  (list `#& ,x `#hash((a . ,y)) `#s(p ,z)))))
                 '()))
+
+(test-case "each test-law body is its own scope, with its state bound in it"
+  (define (law name)
+    `(test-law ,name (state)
+       (define x (random 2 state))
+       (list x)))
+  (check-equal? (problems-in (list (law "one") (law "two"))) '()))
+
+(test-case "a file-local test-law is used by its forms"
+  (check-equal? (problems-in '((require syntax/parse/define)
+                               (define-syntax-parse-rule (test-law name:str (state:id) body:expr ...+)
+                                 (let ([state name])
+                                   body ...))
+                               (test-law "one" (state)
+                                 (string-length state))))
+                '()))
