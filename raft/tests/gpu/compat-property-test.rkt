@@ -4,15 +4,8 @@
          (only-in racket/match match-define)
          (only-in rackunit check-equal? check-true)
          (only-in "../../compat.rkt" vector*->device-matrix)
-         (only-in "../../main.rkt"
-                  contiguous?
-                  device-matrix->list*
-                  dtype
-                  list*->device-matrix
-                  list->device-vector
-                  shape
-                  strides)
-         (only-in "../private/arrays.rkt" storage)
+         (only-in "../../main.rkt" contiguous? dtype list*->device-matrix list->device-vector shape)
+         (only-in "../private/arrays.rkt" facts storage)
          (only-in "../private/gpu.rkt" test-gpu)
          (only-in "../private/representations.rkt"
                   converted
@@ -117,9 +110,6 @@
 (define row-uploads
   `((list* ,values ,list*->device-matrix) (vector* ,rows->vector* ,vector*->device-matrix)))
 
-(define (seen a)
-  (list (shape a) (strides a) (dtype a) (device-matrix->list* a)))
-
 (test-gpu "Z2: an agreeing #:cols is the identity, and every shape it sends is (r c)"
   (for* ([upload (in-list row-uploads)]
          [d (in-list all-dtypes)]
@@ -131,8 +121,8 @@
     (define label (format "~a ~a ~a ~a" name d order extent))
     (define sent (send data #:cols cols #:dtype d #:layout order))
     (check-equal? (shape sent) extent label)
-    (check-equal? (seen sent)
+    (check-equal? (facts sent)
                   (if (zero? rows)
-                      (list extent '(0 0) d '())
-                      (seen (send data #:dtype d #:layout order)))
+                      (list extent '(0 0) d 'row-major #t #t '())
+                      (facts (send data #:dtype d #:layout order)))
                   label)))

@@ -24,20 +24,16 @@
                   resources-sync!
                   with-device-resources)
          (only-in "../../private/foreign/memory.rkt" resources-drop-count)
+         (only-in "../private/arrays.rkt" printed)
          (only-in "../private/collect.rkt" drain-finalizers! releases-settled?)
          (only-in "../private/gpu.rkt" test-gpu)
-         (only-in "../private/raft-error.rkt" check-raft-error))
-
-(define (printed v)
-  (format "~a" v))
+         (only-in "../private/raft-error.rkt" check-raft-error)
+         (only-in "../private/resources.rkt" released-resources))
 
 (define released-message "resources-sync!: the device resources on device 0 were released")
 
 (define (missing-device-message n)
   (format "device-resources: no device ~a among ~a" n (device-count)))
-
-(define (released-resources)
-  (with-device-resources ([r (device-resources)]) r))
 
 (test-gpu "getting started: the driver sees a GPU"
   (check-pred exact-positive-integer? (device-count)))

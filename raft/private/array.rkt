@@ -1,6 +1,7 @@
 #lang racket/base
 
 (require (only-in ffi/unsafe/atomic call-as-atomic)
+         (only-in racket/list append-map)
          (only-in racket/string string-contains? string-join)
          (only-in "dtype.rkt" code->dtype dtype->code dtype-itemsize)
          (only-in "error.rkt" call/raft exn:fail:raft?)
@@ -47,7 +48,7 @@
          release-array!
          release-view!
          released-array?
-         settled-arguments
+         settled-arguments*
          settled-descriptor
          settled-view
          strides->layout
@@ -221,6 +222,9 @@
 
 (define (settled-arguments who a)
   (list (array-buffer-handle a) (device-array-offset a) (settled-descriptor who a)))
+
+(define (settled-arguments* who arrays)
+  (append-map (lambda (a) (settled-arguments who a)) arrays))
 
 (define (settled-view who a)
   (await who a)

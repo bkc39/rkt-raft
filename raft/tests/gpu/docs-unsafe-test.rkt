@@ -45,8 +45,7 @@
                   raft-abi
                   raft-abi-handle-size
                   raft-abi-version
-                  shape
-                  with-device-resources)
+                  shape)
          (only-in "../../unsafe.rkt"
                   call-with-release
                   code->dtype
@@ -65,7 +64,8 @@
                   with-deposits
                   with-release)
          (only-in "../private/gpu.rkt" gpu-skip test-unless-skipped)
-         (only-in "../private/raft-error.rkt" check-raft-error))
+         (only-in "../private/raft-error.rkt" check-raft-error)
+         (only-in "../private/resources.rkt" released-resources))
 
 (define canary-path (let ([path (getenv "RAFT_KMEANS_CANARY")]) (and (non-empty-string? path) path)))
 
@@ -204,7 +204,7 @@
                 (check 'blobs (lambda () (kc-make-blobs on-other y k 2 0.1 0 -1.0 1.0 3)))
                 (ptr-equal? on-other (resources->handle-pointer other))))
   (check-equal? (sort (remove-duplicates (device-vector->list classes)) <) '(0 1))
-  (define finished (with-device-resources ([r (device-resources)]) r))
+  (define finished (released-resources))
   (check-raft-error 'logic
                     "resources->handle-pointer: the device resources on device 0 were released"
                     (lambda () (resources->handle-pointer finished))))

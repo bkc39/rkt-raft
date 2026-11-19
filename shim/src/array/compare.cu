@@ -5,6 +5,7 @@
 
 #include "array/gather.hpp"
 #include "detail/dispatch.hpp"
+#include "detail/view.hpp"
 
 namespace rr {
 
@@ -30,20 +31,12 @@ struct compared {
   }
 };
 
-int64_t elements(const rr_view& view) {
-  int64_t count = 1;
-  for (int32_t i = 0; i < view.rank; ++i) {
-    count *= view.shape[i];
-  }
-  return count;
-}
-
 }  // namespace
 
 template <typename T>
 void compare_scalar(const raft::handle_t& handle, const rr_view& out,
                     const rr_view& in, comparison op, T x) {
-  const int64_t count = elements(in);
+  const auto count = static_cast<int64_t>(element_count(in));
   raft::linalg::map(handle,
                     raft::make_device_vector_view<const T, int64_t>(
                         static_cast<const T*>(in.data), count),

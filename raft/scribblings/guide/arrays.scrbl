@@ -252,7 +252,7 @@ bytes}, so GPU memory held brings collections sooner:
 (collect-garbage)
 (define before (current-memory-use))
 (define scratch (device-matrix 1024 1024))
-(quotient (- (current-memory-use) before) (* 1024 1024))
+(>= (- (current-memory-use) before) (* 4 1024 1024))
 (set! scratch #f)
 (collect-garbage)
 (< (- (current-memory-use) before) (* 1024 1024))

@@ -12,6 +12,7 @@
 #include <rmm/device_buffer.hpp>
 #include <string>
 #include <string_view>
+#include <utility>
 
 #include "array/allocate.hpp"
 #include "detail/array_api.h"
@@ -83,13 +84,29 @@ struct taken {
   std::unique_ptr<rr_buffer> buffer;
 };
 
-taken allocate_rows(const rr_buffer& s, const rr_view& in, layout l,
-                    int64_t rows) {
-  const rr_view desc = rows_like(in, l, rows);
+taken allocate_like(const rr_buffer& s, const rr_view& desc) {
   taken result;
   result.buffer = allocate(s.owner, s.device, desc);
   result.view = bind(*result.buffer, 0, desc);
   return result;
+}
+
+taken allocate_rows(const rr_buffer& s, const rr_view& in, layout l,
+                    int64_t rows) {
+  return allocate_like(s, rows_like(in, l, rows));
+}
+
+template <typename Body>
+int returning_taken(rr_view* view, rr_buffer** out, Body&& body) {
+  return translate_exceptions([&] {
+    auto& result = *require(out, "out");
+    result = nullptr;
+    auto& filled = *require(view, "view");
+    filled = rr_view{};
+    taken r = std::forward<Body>(body)();
+    filled = r.view;
+    result = r.buffer.release();
+  });
 }
 
 }  // namespace
@@ -102,11 +119,7 @@ int rr_array_gather(const rr_buffer* src, uint64_t src_offset,
                     const rr_view* src_view, const rr_buffer* indices,
                     uint64_t indices_offset, const rr_view* indices_view,
                     rr_view* view, rr_buffer** out) {
-  return rr::translate_exceptions([&] {
-    auto& result = *rr::require(out, "out");
-    result = nullptr;
-    auto& filled = *rr::require(view, "view");
-    filled = rr_view{};
+  return rr::returning_taken(view, out, [&] {
     const auto& s = *rr::require(src, "src");
     const auto& b = *rr::require(indices, "indices");
     const rr_view in =
@@ -136,8 +149,7 @@ int rr_array_gather(const rr_buffer* src, uint64_t src_offset,
       }
     });
     rr::settle_across(s, b);
-    filled = r.view;
-    result = r.buffer.release();
+    return r;
   });
 }
 
@@ -145,11 +157,7 @@ int rr_array_select(const rr_buffer* src, uint64_t src_offset,
                     const rr_view* src_view, const rr_buffer* mask,
                     uint64_t mask_offset, const rr_view* mask_view,
                     rr_view* view, rr_buffer** out) {
-  return rr::translate_exceptions([&] {
-    auto& result = *rr::require(out, "out");
-    result = nullptr;
-    auto& filled = *rr::require(view, "view");
-    filled = rr_view{};
+  return rr::returning_taken(view, out, [&] {
     const auto& s = *rr::require(src, "src");
     const auto& b = *rr::require(mask, "mask");
     const rr_view in =
@@ -179,8 +187,7 @@ int rr_array_select(const rr_buffer* src, uint64_t src_offset,
       }
     });
     rr::settle_across(s, b);
-    filled = r.view;
-    result = r.buffer.release();
+    return r;
   });
 }
 
@@ -188,11 +195,7 @@ int rr_array_compare(const rr_buffer* src, uint64_t src_offset,
                      const rr_view* src_view, const char* op,
                      const void* scalar, size_t scalar_bytes, rr_view* view,
                      rr_buffer** out) {
-  return rr::translate_exceptions([&] {
-    auto& result = *rr::require(out, "out");
-    result = nullptr;
-    auto& filled = *rr::require(view, "view");
-    filled = rr_view{};
+  return rr::returning_taken(view, out, [&] {
     const auto& s = *rr::require(src, "src");
     const rr_view in =
         rr::bind(s, src_offset, *rr::require(src_view, "src_view"));
@@ -208,18 +211,16 @@ int rr_array_compare(const rr_buffer* src, uint64_t src_offset,
     }
     rr_view desc = rr::describe(RR_DTYPE_INT32, l, in.rank, in.shape);
     std::copy(in.strides, in.strides + in.rank, desc.strides);
-    auto owned = rr::allocate(s.owner, s.device, desc);
-    const rr_view out_view = rr::bind(*owned, 0, desc);
+    rr::taken r = rr::allocate_like(s, desc);
     if (rr::element_count(in) > 0) {
       const rr::device_guard guard{s.device};
       RR_DISPATCH_DTYPE(compare, in.dtype, T, {
         T value{};
         std::memcpy(&value, x, sizeof(T));
-        rr::compare_scalar<T>(*s.owner, out_view, in, code, value);
+        rr::compare_scalar<T>(*s.owner, r.view, in, code, value);
       });
     }
-    filled = out_view;
-    result = owned.release();
+    return r;
   });
 }
 }
