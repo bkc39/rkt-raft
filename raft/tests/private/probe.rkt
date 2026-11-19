@@ -51,6 +51,8 @@
          probe-owner-stale
          probe-path
          probe-pool-used
+         probe-raft-fail
+         probe-raft-fail-job
          probe-refuse-adoption!
          probe-release!
          probe-sleep-job
@@ -127,6 +129,7 @@
 (define-probe probe-set-hold-timeout! ;; noqa
               (_fun _int32 -> _void)
               #:c-id rr_probe_set_hold_timeout)
+(define-probe probe-raft-fail (_fun _int32 -> _int) #:c-id rr_probe_raft_fail)
 (define-probe probe-stuck-resources (_fun _int32 -> _rr-resources) #:c-id rr_probe_stuck_resources)
 
 (define-syntax-parse-rule (with-hold-timeout ms:expr body:expr ...+)
@@ -175,6 +178,7 @@
                          (out _float)
                          (out _double)))
 (define-probe-job probe-fail-job "rr_probe_fail_job" (_int32 _int32 _int32))
+(define-probe-job probe-raft-fail-job "rr_probe_raft_fail_job" (_int32))
 (define-probe-job probe-token-job "rr_probe_token_job" (_int32))
 (define-probe-job probe-sleep-job "rr_probe_sleep_job" (_int32))
 (define-probe-job probe-late-static-job "rr_probe_late_static_job" (_int32 _int32 _int32))

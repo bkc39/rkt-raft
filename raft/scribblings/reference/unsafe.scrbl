@@ -64,7 +64,9 @@ calls. @racket[check] calls @racket[thunk], whose first result is the C
 status. On @racket[0] (@tt{RR_OK}) it returns the thunk's other results.
 Otherwise it raises @racket[(exn message marks kind)]: the message is
 @racket[who], a colon and @racket[(last-error)], decoded as UTF-8 with
-@racket[#\uFFFD] for what does not decode; the kind is @racket['generic],
+@racket[#\uFFFD] for what does not decode and cut to its first non-blank line
+as for @racket[exn:fail:raft], which also says when the whole text is logged;
+the kind is @racket['generic],
 @racket['out-of-memory], @racket['cuda] or @racket['logic] for
 @racket[(last-error-kind)] 0 to 3, and @racket['generic] for any other code.
 @racket[last-error] and @racket[last-error-kind] are called only after a

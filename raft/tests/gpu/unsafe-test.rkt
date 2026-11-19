@@ -27,8 +27,6 @@
                   device-matrix
                   device-resources
                   device-vector
-                  exn:fail:raft
-                  exn:fail:raft-kind
                   list*->device-matrix
                   raft-abi
                   raft-abi-handle-size
@@ -52,7 +50,7 @@
          (only-in "../private/collect.rkt" drain-finalizers!)
          (only-in "../private/gpu.rkt" test-gpu)
          (only-in "../private/probe.rkt" probe-hold! probe-release! test-probe)
-         (only-in "../private/raft-error.rkt" check-raft-error))
+         (only-in "../private/raft-error.rkt" check-raft-error exn:fail:canary exn:fail:canary?))
 
 (test-case "raft-abi-pointer points at the tag raft-abi reads"
   (define tag (raft-abi-pointer))
@@ -197,17 +195,19 @@
   (check-raft-error 'generic "fit: odd" (lambda () ((checker #"odd" 9) 'fit (lambda () 1))))
   (check-raft-error 'cuda
                     "fit: bad � byte"
-                    (lambda () ((checker #"bad \377 byte" 'cuda) 'fit (lambda () 1)))))
-
-(struct exn:fail:canary exn:fail:raft ())
+                    (lambda () ((checker #"bad \377 byte" 'cuda) 'fit (lambda () 1))))
+  (check-raft-error
+   'cuda
+   "fit: bad � byte"
+   (lambda ()
+     ((checker #"bad \377 byte\r\nObtained 1 stack frames\r\n#1 in f" 'cuda) 'fit (lambda () 1)))))
 
 (test-case "status-checker builds a downstream's own exception"
   (define check (status-checker (lambda () #"refused") (lambda () 3) #:exn exn:fail:canary))
-  (check-exn (lambda (e)
-               (and (exn:fail:canary? e)
-                    (equal? (exn-message e) "blobs: refused")
-                    (eq? (exn:fail:raft-kind e) 'logic)))
-             (lambda () (check 'blobs (lambda () 1)))))
+  (check-raft-error 'logic
+                    "blobs: refused"
+                    #:exn exn:fail:canary?
+                    (lambda () (check 'blobs (lambda () 1)))))
 
 (test-case "status-checker reads the error only after a failure"
   (define reads 0)

@@ -5,7 +5,7 @@
                   exn:fail:raft
                   exn:fail:raft-kind
                   exn:fail:raft?
-                  raise-raft
+                  raise-native
                   struct:exn:fail:raft)
          (only-in "foreign/core.rkt" rr-last-error rr-last-error-kind))
 
@@ -22,4 +22,4 @@
        (if result
            (values result #f #f)
            (values #f (bytes->string/utf-8 (rr-last-error) #\uFFFD) (rr-last-error-kind))))))
-  (or result (raise-raft who kind "~a" message)))
+  (or result (raise-native exn:fail:raft who kind message)))
