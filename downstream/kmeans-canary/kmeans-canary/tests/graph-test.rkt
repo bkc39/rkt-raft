@@ -66,18 +66,23 @@
     (check-equal? (parts copied) expected (format "~a after the original's release" index-type))
     (check-equal? (device-csr-matrix->list* copied) (device-csr-matrix->list* (csr-copy copied)))))
 
-(test-gpu "law 20: a float32 indptr is refused by the canary's own dispatch"
-  (define g (graph-of 'int32))
-  (check-raft-error 'logic
-                    "csr-copy: indptr: expected int32 or int64, got float32"
-                    (lambda ()
-                      (kc-csr-copy-job 'csr-copy
-                                       (current-device-resources)
-                                       (list->device-vector '(0.0 2.0 3.0 7.0 9.0) #:dtype 'float32)
-                                       (csr-indices g)
-                                       (csr-data g)
-                                       (length labels-list)
-                                       (deposit)))))
+(define copy-refusals
+  '(("indptr: expected int32 or int64, got float32" (0.0 2.0 3.0) float32 (0 1 1) (1.0 1.0 1.0) 2)
+    ("indptr: ends at 6, expected 1, the length of indices" (0 6) int32 (1) (5.0) 2)))
+
+(test-gpu "law 20: csr-copy refuses parts it cannot copy, under its own name"
+  (for ([row (in-list copy-refusals)])
+    (match-define (list message indptr indptr-type indices data cols) row)
+    (check-raft-error 'logic
+                      (format "csr-copy: ~a" message)
+                      (lambda ()
+                        (kc-csr-copy-job 'csr-copy
+                                         (current-device-resources)
+                                         (list->device-vector indptr #:dtype indptr-type)
+                                         (list->device-vector indices #:dtype 'int32)
+                                         (list->device-vector data #:dtype 'float32)
+                                         cols
+                                         (deposit))))))
 
 (define graph-cases
   '(("labels: entry 2 is 2, outside [0, 2)" (0 1 2) 2 int32)

@@ -111,8 +111,13 @@ void csr_copy(const raft::handle_t& handle, const csr_input& in,
   auto owner =
       std::make_unique<raftrkt::csr_buffers<T, Index>>(handle, p.rows, 0);
   copy(owner->indptr, p.indptr, stream);
-  owner->resize_entries(
-      raftrkt::read_nnz(handle, owner->indptr.data(), p.rows));
+  const int64_t nnz = raftrkt::read_nnz(handle, owner->indptr.data(), p.rows);
+  if (nnz != p.nnz) {
+    throw kc::logic_error("indptr: ends at " + std::to_string(nnz) +
+                          ", expected " + std::to_string(p.nnz) +
+                          ", the length of indices");
+  }
+  owner->resize_entries(nnz);
   copy(owner->indices, p.indices, stream);
   copy(owner->data, p.data, stream);
   raftrkt::cuda_check(cudaStreamSynchronize(stream), "cudaStreamSynchronize");
