@@ -4,7 +4,7 @@
          (only-in racket/match match match* match-define match-lambda)
          ;; whole-module: define-runtime-path needs bindings only-in strips
          racket/runtime-path
-         (only-in rackunit check-equal? check-pred check-true fail)
+         (only-in rackunit check-equal? check-true fail)
          (only-in "../../main.rkt" compare contiguous? dtype exn:fail:raft? gather select shape)
          (only-in "../private/arrays.rkt" part)
          (only-in "../private/gather.rkt"
@@ -26,62 +26,58 @@
 (define f-4x3 '((0.0 1.0 2.0) (3.0 4.0 5.0) (6.0 7.0 8.0) (9.0 10.0 11.0)))
 
 (define fixed-cases
-  `(("G1 float32 indices" (gather (float32 C (5 2) ,rows-5) (float32 0 1))
+  `(("G1 float32 indices" (gather (float32 row-major (5 2) ,rows-5) (float32 0 1))
                           (refused "gather: indices: expected int32 or int64, got float32"))
-    ("G2 a matrix as indices" (gather (float32 C (5 2) ,rows-5) (matrix int32 (0) (1)))
+    ("G2 a matrix as indices" (gather (float32 row-major (5 2) ,rows-5) (matrix int32 (0) (1)))
                               (departs "gather: indices: expected rank 1, got rank 2"))
-    ("G4 an index past the rows" (gather (float32 C (5 2) ,rows-5) (int32 3 0 7))
+    ("G4 an index past the rows" (gather (float32 row-major (5 2) ,rows-5) (int32 3 0 7))
                                  (refused "gather: indices: entry 2 is 7, outside [0, 5)"))
-    ("G4' a negative index" (gather (float32 C (5 2) ,rows-5) (int32 -1 0))
+    ("G4' a negative index" (gather (float32 row-major (5 2) ,rows-5) (int32 -1 0))
                             (departs "gather: indices: entry 0 is -1, outside [0, 5)"))
     ("G4'' an int64 index beyond int32"
-     (gather (float32 C (5 2) ,rows-5) (int64 3000000000))
+     (gather (float32 row-major (5 2) ,rows-5) (int64 3000000000))
      (refused "gather: indices: entry 0 is 3000000000, outside [0, 5)"))
-    ("G4''' an index into no rows" (gather (float32 C (0 3) ()) (int32 0))
+    ("G4''' an index into no rows" (gather (float32 row-major (0 3) ()) (int32 0))
                                    (refused "gather: indices: entry 0 is 0, outside [0, 0)"))
-    ("M1 a float64 mask" (select (float64 C (4 2) ,rows-4) (float64 1 0 1 0))
+    ("M1 a float64 mask" (select (float64 row-major (4 2) ,rows-4) (float64 1 0 1 0))
                          (departs "select: mask: expected int32 or int64, got float64"))
-    ("M2 a matrix as mask" (select (float64 C (4 2) ,rows-4) (matrix int32 (1) (0) (1) (0)))
+    ("M2 a matrix as mask" (select (float64 row-major (4 2) ,rows-4) (matrix int32 (1) (0) (1) (0)))
                            (refused "select: mask: expected rank 1, got rank 2"))
-    ("M3 a mask one short" (select (float64 C (4 2) ,rows-4) (int32 1 0 1))
+    ("M3 a mask one short" (select (float64 row-major (4 2) ,rows-4) (int32 1 0 1))
                            (departs "select: mask: expected 4 elements, got 3"))
-    ("M3 a mask one long" (select (float64 C (4 2) ,rows-4) (int32 1 0 1 0 1))
+    ("M3 a mask one long" (select (float64 row-major (4 2) ,rows-4) (int32 1 0 1 0 1))
                           (refused "select: mask: expected 4 elements, got 5"))
-    ("C1 not equal" (compare (int32 C (2) (1 2)) != 0)
+    ("C1 not equal" (compare (int32 row-major (2) (1 2)) != 0)
                     (departs "compare: unsupported comparison !=; expected =, <, <=, > or >="))
-    ("C2 int32 below 3000000000" (compare (int32 C (3) (0 1 -1)) < 3000000000)
+    ("C2 int32 below 3000000000" (compare (int32 row-major (3) (0 1 -1)) < 3000000000)
                                  (departs "compare: 3000000000 does not fit int32"))
-    ("C3 int32 below NaN" (compare (int32 C (2) (1 2)) < +nan.0)
+    ("C3 int32 below NaN" (compare (int32 row-major (2) (1 2)) < +nan.0)
                           (departs "compare: +nan.0 is not a finite number"))
-    ("C4 float32 below 1e300" (compare (float32 C (2) (1.0 2.0)) < 1e300)
+    ("C4 float32 below 1e300" (compare (float32 row-major (2) (1.0 2.0)) < 1e300)
                               (departs "compare: 1e+300 does not fit float32"))
-    ("int32 at least 0.5" (compare (int32 C (3) (0 1 -1)) >= 0.5) (differs (1 1 0)))
-    ("an empty vector by no indices" (gather (float64 C (0) ()) (int32)) agrees)
-    ("a 0×3 matrix by no indices" (gather (float32 C (0 3) ()) (int64)) agrees)
-    ("a 3×0 matrix" (gather (float64 C (3 0) (() () ())) (int32 2 0)) agrees)
-    ("a 3×0 matrix by a mask" (select (int32 C (3 0) (() () ())) (int32 1 0 1)) agrees)
-    ("no indices" (gather (int64 C (5) (1 2 3 4 5)) (int32)) agrees)
-    ("an all-zero mask" (select (float32 C (4 2) ,rows-4) (int64 0 0 0 0)) agrees)
-    ("a repeat" (gather (float32 C (5 2) ,rows-5) (int32 1 1 1)) agrees)
-    ("the reverse permutation" (gather (int32 C (5) (10 20 30 40 50)) (int64 4 3 2 1 0)) agrees)
-    ("NaN and -0.0 payloads" (gather (float32 C (4) (+nan.0 -0.0 0.0 1.5)) (int32 1 0 2 0)) agrees)
-    ("int64 beyond int32" (gather (int64 C (3) (,(expt 2 62) ,(- (expt 2 62)) 1)) (int32 1 0)) agrees)
-    ("an F-order 4×3 by index" (gather (float32 F (4 3) ,f-4x3) (int32 3 0 2)) agrees)
-    ("an F-order 4×3 by mask" (select (float64 F (4 3) ,f-4x3) (int32 1 0 1 1)) agrees)
-    ("an F-order 4×3 compared" (compare (float32 F (4 3) ,f-4x3) >= 5.0) agrees)
-    ("an int64 mask holding 2^32" (select (float32 C (4 2) ,rows-4) (int64 ,(expt 2 32) 0 -1 0))
+    ("int32 at least 0.5" (compare (int32 row-major (3) (0 1 -1)) >= 0.5)
+                          (departs "compare: 0.5 does not fit int32 exactly"))
+    ("an empty vector by no indices" (gather (float64 row-major (0) ()) (int32)) agrees)
+    ("a 0×3 matrix by no indices" (gather (float32 row-major (0 3) ()) (int64)) agrees)
+    ("a 3×0 matrix" (gather (float64 row-major (3 0) (() () ())) (int32 2 0)) agrees)
+    ("a 3×0 matrix by a mask" (select (int32 row-major (3 0) (() () ())) (int32 1 0 1)) agrees)
+    ("no indices" (gather (int64 row-major (5) (1 2 3 4 5)) (int32)) agrees)
+    ("an all-zero mask" (select (float32 row-major (4 2) ,rows-4) (int64 0 0 0 0)) agrees)
+    ("a repeat" (gather (float32 row-major (5 2) ,rows-5) (int32 1 1 1)) agrees)
+    ("the reverse permutation" (gather (int32 row-major (5) (10 20 30 40 50)) (int64 4 3 2 1 0)) agrees)
+    ("NaN and -0.0 payloads" (gather (float32 row-major (4) (+nan.0 -0.0 0.0 1.5)) (int32 1 0 2 0)) agrees)
+    ("int64 beyond int32" (gather (int64 row-major (3) (,(expt 2 62) ,(- (expt 2 62)) 1)) (int32 1 0)) agrees)
+    ("an F-order 4×3 by index" (gather (float32 col-major (4 3) ,f-4x3) (int32 3 0 2)) agrees)
+    ("an F-order 4×3 by mask" (select (float64 col-major (4 3) ,f-4x3) (int32 1 0 1 1)) agrees)
+    ("an F-order 4×3 compared" (compare (float32 col-major (4 3) ,f-4x3) >= 5.0) agrees)
+    ("an int64 mask holding 2^32" (select (float32 row-major (4 2) ,rows-4) (int64 ,(expt 2 32) 0 -1 0))
                                   agrees)
-    ("NaN compares false" (compare (float64 C (3) (+nan.0 1.0 -0.0)) <= 0.0) agrees)))
-
-(define (spec->array spec)
-  (match-define (list element-type order extents data) spec)
-  (list element-type (if (eq? order 'F) 'col-major 'row-major) extents data))
+    ("NaN compares false" (compare (float64 row-major (3) (+nan.0 1.0 -0.0)) <= 0.0) agrees)))
 
 (define (generated-case state k)
-  (define spec (random-spec state))
-  (match-define (list element-type layout extents data) spec)
-  (define n (spec-length spec))
-  (define source (list element-type (if (eq? layout 'col-major) 'F 'C) extents data))
+  (define source (random-spec state))
+  (match-define (list element-type _ _ _) source)
+  (define n (spec-length source))
   (define form
     (match (pick state (vector 'gather 'select 'compare))
       ['gather (list 'gather source (apply cons (random-indices state n)))]
@@ -109,11 +105,11 @@
   (string->symbol (format "~a_dtype" key)))
 
 (define (form->json form)
-  (match-define (list* kind (list element-type order extents data) more) form)
+  (match-define (list* kind (list element-type layout extents data) more) form)
   (define base
     (hasheq 'kind (symbol->string kind)
             'dtype (symbol->string element-type)
-            'order (symbol->string order)
+            'order (if (eq? layout 'col-major) "F" "C")
             'shape extents
             'data (encoded data)))
   (define extra
@@ -126,7 +122,7 @@
 
 (define (ours form)
   (match-define (list* kind spec more) form)
-  (define a (upload (spec->array spec)))
+  (define a (upload spec))
   (with-handlers ([exn:fail:raft? exn-message])
     (match (cons kind more)
       [(list 'gather indices) (gather a (part indices))]
@@ -139,13 +135,13 @@
       (list (decoded (hash-ref r 'values)) (hash-ref r 'shape) (hash-ref r 'dtype))))
 
 (define (check-layout label form m r)
-  (match-define (list* kind (list _ order extents _) _) form)
+  (match-define (list* kind (list _ layout extents _) _) form)
   (define col-major?
-    (match* (order extents)
-      [('F (list rows cols)) (and (> rows 1) (> cols 1))]
+    (match* (layout extents)
+      [('col-major (list rows cols)) (and (> rows 1) (> cols 1))]
       [(_ _) #f]))
   (check-true (contiguous? m #:layout (if col-major? 'col-major 'row-major)) label)
-  (check-true (hash-ref r (if (and (eq? order 'F) (eq? kind 'compare)) 'f_contiguous 'c_contiguous))
+  (check-true (hash-ref r (if (and (eq? layout 'col-major) (eq? kind 'compare)) 'f_contiguous 'c_contiguous))
               label))
 
 (define (check-case name form expected r)
@@ -155,10 +151,6 @@
   (match expected
     [(list 'refused message) (check-equal? (list m valid?) (list message #f) label)]
     [(list 'departs message) (check-equal? (list m valid?) (list message #t) label)]
-    [(list 'differs values)
-     (check-true valid? label)
-     (check-equal? (contents m) values label)
-     (check-pred (lambda (v) (not (equal? v values))) (decoded (hash-ref r 'values)) label)]
     ['agrees
      (cond
        [(string? m) (fail label)]
@@ -183,7 +175,7 @@
   (define departures
     (filter-map (lambda (c)
                   (match c
-                    [(list name _ (cons (or 'departs 'differs) _)) name]
+                    [(list name _ (cons 'departs _)) name]
                     [_ #f]))
                 cases))
   (printf "twin gather: ~a cases, ~a named departures: ~a\n"

@@ -424,9 +424,9 @@ plans/scoping-plan.md         the approved plan (revision 5), as Markdown
   and writes its nonzero positions (`thrust::copy_if`) to a temporary the
   row copy reads; `compare.cu` is `raft::linalg::map`. Results are allocated
   as `contiguous`'s are (`allocate.hpp`), on the source's owner handle; an
-  index or mask buffer of another owner makes the call synchronise that
-  stream before returning, so its own finalizer cannot free it under the
-  copy.
+  index or mask buffer of another owner makes the call synchronise the
+  source's stream before returning, so its own finalizer cannot free it
+  under the copy.
 - **The default memory resource.** `rr_resources_create` calls
   `rr::install_default_memory_resource` (`src/core/memory_resource.cpp`)
   before it builds the handle, so RAFT's workspace factories see the pool.
@@ -582,10 +582,11 @@ plans/scoping-plan.md         the approved plan (revision 5), as Markdown
   `rr_csr_check` through `private/foreign/csr-api.rkt`, and `list*->` and
   `triplets->` call `rr_csr_check_shape` first.
 - `private/gather.rkt`: `gather`, `select` and `compare`. Each settles
-  every input (`private/array.rkt`'s `settled-arguments`, which `csr.rkt`
+  every input (`private/array.rkt`'s `settled-arguments*`, which `csr.rkt`
   shares), calls `rr_array_gather`, `rr_array_select` or `rr_array_compare`
   and wraps the result's view; `compare` packs its scalar with
-  `pack-vector`, so it converts as an uploaded element does.
+  `pack-vector #:exact? #t`, which converts it as an uploaded element is
+  converted except that an integer dtype refuses a non-integer.
 - `private/job.rkt`: `define-job` and `job-procedure`, which packs the
   arguments into a block laid out as the C side's `run_job` unpacks it,
   binds each `deposit` parameter's record and submits it in one
@@ -1776,8 +1777,12 @@ since cuSPARSE's error string for it is only "out of memory"). The frozen rule i
 - **A matrix result keeps the source's layout** (NumPy's is C order); the
   col-major copy must stay inside the source, as the gtests under
   compute-sanitizer check.
-- **`compare` converts its scalar as an uploaded element**: an integer
-  dtype truncates it and an unconvertible one is refused, where NumPy
-  compares exactly. The twin pins each departure.
+- **`compare` refuses a scalar its dtype cannot hold exactly**: on int32
+  and int64 an `x` that is not `integer?` is refused (`2.0` and `-0.0`
+  pass, `0.5` and `1/2` do not), as are infinities, NaN and values out of
+  range; a float dtype rounds `x` to the dtype. NumPy compares each of the
+  refused ones exactly; the twin pins each departure. Refusing now leaves
+  an exact comparison open later without changing any accepted result,
+  where truncating would not.
 - **No keywords and no frozen-header additions**: the result is on the
   source's resources and stream, as `contiguous`'s is.

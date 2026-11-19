@@ -62,6 +62,20 @@
   (check-equal? ((element-converter 'f 'float64) 1e300) 1e300)
   (check-equal? ((element-converter 'f 'float32) 0.1) 0.10000000149011612))
 
+(test-case "an exact integer conversion refuses a fraction and keeps an integer-valued float"
+  (check-raft-error 'logic
+                    "f: 0.5 does not fit int32 exactly"
+                    (lambda () (pack-vector 'f 'int32 1 '(0.5) #:exact? #t)))
+  (check-raft-error 'logic
+                    "f: -1/2 does not fit int64 exactly"
+                    (lambda () ((element-converter 'f 'int64 #:exact? #t) -1/2)))
+  (check-equal? (map (element-converter 'f 'int32 #:exact? #t) '(2.0 -0.0 7)) '(2 0 7))
+  (check-raft-error 'logic
+                    "f: 3000000000.0 does not fit int32"
+                    (lambda () ((element-converter 'f 'int32 #:exact? #t) 3e9)))
+  (check-equal? ((element-converter 'f 'float32 #:exact? #t) 0.5) 0.5)
+  (check-equal? (map (element-converter 'f 'int32) '(0.5 -1.5 1/2)) '(0 -1 0)))
+
 (test-case "a value the dtype cannot hold raises, naming the caller"
   (check-raft-error 'logic
                     "f: 1099511627776 does not fit int32"

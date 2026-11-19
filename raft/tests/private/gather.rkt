@@ -98,7 +98,7 @@
 
 (define (random-threshold state dtype)
   (match dtype
-    [(or 'int32 'int64) (pick state (vector 0 1 -1 2.5 -2.5 7 (random-element state dtype)))]
+    [(or 'int32 'int64) (pick state (vector 0 1 -1 2.0 -2.0 7 (random-element state dtype)))]
     [_ (random-element state dtype)]))
 
 (define (upload spec)
