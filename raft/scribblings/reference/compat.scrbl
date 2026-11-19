@@ -184,6 +184,18 @@ A ragged row is refused:
 
 @examples[#:eval ev #:label #f
 (eval:error (vector*->device-matrix #(#(1.0 2.0) #(3.0))))
+]
+
+Readings above a threshold keep their two channels when none are:
+
+@examples[#:eval ev #:label #f
+(define batch (vector (vector 0.5 1.0) (vector 0.7 1.2)))
+(define (readings-above threshold)
+  (vector*->device-matrix (for/vector ([row (in-vector batch)]
+                                       #:when (> (vector-ref row 0) threshold))
+                            row)
+                          #:cols 2))
+(list (shape (readings-above 0.6)) (shape (readings-above 1.0)))
 ]}
 
 @defproc[(device-matrix->vector* [m device-matrix?]) (vectorof (vectorof real?))]{
@@ -585,6 +597,14 @@ A host-solved linear system:
 
 @examples[#:eval ev #:label #f
 (eval:error (matrix->device-vector gram))
+]
+
+A wrapper names itself in the refusal:
+
+@examples[#:eval ev #:label #f
+(define (coefficients->device-vector m)
+  (matrix->device-vector m #:dtype 'float32 #:who 'coefficients->device-vector))
+(eval:error (coefficients->device-vector gram))
 ]}
 
 @defproc[(device-vector->col-matrix [v device-vector?]) array?]{

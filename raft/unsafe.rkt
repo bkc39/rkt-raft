@@ -86,7 +86,7 @@
     #:description "a [name deposit-expr] binding"
     (pattern [name:id deposit:expr])))
 
-(define/resources (deposit #:resources resources #:who _who) (open-deposit resources))
+(define/resources (deposit #:resources resources #:who who) (open-deposit who resources))
 
 (define-syntax-parse-rule (with-deposits (b:deposit-binding ...) body:expr ...+)
   #:fail-when (check-duplicate-identifier (syntax->list #'(b.name ...))) "duplicate binding name"

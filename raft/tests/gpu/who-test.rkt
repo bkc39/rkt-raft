@@ -1,35 +1,21 @@
 #lang racket/base
 
-(require (only-in ffi/vector f32vector f64vector)
-         (only-in math/array array)
-         (only-in math/matrix matrix)
-         (only-in racket/flonum flvector)
-         (only-in racket/match match-define)
-         (only-in "../../array.rkt" device-matrix device-vector)
-         (only-in "../../compat.rkt"
-                  array->device-array
-                  bytes->device-vector
-                  f32vector->device-vector
-                  f64vector->device-vector
-                  flvector->device-vector
-                  list*->device-array
-                  list*->device-csr-matrix
-                  list*->device-matrix
-                  list->device-vector
-                  matrix->device-matrix
-                  matrix->device-vector
-                  triplets->device-csr-matrix
-                  vector*->device-array
-                  vector*->device-matrix
-                  vector->device-vector)
+(require (only-in racket/match match-define)
+         (only-in "../../array.rkt" device-vector)
          (only-in "../../core.rkt" device-resources with-device-resources)
          (only-in "../private/gpu.rkt" test-gpu)
          (only-in "../private/raft-error.rkt" check-raft-error))
 
 (define-namespace-anchor here)
 
+(define namespace
+  (parameterize ([current-namespace (namespace-anchor->empty-namespace here)])
+    (for-each namespace-require
+              '(racket/base ffi/vector math/array math/matrix racket/flonum raft raft/compat))
+    (current-namespace)))
+
 (define (run form)
-  (eval form (namespace-anchor->namespace here)))
+  (eval form namespace))
 
 (define (released)
   (with-device-resources ([r (device-resources)]) r))

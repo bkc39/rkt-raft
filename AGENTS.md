@@ -1362,6 +1362,8 @@ canary changes with it in the same pull request:
   as a deposit of three regions. They ship in raft 0.3, which #73 bumps
   (`raft/info.rkt` is 0.2.1 until then); a downstream detects them with
   `("raft" #:version "0.3")` or `__has_include(<raftrkt/csr.hpp>)`.
+- **Additions at version 1 (#65):** `deposit`'s `#:who`; a downstream
+  detects it with `("raft" #:version "0.3")`.
 
 Not part of the ABI:
 
@@ -1781,3 +1783,21 @@ since cuSPARSE's error string for it is only "out of memory"). The frozen rule i
   compares exactly. The twin pins each departure.
 - **No keywords and no frozen-header additions**: the result is on the
   source's resources and stream, as `contiguous`'s is.
+
+## Decisions recorded in #65 and #68
+
+- **The rule:** every public procedure that takes `#:resources` also takes
+  `#:who`, a symbol defaulting to its own name that prefixes every
+  `exn:fail:raft` message the call raises (18: 7 in `raft/array`, 10 in
+  `raft/compat`, `deposit`). `core-test.rkt`'s W1 checks it over the
+  exports. Each is defined with `define/resources`
+  (`raft/private/resources.rkt`), which supplies both defaults; `.fmt.rkt`
+  formats it as a `define`. A procedure without `#:resources` keeps its own
+  name, and so do `with-array-views` and `resources->handle-pointer`.
+- **`#:cols`** on `list*->device-matrix`, `vector*->device-matrix` and
+  `list*->device-csr-matrix`: no rows give `(0 cols)`, and a row of another
+  length is refused before anything is allocated. Inferred, the dtype of no
+  rows is `'float64`, where `device-matrix`'s default is `'float32`.
+- **`(check-resources who r)` declined:** a second name for a check
+  `#:who` already places, which would leave out-of-memory and conversion
+  refusals under raft's name and race with a release on another thread.

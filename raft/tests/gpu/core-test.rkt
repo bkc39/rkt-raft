@@ -221,14 +221,11 @@
                             [(raft-abi #:release r) r]))))))
 
 (define (procedure-exports mod)
-  (module-declared? mod #t)
-  (define-values (variables _syntax) (module->exports mod))
-  (for*/list ([exports (in-list variables)]
-              #:when (eqv? (car exports) 0)
-              [entry (in-list (cdr exports))]
-              [value (in-value (dynamic-require mod (car entry)))]
+  (for*/list ([name (in-list (phase-0-exports mod))]
+              [value (in-value (with-handlers ([exn:fail:syntax? (lambda (_) #f)])
+                                 (dynamic-require mod name)))]
               #:when (procedure? value))
-    (cons (car entry) value)))
+    (cons name value)))
 
 (define (accepts? p keyword)
   (define-values (_required accepted) (procedure-keywords p))

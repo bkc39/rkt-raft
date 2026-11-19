@@ -100,25 +100,23 @@
   (define data (upload-vector who resources element-type vals))
   (checked-csr who indptr indices data extents))
 
-(define/resources
- (list*->device-csr-matrix rows
-                           #:dtype [element-type 'float64]
-                           #:index-dtype [index-type 'int32]
-                           #:cols [cols #f]
-                           #:resources resources
-                           #:who _who)
- (define who 'list*->device-csr-matrix)
- (define extents (checked-shape who index-type element-type (matrix-shape who rows)))
- (define convert (element-converter who element-type))
- (define entries
-   (append* (over-elements (for/list ([row rows]
-                                      [i (in-naturals)])
-                             (filter-not (match-lambda
-                                           [(vector _ _ x) (= x 0)])
-                                         (over-elements (for/list ([x row]
-                                                                   [j (in-naturals)])
-                                                          (vector i j (convert x)))))))))
- (build-csr who resources element-type index-type extents entries))
+(define/resources (list*->device-csr-matrix rows
+                                            #:dtype [element-type 'float64]
+                                            #:index-dtype [index-type 'int32]
+                                            #:cols [cols #f]
+                                            #:resources resources
+                                            #:who who)
+  (define extents (checked-shape who index-type element-type (matrix-shape who rows cols)))
+  (define convert (element-converter who element-type))
+  (define entries
+    (append* (over-elements (for/list ([row rows]
+                                       [i (in-naturals)])
+                              (filter-not (match-lambda
+                                            [(vector _ _ x) (= x 0)])
+                                          (over-elements (for/list ([x row]
+                                                                    [j (in-naturals)])
+                                                           (vector i j (convert x)))))))))
+  (build-csr who resources element-type index-type extents entries))
 
 (define (adder element-type)
   (case element-type
@@ -157,28 +155,27 @@
                                                #:dtype [element-type 'float64]
                                                #:index-dtype [index-type 'int32]
                                                #:resources resources
-                                               #:who _who)
-                  (define who 'triplets->device-csr-matrix)
-                  (define checked (checked-shape who index-type element-type extents))
-                  (match-define (list row-count col-count) checked)
-                  (define n (length rows))
-                  (check-length who "cols" cols n)
-                  (check-length who "vals" vals n)
-                  (define convert (element-converter who element-type))
-                  (define triplets
-                    (for/list ([r (in-list rows)]
-                               [c (in-list cols)]
-                               [x (in-list vals)]
-                               [k (in-naturals)])
-                      (vector (check-index who k "row" r row-count)
-                              (check-index who k "col" c col-count)
-                              (convert x))))
-                  (build-csr who
-                             resources
-                             element-type
-                             index-type
-                             checked
-                             (summed (adder element-type) (sort triplets entry<?))))
+                                               #:who who)
+  (define checked (checked-shape who index-type element-type extents))
+  (match-define (list row-count col-count) checked)
+  (define n (length rows))
+  (check-length who "cols" cols n)
+  (check-length who "vals" vals n)
+  (define convert (element-converter who element-type))
+  (define triplets
+    (for/list ([r (in-list rows)]
+               [c (in-list cols)]
+               [x (in-list vals)]
+               [k (in-naturals)])
+      (vector (check-index who k "row" r row-count)
+              (check-index who k "col" c col-count)
+              (convert x))))
+  (build-csr who
+             resources
+             element-type
+             index-type
+             checked
+             (summed (adder element-type) (sort triplets entry<?))))
 
 (define (storage who m)
   (match-define (struct* csr-matrix ([indptr indptr] [indices indices] [data data])) m)

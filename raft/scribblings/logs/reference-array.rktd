@@ -33,6 +33,25 @@
   "device-matrix: unsupported dtype float16; expected float32, float64, int32 or int64")
  ""
  "")
+((define (centroid-matrix k data #:resources (r (current-device-resources)))
+   (device-matrix
+    k
+    (second (shape data))
+    #:resources
+    r
+    #:who
+    'centroid-matrix))
+ (values "")
+ ""
+ "")
+((define finished (with-device-resources ((r (device-resources))) r))
+ (values "")
+ ""
+ "")
+((centroid-matrix 3 X #:resources finished)
+ (raise "centroid-matrix: the device resources on device 0 were released")
+ ""
+ "")
 ((define labels (device-vector (first (shape X)) #:dtype 'int32))
  (values "")
  ""
@@ -355,6 +374,15 @@
  ""
  "")
 ((list (dtype assigned) (shape assigned)) (values "'(int32 (4))\n") "" "")
+((define (fit-labels labels)
+   (list->device-vector labels #:dtype 'int32 #:who 'fit-labels))
+ (values "")
+ ""
+ "")
+((fit-labels '(0 1 3000000000))
+ (raise "fit-labels: 3000000000 does not fit int32")
+ ""
+ "")
 ((device-vector->list assigned) (values "'(0 2 1 2)\n") "" "")
 ((define (cluster-sizes labels k)
    (define all (device-vector->list labels))
@@ -390,6 +418,28 @@
  "")
 ((list*->device-matrix '((1 2 3) (4 5 6) (7 8)))
  (raise "list*->device-matrix: row 2 has 2 elements, but row 0 has 3: '(7 8)")
+ ""
+ "")
+((define schema '(sepal-length sepal-width petal-length petal-width))
+ (values "")
+ ""
+ "")
+((define (table->device-matrix rows)
+   (list*->device-matrix
+    rows
+    #:cols
+    (length schema)
+    #:dtype
+    'float32
+    #:who
+    'table->device-matrix))
+ (values "")
+ ""
+ "")
+((shape (table->device-matrix '())) (values "'(0 4)\n") "" "")
+((table->device-matrix '((5.1 3.5 1.4)))
+ (raise
+  "table->device-matrix: row 0 has 3 elements, but #:cols is 4: '(5.1 3.5 1.4)")
  ""
  "")
 ((device-matrix->list* (list*->device-matrix '((1 2) (3 4))))
@@ -603,6 +653,20 @@
  "")
 ((nnz (list*->device-csr-matrix (vector (vector 0 1.0) (vector 0 0))))
  (values "1\n")
+ ""
+ "")
+((define (one-hot labels k)
+   (list*->device-csr-matrix
+    (for/list
+     ((l (in-list labels)))
+     (for/list ((c (in-range k))) (if (= c l) 1.0 0.0)))
+    #:cols
+    k))
+ (values "")
+ ""
+ "")
+((list (shape (one-hot '(0 2) 3)) (shape (one-hot '() 3)))
+ (values "'((2 3) (0 3))\n")
  ""
  "")
 ((device-csr-matrix->list* G)

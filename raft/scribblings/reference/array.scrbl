@@ -86,6 +86,16 @@ An unsupported element type raises:
 
 @examples[#:eval ev #:label #f
 (eval:error (device-matrix 2 2 #:dtype 'float16))
+]
+
+A wrapper that allocates for its caller passes its own name, which then
+begins the error its caller sees:
+
+@examples[#:eval ev #:label #f
+(define (centroid-matrix k data #:resources [r (current-device-resources)])
+  (device-matrix k (second (shape data)) #:resources r #:who 'centroid-matrix))
+(define finished (with-device-resources ([r (device-resources)]) r))
+(eval:error (centroid-matrix 3 X #:resources finished))
 ]}
 
 @defproc[(device-vector [n exact-nonnegative-integer?]
@@ -571,6 +581,14 @@ Cluster labels:
 @examples[#:eval ev #:label #f
 (define assigned (list->device-vector '(0 2 1 2) #:dtype 'int32))
 (list (dtype assigned) (shape assigned))
+]
+
+Uploading for a caller, under the caller's name:
+
+@examples[#:eval ev #:label #f
+(define (fit-labels labels)
+  (list->device-vector labels #:dtype 'int32 #:who 'fit-labels))
+(eval:error (fit-labels '(0 1 3000000000)))
 ]}
 
 @defproc[(device-vector->list [v device-vector?]) (listof real?)]{
@@ -630,6 +648,18 @@ A ragged row is named:
 
 @examples[#:eval ev #:label #f
 (eval:error (list*->device-matrix '((1 2 3) (4 5 6) (7 8))))
+]
+
+A table with a schema keeps its columns when it has no rows, and names
+itself when a row does not fit:
+
+@examples[#:eval ev #:label #f
+(define schema '(sepal-length sepal-width petal-length petal-width))
+(define (table->device-matrix rows)
+  (list*->device-matrix rows #:cols (length schema) #:dtype 'float32
+                        #:who 'table->device-matrix))
+(shape (table->device-matrix '()))
+(eval:error (table->device-matrix '((5.1 3.5 1.4))))
 ]}
 
 @defproc[(device-matrix->list* [m device-matrix?]) (listof (listof real?))]{
@@ -891,6 +921,17 @@ From vector rows:
 
 @examples[#:eval ev #:label #f
 (nnz (list*->device-csr-matrix (vector (vector 0 1.0) (vector 0 0))))
+]
+
+One-hot labels keep their classes for a batch with no labels:
+
+@examples[#:eval ev #:label #f
+(define (one-hot labels k)
+  (list*->device-csr-matrix (for/list ([l (in-list labels)])
+                              (for/list ([c (in-range k)])
+                                (if (= c l) 1.0 0.0)))
+                            #:cols k))
+(list (shape (one-hot '(0 2) 3)) (shape (one-hot '() 3)))
 ]}
 
 @defproc[(device-csr-matrix->list* [m device-csr-matrix?]) (listof (listof flonum?))]{

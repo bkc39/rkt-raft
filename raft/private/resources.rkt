@@ -112,8 +112,9 @@
   #:fail-when (check-duplicate-identifier (syntax->list #'(b.name ...))) "duplicate binding name"
   (with-release #:who 'with-device-resources ([b.name b.init release-resources!] ...) body ...))
 
-(define-syntax-parse-rule (define/resources
-                           (name:id f:formal ... #:resources resources:id #:who who:id)
-                           body:expr ...+)
+(define-syntax-parse-rule (define/resources (name:id f:formal ...
+                                                     #:resources resources:id
+                                                     #:who who:id)
+                            body:expr ...+)
   (define (name (~@ . f) ... #:resources [resources (current-device-resources)] #:who [who 'name])
     body ...))

@@ -90,6 +90,21 @@
   "vector*->device-matrix: row 1 has 1 element, but row 0 has 2: '#(3.0)")
  ""
  "")
+((define batch (vector (vector 0.5 1.0) (vector 0.7 1.2))) (values "") "" "")
+((define (readings-above threshold)
+   (vector*->device-matrix
+    (for/vector
+     ((row (in-vector batch)) #:when (> (vector-ref row 0) threshold))
+     row)
+    #:cols
+    2))
+ (values "")
+ ""
+ "")
+((list (shape (readings-above 0.6)) (shape (readings-above 1.0)))
+ (values "'((1 2) (0 2))\n")
+ ""
+ "")
 ((device-matrix->vector* (vector*->device-matrix #(#(1 2) #(3 4))))
  (values "'#(#(1 2) #(3 4))\n")
  ""
@@ -408,6 +423,21 @@
 ((matrix->device-vector gram)
  (raise
   "matrix->device-vector: a 2×2 matrix is neither a row nor a column matrix")
+ ""
+ "")
+((define (coefficients->device-vector m)
+   (matrix->device-vector
+    m
+    #:dtype
+    'float32
+    #:who
+    'coefficients->device-vector))
+ (values "")
+ ""
+ "")
+((coefficients->device-vector gram)
+ (raise
+  "coefficients->device-vector: a 2×2 matrix is neither a row nor a column matrix")
  ""
  "")
 ((device-vector->col-matrix (vector->device-vector #(1.0 2.0 3.0)))

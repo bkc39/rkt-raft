@@ -25,14 +25,13 @@
          deposit?
          open-deposit)
 
-(struct deposit (handle device [arrays #:mutable])
+(struct deposit (handle device [arrays #:mutable]) ;; noqa
   #:constructor-name holder->deposit
   #:property prop:custom-write
   (lambda (d port _mode) (fprintf port "#<deposit device ~a>" (deposit-device d))))
 
-(define (open-deposit resources)
-  (holder->deposit (call/raft 'deposit
-                              (lambda () (rr-holder-create (resources-handle 'deposit resources))))
+(define (open-deposit who resources)
+  (holder->deposit (call/raft who (lambda () (rr-holder-create (resources-handle who resources))))
                    (resources-device resources)
                    #f))
 
