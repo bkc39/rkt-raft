@@ -285,8 +285,7 @@
                                            [(cons name p) (and (keep? p) name)])
                                          takers))
           symbol<?))
-  (check-equal? (names-where (lambda (p) (not (accepts? p '#:resources))))
-                who-without-resources)
+  (check-equal? (names-where (lambda (p) (not (accepts? p '#:resources)))) who-without-resources)
   (check-equal? (names-where (lambda (p) (accepts? p '#:who)))
                 '(array->device-array bytes->device-vector
                                       call-with-release
