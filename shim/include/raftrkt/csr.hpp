@@ -244,10 +244,6 @@ void deposit_csr(rr_deposit* into, const char* name,
   }
   const std::size_t n_indptr = owner->indptr.size();
   const std::size_t nnz = owner->indices.size();
-  if (n_indptr == 0) {
-    throw logic_error(std::string(name) +
-                      ": indptr: expected at least 1 element, got 0");
-  }
   if (owner->data.size() != nnz) {
     throw logic_error(std::string(name) + ": data: expected " +
                       std::to_string(nnz) + " elements, got " +
