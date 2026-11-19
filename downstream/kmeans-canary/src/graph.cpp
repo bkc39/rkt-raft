@@ -15,6 +15,7 @@
 #include "kmeans_canary.h"
 #include "raftrkt/csr.hpp"
 #include "raftrkt/deposit.h"
+#include "raftrkt/deposit.hpp"
 #include "raftrkt/error.hpp"
 #include "raftrkt/view.hpp"
 
@@ -175,6 +176,7 @@ int kc_cluster_graph(void* handle, const rr_view* labels, int32_t n_clusters,
   // NOLINTEND(bugprone-easily-swappable-parameters)
   return raftrkt::translate_exceptions(kc::last_error_slot(), [&] {
     const raft::handle_t& h = raftrkt::handle_of(handle);
+    raftrkt::require_open(out, "out", h);
     const int device = raftrkt::device_of(h);
     const raftrkt::device_scope scope{device};
     raftrkt::require_on_device(device, {{"labels", labels}});
@@ -190,6 +192,7 @@ int kc_csr_copy(void* handle, const rr_view* indptr, const rr_view* indices,
                 const rr_view* data, int64_t cols, rr_deposit* out) {
   return raftrkt::translate_exceptions(kc::last_error_slot(), [&] {
     const raft::handle_t& h = raftrkt::handle_of(handle);
+    raftrkt::require_open(out, "out", h);
     const int device = raftrkt::device_of(h);
     const raftrkt::device_scope scope{device};
     raftrkt::require_on_device(

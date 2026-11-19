@@ -7,10 +7,10 @@
 #include <string>
 #include <utility>
 
-#include "detail/deposit_api.h"
 #include "detail/error.hpp"
 #include "detail/handles.hpp"
 #include "raftrkt/deposit.hpp"
+#include "raftrkt/holder.h"
 
 namespace rr {
 
@@ -36,8 +36,7 @@ std::atomic_ref<int32_t> state_of(rr_deposit& record) noexcept {
 }
 
 int32_t state_of(const rr_holder& holder) noexcept {
-  return std::atomic_ref<int32_t>(const_cast<int32_t&>(holder.record.state))
-      .load(std::memory_order_acquire);
+  return raftrkt::detail::state_seen(holder.record);
 }
 
 bool filled(const rr_holder& holder, int32_t state) noexcept {

@@ -1,11 +1,12 @@
-#ifndef RAFTRKT_DETAIL_DEPOSIT_API_H
-#define RAFTRKT_DETAIL_DEPOSIT_API_H
+#ifndef RAFTRKT_HOLDER_H
+#define RAFTRKT_HOLDER_H
 
 #include <stdint.h>
 
 #include "raftrkt/array.h"
 #include "raftrkt/core.h"
 #include "raftrkt/deposit.h"
+#include "raftrkt/memory.h"
 
 #ifdef __cplusplus
 extern "C" {

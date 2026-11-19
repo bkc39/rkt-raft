@@ -1,13 +1,12 @@
 #include <gtest/gtest.h>
 
-#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
+#include <cstring>
 #include <map>
 #include <set>
 #include <string>
-#include <thread>
 #include <utility>
 #include <vector>
 
@@ -111,16 +110,6 @@ TEST(KMeans, FitsAndPredictsTheBlobsItMade) {
   EXPECT_TRUE(same_partition(run.found, run.truth));
   EXPECT_EQ(std::set<int32_t>(run.found.begin(), run.found.end()).size(),
             static_cast<std::size_t>(clusters));
-}
-
-constexpr int release_polls = 1000;
-constexpr auto release_poll_interval = std::chrono::milliseconds(10);
-
-bool releases_settled() {
-  for (int i = 0; i < release_polls && rr_releases_pending() != 0; ++i) {
-    std::this_thread::sleep_for(release_poll_interval);
-  }
-  return rr_releases_pending() == 0;
 }
 
 TEST(KMeans, EveryBufferOfARunIsFreed) {
@@ -304,6 +293,30 @@ TEST(Pool, CumlAllocatesFromThePoolRaftInstalled) {
   ASSERT_EQ(run.outcome, "accepted");
   EXPECT_EQ(run.after.used, run.before.used);
   EXPECT_GT(run.after.high, run.before.used);
+}
+
+void expect_graph_refusals(const resources& res, const unusable& u) {
+  const rr_deposit before = stack_record(res, u.state);
+  rr_deposit graph = before;
+  EXPECT_EQ(outcome(kc_cluster_graph(res.handle, nullptr, clusters,
+                                     RR_DTYPE_INT32, &graph)),
+            u.message);
+  EXPECT_EQ(std::memcmp(&graph, &before, sizeof before), 0) << u.message;
+  rr_deposit copy = before;
+  EXPECT_EQ(outcome(kc_csr_copy(res.handle, nullptr, nullptr, nullptr, clusters,
+                                &copy)),
+            u.message);
+  EXPECT_EQ(std::memcmp(&copy, &before, sizeof before), 0) << u.message;
+}
+
+TEST(Graph, AnUnusableDepositIsRefusedBeforeTheInputs) {
+  KC_REQUIRE_GPU();
+  const resources res;
+  const uint64_t drops = kc_owner_drop_count();
+  for (const unusable& u : unusable_records) {
+    expect_graph_refusals(res, u);
+  }
+  EXPECT_EQ(kc_owner_drop_count(), drops);
 }
 }  // namespace
 }  // namespace kc::test

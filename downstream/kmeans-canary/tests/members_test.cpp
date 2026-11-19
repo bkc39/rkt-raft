@@ -3,6 +3,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <vector>
 
 #include "canary_fixture.hpp"
@@ -12,13 +13,7 @@
 namespace kc::test {
 namespace {
 
-rr_deposit stack_record(const resources& res) {
-  rr_deposit record{};
-  record.handle = res.handle;
-  record.device = 0;
-  record.state = RR_DEPOSIT_OPEN;
-  return record;
-}
+constexpr int32_t absent_device = 7;
 
 template <typename T>
 std::vector<T> region_values(const rr_view& region, std::size_t count) {
@@ -108,7 +103,7 @@ TEST(Members, ClusterMembersFillsADepositOnTheCallersHandle) {
   EXPECT_EQ(kc_owner_stale_count(), stale);
 }
 
-TEST(Members, DepositRefusalsDropTheOwner) {
+TEST(Members, AnUnusableDepositIsRefusedBeforeAnOwnerIsMade) {
   KC_REQUIRE_GPU();
   const resources res;
   const resources other;
@@ -116,8 +111,7 @@ TEST(Members, DepositRefusalsDropTheOwner) {
   device_array labels(res.r, RR_DTYPE_INT32, {samples});
   ASSERT_EQ(blobs(res, x, labels), "accepted");
   const uint64_t drops = kc_owner_drop_count();
-  rr_deposit filled = stack_record(res);
-  filled.state = RR_DEPOSIT_FILLED;
+  rr_deposit filled = stack_record(res, RR_DEPOSIT_FILLED);
   EXPECT_EQ(outcome(kc_cluster_members(res.handle, &x.view, &labels.view, 0,
                                        &filled)),
             "out: already filled");
@@ -125,7 +119,38 @@ TEST(Members, DepositRefusalsDropTheOwner) {
   EXPECT_EQ(outcome(kc_cluster_members(res.handle, &x.view, &labels.view, 0,
                                        &foreign)),
             "out: on resources other than the call's");
-  EXPECT_EQ(kc_owner_drop_count(), drops + 2);
+  EXPECT_EQ(kc_owner_drop_count(), drops);
+}
+
+TEST(Members, AnUnusableDepositIsRefusedBeforeTheInputs) {
+  KC_REQUIRE_GPU();
+  const resources res;
+  const uint64_t drops = kc_owner_drop_count();
+  for (const unusable& u : unusable_records) {
+    const rr_deposit before = stack_record(res, u.state);
+    rr_deposit record = before;
+    EXPECT_EQ(
+        outcome(kc_cluster_members(res.handle, nullptr, nullptr, 0, &record)),
+        u.message);
+    EXPECT_EQ(std::memcmp(&record, &before, sizeof before), 0) << u.message;
+  }
+  EXPECT_EQ(kc_owner_drop_count(), drops);
+}
+
+TEST(Members, ADepositRefusedAfterThePrecheckDropsTheCanarysOwner) {
+  KC_REQUIRE_GPU();
+  const resources res;
+  device_array x(res.r, RR_DTYPE_FLOAT32, {samples, features});
+  device_array labels(res.r, RR_DTYPE_INT32, {samples});
+  ASSERT_EQ(blobs(res, x, labels), "accepted");
+  const uint64_t drops = kc_owner_drop_count();
+  rr_deposit record = stack_record(res);
+  record.device = absent_device;
+  EXPECT_EQ(outcome(kc_cluster_members(res.handle, &x.view, &labels.view, 0,
+                                       &record)),
+            "out: region 0: not device memory on device 7");
+  EXPECT_EQ(record.state, RR_DEPOSIT_OPEN);
+  EXPECT_EQ(kc_owner_drop_count(), drops + 1);
 }
 
 TEST(Members, ArgumentRefusalsNameTheArgument) {

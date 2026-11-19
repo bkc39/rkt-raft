@@ -18,8 +18,12 @@
 #include "raftrkt/deposit.hpp"
 #include "raftrkt/error.hpp"
 #include "raftrkt/view.hpp"
+#include "records.hpp"
 
 namespace {
+
+using rr::test::counted;
+using rr::test::stack_record;
 
 constexpr std::size_t storage_bytes = 512;
 constexpr std::size_t storage_alignment = 16;
@@ -32,20 +36,6 @@ constexpr int64_t huge_extent = int64_t{1} << 62;
 constexpr int64_t odd_stride = 8;
 constexpr std::size_t second_offset = 64;
 
-struct counted {
-  explicit counted(int& drops) : drops_(&drops) {}
-  ~counted() {
-    ++*drops_;
-  }
-  counted(const counted&) = delete;
-  counted& operator=(const counted&) = delete;
-  counted(counted&&) = delete;
-  counted& operator=(counted&&) = delete;
-
- private:
-  int* drops_;
-};
-
 std::byte* storage() {
   alignas(storage_alignment) static std::array<std::byte, storage_bytes>
       bytes{};
@@ -54,14 +44,6 @@ std::byte* storage() {
 
 float* floats(std::size_t byte_offset = 0) {
   return reinterpret_cast<float*>(storage() + byte_offset);
-}
-
-rr_deposit open_record(const raft::handle_t& handle) {
-  rr_deposit record{};
-  record.handle = &handle;
-  record.device = 0;
-  record.state = RR_DEPOSIT_OPEN;
-  return record;
 }
 
 struct outcome {
@@ -131,10 +113,10 @@ TEST(DepositHeader, ANullRecordIsRefused) {
 
 TEST(DepositHeader, OnlyAnOpenRecordIsFilled) {
   raft::handle_t handle;
-  rr_deposit filled = open_record(handle);
+  rr_deposit filled = stack_record(handle);
   filled.state = RR_DEPOSIT_FILLED;
   expect_refused(attempt(&filled, handle, {}), "out: already filled");
-  rr_deposit closed = open_record(handle);
+  rr_deposit closed = stack_record(handle);
   closed.state = RR_DEPOSIT_CLOSED;
   expect_refused(attempt(&closed, handle, {}), "out: closed");
 }
@@ -142,20 +124,20 @@ TEST(DepositHeader, OnlyAnOpenRecordIsFilled) {
 TEST(DepositHeader, TheRecordMustBeOnTheCallsResources) {
   raft::handle_t handle;
   raft::handle_t other;
-  rr_deposit record = open_record(other);
+  rr_deposit record = stack_record(other);
   expect_refused(attempt(&record, handle, {}),
                  "out: on resources other than the call's");
 }
 
 TEST(DepositHeader, AnOwnerIsRequired) {
   raft::handle_t handle;
-  rr_deposit record = open_record(handle);
+  rr_deposit record = stack_record(handle);
   expect_refused(attempt(&record, handle, {}, false), "out: no owner", 0);
 }
 
 TEST(DepositHeader, AtMostEightRegions) {
   raft::handle_t handle;
-  rr_deposit record = open_record(handle);
+  rr_deposit record = stack_record(handle);
   const rr_view r = raftrkt::region(floats(), 0);
   expect_refused(attempt(&record, handle, {r, r, r, r, r, r, r, r, r}),
                  "out: 9 regions; the most is 8");
@@ -163,7 +145,7 @@ TEST(DepositHeader, AtMostEightRegions) {
 
 TEST(DepositHeader, EachRegionIsCheckedAndNamedByIndex) {
   raft::handle_t handle;
-  rr_deposit record = open_record(handle);
+  rr_deposit record = stack_record(handle);
   const rr_view ok = raftrkt::region(floats(), 0);
 
   rr_view rank3 =
@@ -212,7 +194,7 @@ TEST(DepositHeader, EachRegionIsCheckedAndNamedByIndex) {
 
 TEST(DepositHeader, NonEmptyRegionsMustNotOverlap) {
   raft::handle_t handle;
-  rr_deposit record = open_record(handle);
+  rr_deposit record = stack_record(handle);
   const rr_view first = raftrkt::region(floats(), vector_length);
   const rr_view inside = raftrkt::region(floats(sizeof(float)), 1);
   expect_refused(attempt(&record, handle, {first, inside}),
@@ -227,13 +209,13 @@ TEST(DepositHeader, NonEmptyRegionsMustNotOverlap) {
 TEST(DepositHeader, TheChecksRunInOrder) {
   raft::handle_t handle;
   raft::handle_t other;
-  rr_deposit closed = open_record(other);
+  rr_deposit closed = stack_record(other);
   closed.state = RR_DEPOSIT_CLOSED;
   expect_refused(attempt(&closed, handle, {}, false), "out: closed", 0);
-  rr_deposit foreign = open_record(other);
+  rr_deposit foreign = stack_record(other);
   expect_refused(attempt(&foreign, handle, {}, false),
                  "out: on resources other than the call's", 0);
-  rr_deposit record = open_record(handle);
+  rr_deposit record = stack_record(handle);
   rr_view bad = raftrkt::region(floats(), vector_length);
   bad.rank = rank_three;
   expect_refused(attempt(&record, handle, {bad}, false), "out: no owner", 0);
@@ -292,7 +274,7 @@ closing closed_after_claim(rr_deposit& record, const raft::handle_t& handle) {
 
 TEST(DepositHeader, ARecordClosedAfterItsClaimIsLeftClosedAndAsItWas) {
   raft::handle_t handle;
-  rr_deposit record = open_record(handle);
+  rr_deposit record = stack_record(handle);
   const closing c = closed_after_claim(record, handle);
   EXPECT_EQ(c.message, "out: closed");
   EXPECT_TRUE(c.caller_kept_owner);
@@ -302,7 +284,7 @@ TEST(DepositHeader, ARecordClosedAfterItsClaimIsLeftClosedAndAsItWas) {
 
 TEST(DepositHeader, AClaimedRecordRefusesASecondFillerWithoutATouch) {
   raft::handle_t handle;
-  rr_deposit record = open_record(handle);
+  rr_deposit record = stack_record(handle);
   int drops = 0;
   auto first = std::make_unique<counted>(drops);
   rr_deposit& checked = raftrkt::detail::checked_fill(
@@ -325,7 +307,7 @@ TEST(DepositHeader, AClaimedRecordRefusesASecondFillerWithoutATouch) {
 
 TEST(DepositHeader, ARefusedCheckReturnsTheClaim) {
   raft::handle_t handle;
-  rr_deposit record = open_record(handle);
+  rr_deposit record = stack_record(handle);
   rr_view bad = raftrkt::region(floats(), vector_length);
   bad.rank = rank_three;
   expect_refused(attempt(&record, handle, {bad}),
@@ -384,7 +366,7 @@ void expect_one_winner(rr_deposit& record, const race& r) {
 TEST(DepositHeader, OfTwoRacingFillersOneWinsAndTheOtherTouchesNothing) {
   raft::handle_t handle;
   for (int round = 0; round < racing_rounds; ++round) {
-    rr_deposit record = open_record(handle);
+    rr_deposit record = stack_record(handle);
     race r;
     filled_by_racers(record, handle, r);
     expect_one_winner(record, r);
@@ -393,7 +375,7 @@ TEST(DepositHeader, OfTwoRacingFillersOneWinsAndTheOtherTouchesNothing) {
 
 TEST(DepositHeader, EmptyRegionsNeedNoDeviceAndFillTheRecord) {
   raft::handle_t handle;
-  rr_deposit record = open_record(handle);
+  rr_deposit record = stack_record(handle);
   int drops = 0;
   const rr_view empty_vector = raftrkt::region(floats(), 0);
   const rr_view empty_matrix = raftrkt::region(

@@ -2,10 +2,13 @@
 
 #include <gtest/gtest.h>
 
+#include <array>
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "kmeans_canary.h"
@@ -111,6 +114,36 @@ struct device_array {
   rr_buffer* buffer = nullptr;
   rr_view view{};
 };
+
+inline rr_deposit stack_record(const resources& res,
+                               int32_t state = RR_DEPOSIT_OPEN) {
+  rr_deposit record{};
+  record.handle = res.handle;
+  record.device = 0;
+  record.state = state;
+  return record;
+}
+
+struct unusable {
+  int32_t state;
+  const char* message;
+};
+
+constexpr std::array<unusable, 3> unusable_records{{
+    {RR_DEPOSIT_CLOSED, "out: closed"},
+    {RR_DEPOSIT_FILLED, "out: already filled"},
+    {RR_DEPOSIT_FILLING, "out: being filled"},
+}};
+
+constexpr int release_polls = 1000;
+constexpr auto release_poll_interval = std::chrono::milliseconds(10);
+
+inline bool releases_settled() {
+  for (int i = 0; i < release_polls && rr_releases_pending() != 0; ++i) {
+    std::this_thread::sleep_for(release_poll_interval);
+  }
+  return rr_releases_pending() == 0;
+}
 
 inline std::string outcome(int status) {
   return status == RR_OK ? std::string("accepted")

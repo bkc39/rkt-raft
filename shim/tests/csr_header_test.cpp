@@ -15,8 +15,11 @@
 #include "raftrkt/deposit.h"
 #include "raftrkt/error.hpp"
 #include "raftrkt/view.hpp"
+#include "records.hpp"
 
 namespace {
+
+using rr::test::stack_record;
 
 constexpr int64_t rows = 3;
 constexpr int64_t cols = 4;
@@ -180,14 +183,6 @@ TEST(CsrView, TakesConstElementsAndIndices) {
   EXPECT_EQ(view.get_elements().data(), static_cast<const double*>(storage()));
 }
 
-rr_deposit open_record(const raft::handle_t& handle) {
-  rr_deposit record{};
-  record.handle = &handle;
-  record.device = 0;
-  record.state = RR_DEPOSIT_OPEN;
-  return record;
-}
-
 std::string refused_fill(rr_deposit& record, const raft::handle_t& handle,
                          int64_t r, int64_t n) {
   auto* p = static_cast<int32_t*>(storage());
@@ -203,7 +198,7 @@ std::string refused_fill(rr_deposit& record, const raft::handle_t& handle,
 
 TEST(DepositCsr, RefusesAnEmptyIndptrBeforeClaimingTheRecord) {
   const raft::handle_t handle;
-  rr_deposit record = open_record(handle);
+  rr_deposit record = stack_record(handle);
   EXPECT_EQ(refused_fill(record, handle, -1, 0),
             "out: indptr: expected at least 1 element, got 0");
   EXPECT_EQ(record.state, RR_DEPOSIT_OPEN);
@@ -212,7 +207,7 @@ TEST(DepositCsr, RefusesAnEmptyIndptrBeforeClaimingTheRecord) {
 
 TEST(DepositCsr, LeavesTheRegionChecksToDeposit) {
   const raft::handle_t handle;
-  rr_deposit record = open_record(handle);
+  rr_deposit record = stack_record(handle);
   EXPECT_EQ(refused_fill(record, handle, rows, -1),
             "out: region 1: negative extent -1");
   EXPECT_EQ(record.state, RR_DEPOSIT_OPEN);
@@ -220,7 +215,7 @@ TEST(DepositCsr, LeavesTheRegionChecksToDeposit) {
 
 TEST(DepositCsr, RefusesRowsWhoseIndptrOverflowsAnExtent) {
   const raft::handle_t handle;
-  rr_deposit record = open_record(handle);
+  rr_deposit record = stack_record(handle);
   EXPECT_EQ(
       refused_fill(record, handle, std::numeric_limits<int64_t>::max(), 0),
       "out: indptr: expected 9223372036854775808 elements, more than "
@@ -242,7 +237,7 @@ std::string refused_buffers(rr_deposit& record, const raft::handle_t& handle,
 
 TEST(DepositCsr, BuffersRefuseNoOwnerUnclaimed) {
   const raft::handle_t handle;
-  rr_deposit record = open_record(handle);
+  rr_deposit record = stack_record(handle);
   EXPECT_EQ(refused_buffers(record, handle, nullptr), "out: no owner");
   EXPECT_EQ(record.state, RR_DEPOSIT_OPEN);
 }

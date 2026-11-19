@@ -445,8 +445,10 @@
             nativeBuildInputs = [ pkgs.stdenv.cc ];
           }
           ''
-            printf '#include "raftrkt/c_api.h"\nint main(void) { return 0; }\n' > t.c
-            cc -std=c11 -Wall -Wextra -Wpedantic -Werror -I $src -c t.c -o t.o
+            for header in c_api.h holder.h; do
+              printf '#include "raftrkt/%s"\nint main(void) { return 0; }\n' "$header" > t.c
+              cc -std=c11 -Wall -Wextra -Wpedantic -Werror -I $src -c t.c -o t.o
+            done
             touch $out
           '';
 

@@ -13,10 +13,10 @@
 #include <vector>
 
 #include "detail/array_api.h"
-#include "detail/deposit_api.h"
 #include "jobs.hpp"
 #include "raftrkt/c_api.h"
 #include "raftrkt/deposit.hpp"
+#include "raftrkt/holder.h"
 
 namespace rr::test::deposit {
 
