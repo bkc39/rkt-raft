@@ -270,17 +270,22 @@
     (check-raft-error 'logic message (lambda () (run form)))))
 
 (define inexpressible-shapes
-  `((device-csr-matrix (ints '(0 2 2 3)) (ints '(3 0 1)) (floats '(0.5 1.0 2.0)) #:shape '(3 4.0))
-    (device-csr-matrix (ints '(0 2 2 3))
-                       (ints '(3 0 1))
-                       (floats '(0.5 1.0 2.0))
-                       #:shape '(3 ,(expt 2 70)))
-    (triplets->device-csr-matrix '() '() '() #:shape '(3 4.0))
-    (triplets->device-csr-matrix '() '() '() #:shape '(3 ,(expt 2 70)))))
+  `((4.0
+     (device-csr-matrix (ints '(0 2 2 3)) (ints '(3 0 1)) (floats '(0.5 1.0 2.0)) #:shape '(3 4.0)))
+    (,(expt 2 70) (device-csr-matrix (ints '(0 2 2 3))
+                                     (ints '(3 0 1))
+                                     (floats '(0.5 1.0 2.0))
+                                     #:shape '(3 ,(expt 2 70))))
+    (4.0 (triplets->device-csr-matrix '() '() '() #:shape '(3 4.0)))
+    (,(expt 2 70) (triplets->device-csr-matrix '() '() '() #:shape '(3 ,(expt 2 70))))))
 
-(test-gpu "law 8: an extent that is no int64 is refused without naming the shim"
-  (for ([form (in-list inexpressible-shapes)])
-    (check-exn (lambda (e) (and (exn:fail? e) (not (regexp-match? #rx"rr_" (exn-message e)))))
+(test-gpu "law 8: an extent that is no int64 is refused by the int64 conversion, not the shim"
+  (for ([row (in-list inexpressible-shapes)])
+    (match-define (list value form) row)
+    (define message
+      (format "ptr-set!: given value does not fit primitive C type\n  C type: _int64\n  value: ~a"
+              value))
+    (check-exn (lambda (e) (and (exn:fail? e) (equal? (exn-message e) message)))
                (lambda () (run form))
                (format "~s" form))))
 
