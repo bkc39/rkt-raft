@@ -136,6 +136,13 @@
   (check-raft-error 'logic
                     "vector*->device-matrix: row 1 has 1 element, but row 0 has 2: '#(3.0)"
                     (lambda () (vector*->device-matrix #(#(1.0 2.0) #(3.0)))))
+  (define batch (vector (vector 0.5 1.0) (vector 0.7 1.2)))
+  (define (readings-above threshold)
+    (vector*->device-matrix (for/vector ([row (in-vector batch)]
+                                         #:when (> (vector-ref row 0) threshold))
+                              row)
+                            #:cols 2))
+  (check-equal? (list (shape (readings-above 0.6)) (shape (readings-above 1.0))) '((1 2) (0 2)))
   (check-equal? (device-matrix->vector* (vector*->device-matrix #(#(1 2) #(3 4)))) #(#(1 2) #(3 4)))
   (define centroids (vector*->device-matrix #(#(5.0 3.4) #(6.6 3.0) #(5.9 2.8))))
   (check-equal? (vector-ref (device-matrix->vector* centroids) 1) #(6.6 3.0))
@@ -281,7 +288,12 @@
                 "#<device-vector float32[2] cuda:0 [0.8 1.4]>")
   (check-raft-error 'logic
                     "matrix->device-vector: a 2×2 matrix is neither a row nor a column matrix"
-                    (lambda () (matrix->device-vector gram))))
+                    (lambda () (matrix->device-vector gram)))
+  (define (coefficients->device-vector m)
+    (matrix->device-vector m #:dtype 'float32 #:who 'coefficients->device-vector))
+  (check-raft-error 'logic
+                    "coefficients->device-vector: a 2×2 matrix is neither a row nor a column matrix"
+                    (lambda () (coefficients->device-vector gram))))
 
 (test-gpu "compat reference: row and column matrices"
   (check-equal? (printed (device-vector->col-matrix (vector->device-vector #(1.0 2.0 3.0))))

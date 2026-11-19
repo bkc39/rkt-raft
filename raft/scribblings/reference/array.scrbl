@@ -40,6 +40,10 @@ Printing never raises; unreadable values print as
 @racket[exn:fail:raft] of kind @racket['logic]. An argument of the wrong
 kind may raise a different error.
 
+@bold{Names.} Each procedure here that takes @racket[#:resources] also
+takes @racket[#:who], the name that begins every @racket[exn:fail:raft]
+message the call raises; it defaults to the procedure's own.
+
 @section[#:tag "ref-array-make"]{Making arrays}
 
 @defproc[(device-matrix [rows exact-nonnegative-integer?]
@@ -47,7 +51,8 @@ kind may raise a different error.
                         [#:dtype dtype (or/c 'float32 'float64 'int32 'int64) 'float32]
                         [#:layout layout (or/c 'row-major 'col-major) 'row-major]
                         [#:resources resources device-resources?
-                                     (current-device-resources)])
+                                     (current-device-resources)]
+                        [#:who who symbol? 'device-matrix])
          device-matrix?]{
 
 Allocates a @racket[rows]-by-@racket[cols] matrix of @racket[dtype] in
@@ -81,12 +86,23 @@ An unsupported element type raises:
 
 @examples[#:eval ev #:label #f
 (eval:error (device-matrix 2 2 #:dtype 'float16))
+]
+
+A wrapper that allocates for its caller passes its own name, which then
+begins the error its caller sees:
+
+@examples[#:eval ev #:label #f
+(define (centroid-matrix k data #:resources [r (current-device-resources)])
+  (device-matrix k (second (shape data)) #:resources r #:who 'centroid-matrix))
+(define finished (with-device-resources ([r (device-resources)]) r))
+(eval:error (centroid-matrix 3 X #:resources finished))
 ]}
 
 @defproc[(device-vector [n exact-nonnegative-integer?]
                         [#:dtype dtype (or/c 'float32 'float64 'int32 'int64) 'float32]
                         [#:resources resources device-resources?
-                                     (current-device-resources)])
+                                     (current-device-resources)]
+                        [#:who who symbol? 'device-vector])
          device-vector?]{
 
 Allocates an uninitialised vector of @racket[n] elements of @racket[dtype].
@@ -543,7 +559,8 @@ stream; float elements become flonums, integer elements exact integers.
 @defproc[(list->device-vector [xs (listof real?)]
                               [#:dtype dtype (or/c #f 'float32 'float64 'int32 'int64) #f]
                               [#:resources resources device-resources?
-                                           (current-device-resources)])
+                                           (current-device-resources)]
+                              [#:who who symbol? 'list->device-vector])
          device-vector?]{
 
 Returns a vector holding @racket[xs], of @racket[dtype] or the inferred
@@ -567,6 +584,14 @@ Cluster labels:
 @examples[#:eval ev #:label #f
 (define assigned (list->device-vector '(0 2 1 2) #:dtype 'int32))
 (list (dtype assigned) (shape assigned))
+]
+
+Uploading for a caller, under the caller's name:
+
+@examples[#:eval ev #:label #f
+(define (fit-labels labels)
+  (list->device-vector labels #:dtype 'int32 #:who 'fit-labels))
+(eval:error (fit-labels '(0 1 3000000000)))
 ]}
 
 @defproc[(device-vector->list [v device-vector?]) (listof real?)]{
@@ -596,13 +621,16 @@ Cluster sizes from labels:
 @defproc[(list*->device-matrix [rows (listof (listof real?))]
                                [#:dtype dtype (or/c #f 'float32 'float64 'int32 'int64) #f]
                                [#:layout layout (or/c 'row-major 'col-major) 'row-major]
+                               [#:cols cols (or/c #f exact-nonnegative-integer?) #f]
                                [#:resources resources device-resources?
-                                            (current-device-resources)])
+                                            (current-device-resources)]
+                               [#:who who symbol? 'list*->device-matrix])
          device-matrix?]{
 
 Returns a matrix whose rows are @racket[rows], of @racket[dtype] or the
 inferred type, packed in @racket[layout] on the host. A ragged row raises
-@racket[exn:fail:raft].
+@racket[exn:fail:raft]. With @racket[cols], the matrix has that many
+columns, even with no rows; a row of another length raises.
 
 @examples[#:eval ev
 (list*->device-matrix '((1 2) (3 4)))
@@ -623,6 +651,18 @@ A ragged row is named:
 
 @examples[#:eval ev #:label #f
 (eval:error (list*->device-matrix '((1 2 3) (4 5 6) (7 8))))
+]
+
+A table with a schema keeps its columns when it has no rows, and names
+itself when a row does not fit:
+
+@examples[#:eval ev #:label #f
+(define schema '(sepal-length sepal-width petal-length petal-width))
+(define (table->device-matrix rows)
+  (list*->device-matrix rows #:cols (length schema) #:dtype 'float32
+                        #:who 'table->device-matrix))
+(shape (table->device-matrix '()))
+(eval:error (table->device-matrix '((5.1 3.5 1.4))))
 ]}
 
 @defproc[(device-matrix->list* [m device-matrix?]) (listof (listof real?))]{
@@ -651,7 +691,8 @@ A table of centroids:
 @defproc[(flvector->device-vector [xs flvector?]
                                   [#:dtype dtype (or/c 'float32 'float64 'int32 'int64) 'float64]
                                   [#:resources resources device-resources?
-                                               (current-device-resources)])
+                                               (current-device-resources)]
+                                  [#:who who symbol? 'flvector->device-vector])
          device-vector?]{
 
 Returns a vector holding the elements of @racket[xs], of @racket[dtype]. An
@@ -857,13 +898,16 @@ Repeats count, and so does a zero that repeats summed to:
                                                (vectorof (or/c list? vector?)))]
                                    [#:dtype dtype (or/c 'float32 'float64) 'float64]
                                    [#:index-dtype index-dtype (or/c 'int32 'int64) 'int32]
+                                   [#:cols cols (or/c #f exact-nonnegative-integer?) #f]
                                    [#:resources resources device-resources?
-                                                (current-device-resources)])
+                                                (current-device-resources)]
+                                   [#:who who symbol? 'list*->device-csr-matrix])
          device-csr-matrix?]{
 
 Makes a @tech{CSR matrix} of the entries of @racket[rows] that are not zero,
 columns ascending in each row. @racket[rows] is rows as for
 @racket[list*->device-matrix]; a value that converts to zero is not stored.
+@racket[cols] is as for @racket[list*->device-matrix].
 
 @examples[#:eval ev
 (device-csr-matrix->list* G)
@@ -880,6 +924,17 @@ From vector rows:
 
 @examples[#:eval ev #:label #f
 (nnz (list*->device-csr-matrix (vector (vector 0 1.0) (vector 0 0))))
+]
+
+One-hot labels keep their classes for a batch with no labels:
+
+@examples[#:eval ev #:label #f
+(define (one-hot labels k)
+  (list*->device-csr-matrix (for/list ([l (in-list labels)])
+                              (for/list ([c (in-range k)])
+                                (if (= c l) 1.0 0.0)))
+                            #:cols k))
+(list (shape (one-hot '(0 2) 3)) (shape (one-hot '() 3)))
 ]}
 
 @defproc[(device-csr-matrix->list* [m device-csr-matrix?]) (listof (listof flonum?))]{
@@ -916,7 +971,8 @@ Rows without entries:
                                       [#:dtype dtype (or/c 'float32 'float64) 'float64]
                                       [#:index-dtype index-dtype (or/c 'int32 'int64) 'int32]
                                       [#:resources resources device-resources?
-                                                   (current-device-resources)])
+                                                   (current-device-resources)]
+                                      [#:who who symbol? 'triplets->device-csr-matrix])
          device-csr-matrix?]{
 
 Makes a @tech{CSR matrix} with value @racket[(list-ref vals i)] at row

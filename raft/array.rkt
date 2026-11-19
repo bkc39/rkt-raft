@@ -36,7 +36,7 @@
                   pack-matrix
                   pack-vector
                   unpack-matrix)
-         (only-in "private/resources.rkt" current-device-resources)
+         (only-in "private/resources.rkt" define/resources)
          (only-in "private/vector.rkt" read-vector upload-vector))
 
 (provide compare ;; noqa
@@ -71,17 +71,16 @@
          strides
          triplets->device-csr-matrix) ;; noqa
 
-(define (device-matrix rows
-                       cols
-                       #:dtype [element-type 'float32]
-                       #:layout [order 'row-major]
-                       #:resources [resources (current-device-resources)])
-  (allocate-array 'device-matrix resources element-type order (list rows cols)))
+(define/resources (device-matrix rows
+                                 cols
+                                 #:dtype [element-type 'float32]
+                                 #:layout [order 'row-major]
+                                 #:resources resources
+                                 #:who who)
+  (allocate-array who resources element-type order (list rows cols)))
 
-(define (device-vector n
-                       #:dtype [element-type 'float32]
-                       #:resources [resources (current-device-resources)])
-  (allocate-array 'device-vector resources element-type 'row-major (list n)))
+(define/resources (device-vector n #:dtype [element-type 'float32] #:resources resources #:who who)
+  (allocate-array who resources element-type 'row-major (list n)))
 
 (define (device-matrix? v)
   (and (device-array? v) (= (array-rank v) 2)))
@@ -113,21 +112,19 @@
       a
       (contiguous-array 'contiguous a order)))
 
-(define (list->device-vector xs
-                             #:dtype [element-type #f]
-                             #:resources [resources (current-device-resources)])
-  (define who 'list->device-vector)
+(define/resources (list->device-vector xs #:dtype [element-type #f] #:resources resources #:who who)
   (upload-vector who resources (or element-type (infer-dtype who xs)) xs))
 
 (define (device-vector->list v)
   (read-vector 'device-vector->list v))
 
-(define (list*->device-matrix rows
-                              #:dtype [element-type #f]
-                              #:layout [order 'row-major]
-                              #:resources [resources (current-device-resources)])
-  (define who 'list*->device-matrix)
-  (define extents (matrix-shape who rows))
+(define/resources (list*->device-matrix rows
+                                        #:dtype [element-type #f]
+                                        #:layout [order 'row-major]
+                                        #:cols [cols #f]
+                                        #:resources resources
+                                        #:who who)
+  (define extents (matrix-shape who rows cols))
   (define m
     (allocate-array who resources (or element-type (infer-rows-dtype who rows)) order extents))
   (write-array!
@@ -141,10 +138,10 @@
                  (device-array-strides m)
                  (read-all 'device-matrix->list* m)))
 
-(define (flvector->device-vector xs
-                                 #:dtype [element-type 'float64]
-                                 #:resources [resources (current-device-resources)])
-  (define who 'flvector->device-vector)
+(define/resources (flvector->device-vector xs
+                                           #:dtype [element-type 'float64]
+                                           #:resources resources
+                                           #:who who)
   (define n (flvector-length xs))
   (define v (allocate-array who resources element-type 'row-major (list n)))
   (write-array! who

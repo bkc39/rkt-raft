@@ -16,7 +16,7 @@
          (only-in "foreign/memory.rkt" released?)
          (only-in "pack.rkt" element-converter elements matrix-shape over-elements)
          (only-in "print.rkt" csr-runs csr-text indented shape-text)
-         (only-in "resources.rkt" current-device-resources)
+         (only-in "resources.rkt" define/resources)
          (only-in "vector.rkt" read-block read-vector upload-vector))
 
 (provide (rename-out [device-csr-matrix-data csr-data]
@@ -98,12 +98,13 @@
   (define data (upload-vector who resources element-type vals))
   (checked-csr who indptr indices data extents))
 
-(define (list*->device-csr-matrix rows
-                                  #:dtype [element-type 'float64]
-                                  #:index-dtype [index-type 'int32]
-                                  #:resources [resources (current-device-resources)])
-  (define who 'list*->device-csr-matrix)
-  (define extents (checked-shape who index-type element-type (matrix-shape who rows)))
+(define/resources (list*->device-csr-matrix rows
+                                            #:dtype [element-type 'float64]
+                                            #:index-dtype [index-type 'int32]
+                                            #:cols [cols #f]
+                                            #:resources resources
+                                            #:who who)
+  (define extents (checked-shape who index-type element-type (matrix-shape who rows cols)))
   (define convert (element-converter who element-type))
   (define entries
     (append* (over-elements (for/list ([row rows]
@@ -145,14 +146,14 @@
   (match* (a b)
     [((vector r c _) (vector r* c* _)) (or (< r r*) (and (= r r*) (< c c*)))]))
 
-(define (triplets->device-csr-matrix rows
-                                     cols
-                                     vals
-                                     #:shape extents
-                                     #:dtype [element-type 'float64]
-                                     #:index-dtype [index-type 'int32]
-                                     #:resources [resources (current-device-resources)])
-  (define who 'triplets->device-csr-matrix)
+(define/resources (triplets->device-csr-matrix rows
+                                               cols
+                                               vals
+                                               #:shape extents
+                                               #:dtype [element-type 'float64]
+                                               #:index-dtype [index-type 'int32]
+                                               #:resources resources
+                                               #:who who)
   (define checked (checked-shape who index-type element-type extents))
   (match-define (list row-count col-count) checked)
   (define n (length rows))

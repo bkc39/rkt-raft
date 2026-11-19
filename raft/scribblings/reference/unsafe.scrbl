@@ -421,11 +421,14 @@ HDBSCAN's condensed tree. A deposit is a record the call fills with that
 memory and with the owner that frees it; raft then turns each region into an
 array.
 
-@defproc[(deposit [#:resources resources device-resources? (current-device-resources)]) deposit?]{
+@defproc[(deposit [#:resources resources device-resources? (current-device-resources)]
+                  [#:who who symbol? 'deposit])
+         deposit?]{
 
 Returns an empty deposit on @racket[resources]: a record into which a native
 call puts device memory it allocated, with the owner that frees it. Its
-arrays come from @racket[deposit->list].}
+arrays come from @racket[deposit->list]. @racket[who] begins the message of
+any @racket[exn:fail:raft] it raises.}
 
 @defproc[(deposit? [v any/c]) boolean?]{
 

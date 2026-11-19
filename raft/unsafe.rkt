@@ -18,7 +18,7 @@
          (only-in "private/foreign/core.rkt" rr-abi rr-resources-handle)
          (only-in "private/job.rkt" define-job)
          (only-in "private/resource.rkt" with-release)
-         (only-in "private/resources.rkt" current-device-resources resources-handle))
+         (only-in "private/resources.rkt" define/resources resources-handle))
 
 (provide define-job ;; noqa
          deposit
@@ -86,8 +86,7 @@
     #:description "a [name deposit-expr] binding"
     (pattern [name:id deposit:expr])))
 
-(define (deposit #:resources [resources (current-device-resources)])
-  (open-deposit resources))
+(define/resources (deposit #:resources resources #:who who) (open-deposit who resources))
 
 (define-syntax-parse-rule (with-deposits (b:deposit-binding ...) body:expr ...+)
   #:fail-when (check-duplicate-identifier (syntax->list #'(b.name ...))) "duplicate binding name"

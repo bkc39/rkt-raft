@@ -41,10 +41,11 @@
                   view-shape
                   view-strides)
          (only-in "../../private/foreign/memory.rkt" buffer-drop-count)
-         (only-in "../private/arrays.rkt" storage)
+         (only-in "../private/arrays.rkt" check-zero-row-uploads storage)
          (only-in "../private/collect.rkt" collect-until drain-finalizers!)
          (only-in "../private/gpu.rkt" test-gpu)
-         (only-in "../private/raft-error.rkt" check-raft-error))
+         (only-in "../private/raft-error.rkt" check-raft-error)
+         (only-in "../private/resources.rkt" released-resources))
 
 (define (flvector->list xs)
   (for/list ([x (in-flvector xs)])
@@ -128,6 +129,21 @@
   (check-equal? (list (shape m) (strides m) (layout m)) '((0 3) (0 0) row-major))
   (check-eq? (contiguous m #:layout 'col-major) m)
   (check-equal? (device-matrix->list* m) '()))
+
+(test-gpu "Z1: no rows with #:cols k is the model (device-matrix 0 k), dtype float64 when inferred"
+  (check-zero-row-uploads list*->device-matrix '() device-matrix->list*))
+
+(test-gpu "Z3: a row that disagrees with #:cols is refused, before the resources are read"
+  (define released (released-resources))
+  (check-raft-error 'logic
+                    "list*->device-matrix: row 0 has 2 elements, but #:cols is 3: '(1 2)"
+                    (lambda () (list*->device-matrix '((1 2)) #:cols 3)))
+  (check-raft-error 'logic
+                    "list*->device-matrix: row 1 has 1 element, but #:cols is 2: '(3)"
+                    (lambda () (list*->device-matrix '((1 2) (3)) #:cols 2)))
+  (check-raft-error 'logic
+                    "list*->device-matrix: row 1 has 1 element, but #:cols is 2: '(3)"
+                    (lambda () (list*->device-matrix '((1 2) (3)) #:cols 2 #:resources released))))
 
 (test-gpu "nested lists round-trip in every dtype and layout"
   (for* ([d (in-list all-dtypes)]
@@ -320,7 +336,7 @@
   (check-equal? (device-matrix->list* c) sample))
 
 (test-gpu "released resources are refused by the constructors, naming the caller"
-  (define released (with-device-resources ([r (device-resources)]) r))
+  (define released (released-resources))
   (check-raft-error 'logic
                     "device-matrix: the device resources on device 0 were released"
                     (lambda () (device-matrix 2 2 #:resources released)))

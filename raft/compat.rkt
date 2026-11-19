@@ -42,16 +42,13 @@
                   host-bytes)
          (only-in "private/pack.rkt"
                   infer-dtype
-                  infer-rows-dtype
-                  matrix-shape
                   over-elements
-                  pack-matrix
                   pack-row-major
                   repack
                   unpack-matrix
                   unpack-row-major
                   unpack-vector)
-         (only-in "private/resources.rkt" current-device-resources))
+         (only-in "private/resources.rkt" define/resources))
 
 (provide (all-from-out "array.rkt")
          array->device-array
@@ -92,15 +89,6 @@
                 (if (and (flvector? xs) (eq? d 'float64) (has-layout? a 'row-major))
                     xs
                     (pack-row-major who d (device-array-shape a) (device-array-strides a) xs))))
-
-(define (send-rows who resources element-type order rows)
-  (define extents (matrix-shape who rows))
-  (define m
-    (allocate-array who resources (or element-type (infer-rows-dtype who rows)) order extents))
-  (write-array!
-   who
-   m
-   (pack-matrix who (device-array-dtype m) (device-array-shape m) (device-array-strides m) rows)))
 
 (define (receive who a into)
   (define host (read-all who a))
@@ -153,22 +141,27 @@
 (define (send-nested who resources element-type order xs extent)
   (if (= 1 (nested-rank who xs))
       (send-flat who resources element-type order (list (extent xs)) xs)
-      (send-rows who resources element-type order xs)))
+      (list*->device-matrix xs #:dtype element-type #:layout order #:resources resources #:who who)))
 
-(define (vector->device-vector xs
-                               #:dtype [element-type #f]
-                               #:resources [resources (current-device-resources)])
-  (send-flat 'vector->device-vector resources element-type 'row-major (list (vector-length xs)) xs))
+(define/resources (vector->device-vector xs #:dtype [element-type #f] #:resources resources #:who who)
+  (send-flat who resources element-type 'row-major (list (vector-length xs)) xs))
 
 (define (device-vector->vector v)
   (match-define (list n) (device-array-shape v))
   (unpack-vector (device-array-dtype v) n (read-all 'device-vector->vector v) #:into 'vector))
 
-(define (vector*->device-matrix rows
-                                #:dtype [element-type #f]
-                                #:layout [order 'row-major]
-                                #:resources [resources (current-device-resources)])
-  (send-rows 'vector*->device-matrix resources element-type order rows))
+(define/resources (vector*->device-matrix rows
+                                          #:dtype [element-type #f]
+                                          #:layout [order 'row-major]
+                                          #:cols [cols #f]
+                                          #:resources resources
+                                          #:who who)
+  (list*->device-matrix rows
+                        #:dtype element-type
+                        #:layout order
+                        #:cols cols
+                        #:resources resources
+                        #:who who))
 
 (define (device-matrix->vector* m)
   (unpack-matrix (device-array-dtype m)
@@ -177,17 +170,19 @@
                  (read-all 'device-matrix->vector* m)
                  #:into 'vector))
 
-(define (list*->device-array xs
-                             #:dtype [element-type #f]
-                             #:layout [order 'row-major]
-                             #:resources [resources (current-device-resources)])
-  (send-nested 'list*->device-array resources element-type order xs length))
+(define/resources (list*->device-array xs
+                                       #:dtype [element-type #f]
+                                       #:layout [order 'row-major]
+                                       #:resources resources
+                                       #:who who)
+  (send-nested who resources element-type order xs length))
 
-(define (vector*->device-array xs
-                               #:dtype [element-type #f]
-                               #:layout [order 'row-major]
-                               #:resources [resources (current-device-resources)])
-  (send-nested 'vector*->device-array resources element-type order xs vector-length))
+(define/resources (vector*->device-array xs
+                                         #:dtype [element-type #f]
+                                         #:layout [order 'row-major]
+                                         #:resources resources
+                                         #:who who)
+  (send-nested who resources element-type order xs vector-length))
 
 (define (device-array->list* a)
   (receive 'device-array->list* a 'list))
@@ -205,15 +200,17 @@
                     host
                     (repack who own-type d n host))))
 
-(define (f32vector->device-vector xs
-                                  #:dtype [element-type 'float32]
-                                  #:resources [resources (current-device-resources)])
-  (send-packed 'f32vector->device-vector resources element-type 'float32 (f32vector->host xs)))
+(define/resources (f32vector->device-vector xs
+                                            #:dtype [element-type 'float32]
+                                            #:resources resources
+                                            #:who who)
+  (send-packed who resources element-type 'float32 (f32vector->host xs)))
 
-(define (f64vector->device-vector xs
-                                  #:dtype [element-type 'float64]
-                                  #:resources [resources (current-device-resources)])
-  (send-packed 'f64vector->device-vector resources element-type 'float64 (f64vector->host xs)))
+(define/resources (f64vector->device-vector xs
+                                            #:dtype [element-type 'float64]
+                                            #:resources resources
+                                            #:who who)
+  (send-packed who resources element-type 'float64 (f64vector->host xs)))
 
 (define (receive-packed who v own-type)
   (match-define (list n) (device-array-shape v))
@@ -229,10 +226,7 @@
 (define (device-vector->f64vector v)
   (host->f64vector (numel v) (receive-packed 'device-vector->f64vector v 'float64)))
 
-(define (bytes->device-vector bs
-                              #:dtype element-type
-                              #:resources [resources (current-device-resources)])
-  (define who 'bytes->device-vector)
+(define/resources (bytes->device-vector bs #:dtype element-type #:resources resources #:who who)
   (define size
     (if (memq element-type dtypes)
         (dtype-itemsize element-type)
@@ -265,27 +259,25 @@
 (define (array-extents arr)
   (vector->list (array-shape arr)))
 
-(define (array->device-array arr
-                             #:dtype [element-type #f]
-                             #:layout [order 'row-major]
-                             #:resources [resources (current-device-resources)])
-  (define who 'array->device-array)
+(define/resources (array->device-array arr
+                                       #:dtype [element-type #f]
+                                       #:layout [order 'row-major]
+                                       #:resources resources
+                                       #:who who)
   (define extents (array-extents arr))
   (unless (memv (length extents) '(1 2))
     (raise-rank who (length extents)))
   (send-flat who resources element-type order extents (array-elements arr)))
 
-(define (matrix->device-matrix m
-                               #:dtype [element-type #f]
-                               #:layout [order 'row-major]
-                               #:resources [resources (current-device-resources)])
+(define/resources (matrix->device-matrix m
+                                         #:dtype [element-type #f]
+                                         #:layout [order 'row-major]
+                                         #:resources resources
+                                         #:who who)
   (match-define (list rows cols) (array-extents m))
-  (send-flat 'matrix->device-matrix resources element-type order (list rows cols) (array-elements m)))
+  (send-flat who resources element-type order (list rows cols) (array-elements m)))
 
-(define (matrix->device-vector m
-                               #:dtype [element-type #f]
-                               #:resources [resources (current-device-resources)])
-  (define who 'matrix->device-vector)
+(define/resources (matrix->device-vector m #:dtype [element-type #f] #:resources resources #:who who)
   (define n
     (match (array-extents m)
       [(list 1 n) n]

@@ -92,7 +92,7 @@
   (case name
     [("_fun") format-fun]
     [("hash" "hasheq" "hasheqv" "hashalw") format-hash-pairs]
-    [("define-raft" "define-kc") (format-define-like)]
+    [("define-raft" "define-kc" "define/resources") (format-define-like)]
     [("define-cstruct") (format-uniform-body/helper 1 #:body-formatter format-binding-pairs/indirect)]
     [("define-pretty" "generator") (format-uniform-body/helper 1)]
     [("test-canary" "test-gpu"

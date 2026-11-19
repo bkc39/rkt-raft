@@ -30,8 +30,7 @@
                   list*->device-matrix
                   raft-abi
                   raft-abi-handle-size
-                  raft-abi-version
-                  with-device-resources)
+                  raft-abi-version)
          (only-in "../../private/array.rkt" release-array!)
          (only-in "../../private/foreign/array.rkt"
                   view-data
@@ -43,6 +42,7 @@
          (only-in "../../private/resource.rkt" with-release)
          (only-in "../../private/resources.rkt" resources-handle)
          (only-in "../../unsafe.rkt"
+                  deposit
                   raft-abi-pointer
                   resources->handle-pointer
                   status-checker
@@ -50,7 +50,8 @@
          (only-in "../private/collect.rkt" drain-finalizers!)
          (only-in "../private/gpu.rkt" test-gpu)
          (only-in "../private/probe.rkt" probe-hold! probe-release! test-probe)
-         (only-in "../private/raft-error.rkt" check-raft-error exn:fail:canary exn:fail:canary?))
+         (only-in "../private/raft-error.rkt" check-raft-error exn:fail:canary exn:fail:canary?)
+         (only-in "../private/resources.rkt" released-resources))
 
 (test-case "raft-abi-pointer points at the tag raft-abi reads"
   (define tag (raft-abi-pointer))
@@ -68,10 +69,19 @@
   (check-false (ptr-equal? handle (resources->handle-pointer (device-resources)))))
 
 (test-gpu "resources->handle-pointer refuses released resources, naming itself"
-  (define r (with-device-resources ([r (device-resources)]) r))
+  (define r (released-resources))
   (check-raft-error 'logic
                     "resources->handle-pointer: the device resources on device 0 were released"
                     (lambda () (resources->handle-pointer r))))
+
+(test-gpu "W2: deposit on released resources is refused under #:who, or its own name"
+  (define r (released-resources))
+  (check-raft-error 'logic
+                    "kmeans-fit: the device resources on device 0 were released"
+                    (lambda () (deposit #:resources r #:who 'kmeans-fit)))
+  (check-raft-error 'logic
+                    "deposit: the device resources on device 0 were released"
+                    (lambda () (deposit #:resources r))))
 
 (test-gpu "with-array-views binds each array's view in the body"
   (define X (list*->device-matrix '((1 2 3) (4 5 6)) #:dtype 'float32 #:layout 'col-major))
@@ -141,7 +151,7 @@
     (check-not-false (view-data x))))
 
 (test-gpu "with-array-views #:resources refuses released resources, naming itself"
-  (define finished (with-device-resources ([r (device-resources)]) r))
+  (define finished (released-resources))
   (check-raft-error 'logic
                     "with-array-views: the device resources on device 0 were released"
                     (lambda () (with-array-views #:resources [handle finished] () handle))))

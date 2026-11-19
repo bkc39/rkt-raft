@@ -12,6 +12,7 @@
          (only-in "../../main.rkt"
                   contiguous
                   contiguous?
+                  current-device-resources
                   device-array?
                   device-matrix
                   device-matrix->list*
@@ -33,7 +34,8 @@
          (only-in "../private/arrays.rkt" printed)
          (only-in "../private/collect.rkt" drain-finalizers!)
          (only-in "../private/gpu.rkt" test-gpu)
-         (only-in "../private/raft-error.rkt" check-raft-error))
+         (only-in "../private/raft-error.rkt" check-raft-error)
+         (only-in "../private/resources.rkt" released-resources))
 
 (define (flvector->list v)
   (for/list ([x (in-flvector v)])
@@ -153,7 +155,13 @@
   (check-raft-error
    'logic
    "device-matrix: unsupported dtype float16; expected float32, float64, int32 or int64"
-   (lambda () (device-matrix 2 2 #:dtype 'float16))))
+   (lambda () (device-matrix 2 2 #:dtype 'float16)))
+  (define (centroid-matrix k data #:resources [r (current-device-resources)])
+    (device-matrix k (second (shape data)) #:resources r #:who 'centroid-matrix))
+  (define finished (released-resources))
+  (check-raft-error 'logic
+                    "centroid-matrix: the device resources on device 0 were released"
+                    (lambda () (centroid-matrix 3 X #:resources finished))))
 
 (test-gpu "reference: device-vector"
   (define X (sample-matrix))
@@ -313,7 +321,12 @@
                     (lambda () (list->device-vector '(1 2+3i))))
   (check-raft-error 'logic
                     "list->device-vector: 3000000000 does not fit int32"
-                    (lambda () (list->device-vector '(3000000000) #:dtype 'int32))))
+                    (lambda () (list->device-vector '(3000000000) #:dtype 'int32)))
+  (define (fit-labels labels)
+    (list->device-vector labels #:dtype 'int32 #:who 'fit-labels))
+  (check-raft-error 'logic
+                    "fit-labels: 3000000000 does not fit int32"
+                    (lambda () (fit-labels '(0 1 3000000000)))))
 
 (test-gpu "reference: device-vector->list"
   (check-equal? (device-vector->list (list->device-vector '(0 2 1 2) #:dtype 'int32)) '(0 2 1 2))
@@ -341,7 +354,14 @@
   (check-equal? (shape (list*->device-matrix parsed #:dtype 'float32)) '(2 4))
   (check-raft-error 'logic
                     "list*->device-matrix: row 2 has 2 elements, but row 0 has 3: '(7 8)"
-                    (lambda () (list*->device-matrix '((1 2 3) (4 5 6) (7 8))))))
+                    (lambda () (list*->device-matrix '((1 2 3) (4 5 6) (7 8)))))
+  (define schema '(sepal-length sepal-width petal-length petal-width))
+  (define (table->device-matrix rows)
+    (list*->device-matrix rows #:cols (length schema) #:dtype 'float32 #:who 'table->device-matrix))
+  (check-equal? (shape (table->device-matrix '())) '(0 4))
+  (check-raft-error 'logic
+                    "table->device-matrix: row 0 has 3 elements, but #:cols is 4: '(5.1 3.5 1.4)"
+                    (lambda () (table->device-matrix '((5.1 3.5 1.4))))))
 
 (test-gpu "reference: device-matrix->list*"
   (check-equal? (device-matrix->list* (list*->device-matrix '((1 2) (3 4)))) '((1 2) (3 4)))

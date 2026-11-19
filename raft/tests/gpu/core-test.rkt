@@ -1,6 +1,7 @@
 #lang racket/base
 
-(require (only-in racket/match match match-define)
+(require (only-in racket/list remove-duplicates)
+         (only-in racket/match match match-define)
          (only-in rackunit check-equal? check-exn check-false check-pred check-true test-case)
          (only-in "../../main.rkt"
                   raft-abi
@@ -218,3 +219,44 @@
                (parameterize ([current-namespace namespace])
                  (expand '(match (raft-abi)
                             [(raft-abi #:release r) r]))))))
+
+(define (procedure-exports mod)
+  (for*/list ([name (in-list (phase-0-exports mod))]
+              [value (in-value (with-handlers ([exn:fail:syntax? (lambda (_) #f)])
+                                 (dynamic-require mod name)))]
+              #:when (procedure? value))
+    (cons name value)))
+
+(define (accepts? p keyword)
+  (define-values (_required accepted) (procedure-keywords p))
+  (and (memq keyword accepted) #t))
+
+(test-case "W1: an exported procedure takes #:who exactly when it takes #:resources, never required"
+  (define takers
+    (for*/list ([mod (in-list '(raft/array raft/compat raft/unsafe))]
+                [export (in-list (procedure-exports mod))]
+                #:when (or (accepts? (cdr export) '#:who) (accepts? (cdr export) '#:resources)))
+      export))
+  (for ([taker (in-list takers)])
+    (match-define (cons name p) taker)
+    (define-values (required _accepted) (procedure-keywords p))
+    (check-true (and (accepts? p '#:who) (accepts? p '#:resources)) (symbol->string name))
+    (check-false (memq '#:who required) (symbol->string name)))
+  (check-equal? (sort (remove-duplicates (map car takers)) symbol<?)
+                '(array->device-array bytes->device-vector
+                                      deposit
+                                      device-matrix
+                                      device-vector
+                                      f32vector->device-vector
+                                      f64vector->device-vector
+                                      flvector->device-vector
+                                      list*->device-array
+                                      list*->device-csr-matrix
+                                      list*->device-matrix
+                                      list->device-vector
+                                      matrix->device-matrix
+                                      matrix->device-vector
+                                      triplets->device-csr-matrix
+                                      vector*->device-array
+                                      vector*->device-matrix
+                                      vector->device-vector)))

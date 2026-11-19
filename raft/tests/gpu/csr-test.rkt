@@ -116,6 +116,18 @@
    (format "~a" gaps)
    "#<device-csr-matrix float64 [5×2] nnz=3 index=int32 cuda:0\n (1 0) 1.0\n (1 1) 2.0\n (3 0) 3.0>"))
 
+(test-gpu "Z4: no rows with #:cols 4 is the 0×4 CSR matrix triplets->device-csr-matrix makes"
+  (define none (list*->device-csr-matrix '() #:cols 4))
+  (define model (triplets->device-csr-matrix '() '() '() #:shape '(0 4)))
+  (check-equal? (parts none) '((0) () ()))
+  (check-equal? (shape none) '(0 4))
+  (check-equal? (format "~a" none) "#<device-csr-matrix float64 [0×4] nnz=0 index=int32 cuda:0>")
+  (check-equal? (list (parts none) (shape none) (format "~a" none))
+                (list (parts model) (shape model) (format "~a" model)))
+  (check-raft-error 'logic
+                    "list*->device-csr-matrix: row 0 has 2 elements, but #:cols is 3: '(0 1)"
+                    (lambda () (list*->device-csr-matrix '((0 1)) #:cols 3))))
+
 (test-gpu (string-append "law 7: the empty 1×3,000,000,000 matrix converts by ->triplets and prints;"
                          " its ->list* is exempt, as the dense result itself would not fit")
   (define wide (triplets->device-csr-matrix '() '() '() #:shape '(1 3000000000) #:index-dtype 'int64))

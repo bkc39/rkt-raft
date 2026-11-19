@@ -112,7 +112,13 @@
   (check-raft-error 'logic
                     "list*->device-csr-matrix: row 1 has 1 element, but row 0 has 2: '(3)"
                     (lambda () (list*->device-csr-matrix '((1 2) (3)))))
-  (check-equal? (nnz (list*->device-csr-matrix (vector (vector 0 1.0) (vector 0 0)))) 1))
+  (check-equal? (nnz (list*->device-csr-matrix (vector (vector 0 1.0) (vector 0 0)))) 1)
+  (define (one-hot labels k)
+    (list*->device-csr-matrix (for/list ([l (in-list labels)])
+                                (for/list ([c (in-range k)])
+                                  (if (= c l) 1.0 0.0)))
+                              #:cols k))
+  (check-equal? (list (shape (one-hot '(0 2) 3)) (shape (one-hot '() 3))) '((2 3) (0 3))))
 
 (test-gpu "reference: device-csr-matrix->list*"
   (check-equal? (device-csr-matrix->list* (device-csr-matrix (ints '(0 3))
